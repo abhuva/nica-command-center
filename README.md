@@ -17,6 +17,7 @@ Lokaler Preview-Server fuer eine modulare Obsidian-Homepage.
 - `Tools/modules/bookmarks.js`: Bookmarks-Modul.
 - `Tools/modules/clock.js`: Uhrzeit-Modul.
 - `Tools/modules/beantime.js`: Beancount-basiertes Start/Stop-Zeiterfassungs-Modul.
+- `Tools/modules/email.js`: Email-DB-Modul als eingebettetes lokales Tool.
 - `Tools/settings.html`: Settings-Seite (UI fuer Konfiguration).
 - `Tools/serve.mjs`: HTTP-Server + API.
 - `Tools/stop-preview.mjs`: stoppt den Preview-Server auf Port `4174`.
@@ -44,6 +45,7 @@ npm.cmd --prefix .\Tools run preview
 ```
 
 Der Sammelstarter startet Homepage, Calendar, VaultGraph sowie die beiden Fava-Server fuer NICA/TOHU in eigenen Terminalfenstern und oeffnet danach `http://127.0.0.1:4174/home.html` in Obsidian.
+Wenn der externe Sammelstarter aktuell ist, startet er zusaetzlich den Email-Preview-Server auf `http://127.0.0.1:4176/email.html`.
 
 Voraussetzung fuer Website Monitoring (`updo`-Modul): Das `updo` CLI muss installiert und im `PATH` verfuegbar sein.
 
@@ -125,6 +127,9 @@ Damit sind spaetere Features stabil erweiterbar (neue Module, neue Optionen).
   - Enthaelt den Button `Show`, der Fava auf Port `3464` oeffnet.
 - `vaultGraph`: Bindet die separate VaultGraph-Preview (`http://127.0.0.1:4175/vault-graph.html`) als Homepage-Tab ein.
   - Voraussetzung: `npm.cmd --prefix .\Tools\VaultGraph run preview` laeuft.
+- `email`: Bindet die separate Email-DB-Preview (`http://127.0.0.1:4176/email.html`) als Homepage-Tab ein.
+  - Voraussetzung: `npm.cmd --prefix .\Tools\Email run preview` laeuft.
+  - Workflow: IMAP-Abruf nach Datum/UID in SQLite, Klassifizierung/Regeln in der Datenbank, Export eines gefilterten Subsets nach `8. Emails`.
 - `updo` (Website Monitoring): Statuskarten + Latenz/Verfuegbarkeits-Charts fuer konfigurierten URL-Satz.
   - Live-Ansicht: 15m / 1h / 6h aus In-Memory-Ringpuffer.
   - Langzeit-Ansicht: 7d / 30d / 90d aus komprimierten Persistenzdaten.
@@ -214,5 +219,4 @@ UI-Optionen liegen unter `ui` in den Settings:
 3. In `Tools/config/settings.default.json` Modul-Konfiguration aufnehmen.
 4. Optional in `Tools/settings.html` UI-Toggles/Felder ergaenzen.
 5. Falls Backend noetig: Endpoint in `Tools/serve.mjs` ergaenzen.
-
 

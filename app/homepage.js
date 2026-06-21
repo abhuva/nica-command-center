@@ -1,6 +1,7 @@
 ﻿import { renderBookmarksModule } from "../modules/bookmarks.js";
 import { renderBeantimeModule } from "../modules/beantime.js";
 import { renderClockInElement } from "../modules/clock.js";
+import { renderEmailModule } from "../modules/email.js";
 import { renderNewProjectModule } from "../modules/new-project.js";
 import { renderSettingsModule } from "../modules/settings.js";
 import { renderUpdoModule } from "../modules/updo.js";
@@ -188,6 +189,9 @@ const moduleRegistry = {
   },
   vaultGraph: {
     render: renderVaultGraphModule
+  },
+  email: {
+    render: renderEmailModule
   }
 };
 
@@ -209,6 +213,9 @@ const moduleUiMeta = {
   },
   vaultGraph: {
     icon: "\ud83d\udd78\ufe0f"
+  },
+  email: {
+    icon: "@"
   }
 };
 
@@ -819,6 +826,8 @@ if (document.readyState === "loading") {
 } else {
   initHomepage();
 }
+
+
 
 
 

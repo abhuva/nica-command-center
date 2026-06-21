@@ -1,0 +1,10 @@
+﻿{
+  "name": "obsidian-email-db-tool",
+  "private": true,
+  "scripts": {
+    "preview": "python ./email_tool.py serve",
+    "stop:preview": "node ./stop-preview.mjs",
+    "restart:preview": "npm run stop:preview && npm run preview",
+    "check:smoke": "python -m py_compile ./email_tool.py && node --check ./stop-preview.mjs && python ./email_tool.py smoke"
+  }
+}

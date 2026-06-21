@@ -1,0 +1,21 @@
+﻿{
+  "host": "127.0.0.1",
+  "port": 4176,
+  "database": "email.db",
+  "vaultRoot": "../..",
+  "emailVaultDir": "8. Emails",
+  "accounts": [
+    {
+      "id": "example",
+      "email": "user@example.com",
+      "server": "imap.example.com",
+      "port": 993,
+      "ssl": true,
+      "starttls": false,
+      "username": "user@example.com",
+      "passwordEnv": "EMAIL_EXAMPLE_PASSWORD",
+      "mailboxes": ["INBOX"],
+      "enabled": false
+    }
+  ]
+}
