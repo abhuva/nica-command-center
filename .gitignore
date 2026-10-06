@@ -22,6 +22,7 @@ __pycache__/
 .npm/
 coverage/
 playwright-report/
+.playwright-mcp/
 test-results/
 
 # Generated output and local runtime state

@@ -32,9 +32,11 @@ copy, or bytecode cache was included in these commits.
 - Both root lint checks passed again after the Calendar build.
 - The production Calendar, Homepage, Email, NICA Fava, and TOHU Fava endpoints
   returned HTTP 200 after the commits and backups were complete.
-- Browser-level inspection was deferred because no controllable browser backend
-  was available in the agent session. It remains mandatory before candidate UI
-  acceptance and cutover.
+- Playwright MCP verified the production Email Dashboard/Rules tab transition
+  and an 800 px layout without horizontal overflow. It also verified Calendar
+  rendering at 800 px: day-grid events used block display and solid styling,
+  background events remained distinct, and the page had no horizontal
+  overflow. The only console errors were missing optional favicon files.
 
 ## Recovery artifacts
 

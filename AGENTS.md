@@ -140,7 +140,13 @@ For every change in the meantime:
 - verify that examples and fixtures contain no live or sensitive data;
 - run credential and generated-file checks before committing;
 - update architecture documentation when a boundary or source of truth changes;
-- use browser-level checks for user-interface changes once a UI exists.
+- use the installed Playwright MCP for browser-level verification whenever a
+  UI exists or a change can affect UI behavior; check relevant interactions,
+  responsive layout where applicable, and browser console errors rather than
+  relying only on syntax or HTTP health checks;
+- keep Playwright verification read-only against live society data unless the
+  task explicitly authorizes a controlled write; use candidate services and
+  synthetic fixtures for mutating UI workflows.
 
 ## Migration rules for the former vault `Tools` repository
 
