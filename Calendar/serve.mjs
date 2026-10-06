@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import SftpClient from "ssh2-sftp-client";
-import { loadDotEnvFile } from "./lib/env.mjs";
+import { loadCalendarEnvironment } from "./lib/env.mjs";
 import {
   isWriteEnabled,
   requireComponentStateDir,
@@ -16,8 +16,7 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-loadDotEnvFile(path.resolve(__dirname, ".env"));
-loadDotEnvFile(path.resolve(__dirname, ".env.local"));
+loadCalendarEnvironment(__dirname);
 
 const HOST = process.env.CALENDAR_HOST || "127.0.0.1";
 const PORT = Number(process.env.CALENDAR_PORT || 4173);
@@ -1878,7 +1877,7 @@ function getGoogleCalendarConfig() {
   return {
     enabled: Boolean(GOOGLE_CALENDAR_IDS.length > 0 && (GOOGLE_CALENDAR_API_KEY || oauthStatus.connected)),
     calendars: GOOGLE_CALENDAR_IDS.map((id) => ({ id })),
-    oauth: oauthStatus,
+    oauth: { ...oauthStatus, writable: oauthStatus.writable && isWriteEnabled() },
     defaultCreateCalendarId: GOOGLE_DEFAULT_CREATE_CALENDAR_ID
   };
 }
@@ -2373,7 +2372,7 @@ function getNextcloudCalendarConfig() {
   const enabled = hasNextcloudCalDavConfig() && calendars.length > 0;
   return {
     enabled,
-    writable: enabled,
+    writable: enabled && isWriteEnabled(),
     calendars: calendars.map((item) => ({ id: item.id, slug: item.slug, href: item.href })),
     defaultCreateCalendarId: normalizeNextcloudCalendarId(NEXTCLOUD_DEFAULT_CREATE_CALENDAR_ID || (calendars[0] && calendars[0].id) || "")
   };

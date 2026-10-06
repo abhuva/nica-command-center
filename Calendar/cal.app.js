@@ -7,6 +7,7 @@
       var TIMEGRID_ROW_HEIGHT_MIN = 16;
       var TIMEGRID_ROW_HEIGHT_MAX = 48;
       var calendarApiToken = '';
+      var calendarRuntimeState = { writesEnabled: false, mode: 'read-only' };
       var ROUNDNESS_MIN = 0;
       var ROUNDNESS_MAX = 24;
       var isCreateFlowActive = false;
@@ -23,6 +24,14 @@
        */
       function isHttpContext() {
         return window.location.protocol === 'http:' || window.location.protocol === 'https:';
+      }
+
+      /**
+       * Returns whether this Calendar runtime permits consequential actions.
+       * @returns {boolean} True only for an explicitly write-enabled server.
+       */
+      function isCalendarWriteEnabled() {
+        return calendarRuntimeState && calendarRuntimeState.writesEnabled === true;
       }
 
       /**
@@ -753,7 +762,9 @@
             return;
           }
           if (window.nextcloudCalendarState.enabled) {
-            nextcloudStatus.textContent = 'Nextcloud source active (CalDAV read/write).';
+            nextcloudStatus.textContent = window.nextcloudCalendarState.writable
+              ? 'Nextcloud source active (CalDAV read/write).'
+              : 'Nextcloud source active (CalDAV read-only).';
           } else {
             nextcloudStatus.textContent = 'Nextcloud source available (currently disabled).';
           }
@@ -818,7 +829,8 @@
           vacationTextureToggle.checked = calendarUiSettings.showVacationTexture !== false;
           googleCreateToggle.disabled = !(window.googleCalendarState && window.googleCalendarState.oauthWritable === true);
           nextcloudCreateToggle.disabled = !(window.nextcloudCalendarState && window.nextcloudCalendarState.writable === true);
-          googleOauthDisconnect.disabled = !(window.googleCalendarState && window.googleCalendarState.oauthConnected === true);
+          googleOauthConnect.disabled = !isCalendarWriteEnabled();
+          googleOauthDisconnect.disabled = !isCalendarWriteEnabled() || !(window.googleCalendarState && window.googleCalendarState.oauthConnected === true);
           updateGoogleStatusText();
           updateNextcloudStatusText();
           renderNextcloudCalendarChecks();
@@ -1857,7 +1869,7 @@
         var eventCoordinates = getEventCoordinates(event);
         if (openMapButton) {
           openMapButton.hidden = !eventCoordinates;
-          openMapButton.disabled = !eventCoordinates;
+          openMapButton.disabled = !eventCoordinates || !isCalendarWriteEnabled();
         }
         if (editExternalButton) {
           editExternalButton.hidden = true;
@@ -1874,7 +1886,7 @@
         popover.setAttribute('aria-hidden', 'false');
         placeEventPreviewPopover(popover, anchorPoint || null);
         closeButton.addEventListener('click', onClose);
-        if (openMapButton) {
+        if (openMapButton && isCalendarWriteEnabled()) {
           openMapButton.addEventListener('click', onOpenMap);
         }
         var googleEvent = isGoogleEvent(event);
@@ -1903,7 +1915,10 @@
             }
           }
         } else {
-          openNoteButton.addEventListener('click', onOpenNote);
+          openNoteButton.disabled = !isCalendarWriteEnabled();
+          if (isCalendarWriteEnabled()) {
+            openNoteButton.addEventListener('click', onOpenNote);
+          }
         }
         document.addEventListener('mousedown', onOutsidePointer);
         document.addEventListener('keydown', onKeyDown);
@@ -2813,6 +2828,23 @@
       }
 
       /**
+       * Fetch Calendar Runtime Status.
+       * @returns {Promise<{writesEnabled: boolean, mode: string}>} Runtime mode snapshot.
+       */
+      async function fetchCalendarRuntimeStatus() {
+        var pingUrl = new URL('/api/ping', CALENDAR_API_BASE).toString();
+        var response = await fetch(pingUrl, { method: 'GET' });
+        if (!response.ok) {
+          throw new Error('Could not load Calendar runtime status');
+        }
+        var payload = await response.json();
+        return {
+          writesEnabled: payload && payload.writesEnabled === true,
+          mode: String(payload && payload.mode || 'read-only')
+        };
+      }
+
+      /**
        * Mutation Headers.
        * @returns {*} Returns the function result.
        */
@@ -2956,7 +2988,7 @@
           return;
         }
 
-        if (calendarUiSettings.showEventPreviewOnClick === false) {
+        if (calendarUiSettings.showEventPreviewOnClick === false && isCalendarWriteEnabled()) {
           try {
             await openEventNote(info.event);
           } catch (error) {
@@ -3168,12 +3200,14 @@
                   window.googleCalendarState.lastError = '';
                 }
                 successCallback(events);
+                updateSourceToggleButtons(document.getElementById('calendar'));
               })
               .catch(function(error) {
                 if (window.googleCalendarState) {
                   window.googleCalendarState.lastError = String(error && error.message || error || 'Unknown error');
                 }
                 console.warn('Google Calendar fetch failed:', error && error.message ? error.message : error);
+                updateSourceToggleButtons(document.getElementById('calendar'));
                 failureCallback(error);
               });
           }
@@ -3195,12 +3229,14 @@
                   window.nextcloudCalendarState.lastError = '';
                 }
                 successCallback(filterNextcloudEventsByVisibility(events));
+                updateSourceToggleButtons(document.getElementById('calendar'));
               })
               .catch(function(error) {
                 if (window.nextcloudCalendarState) {
                   window.nextcloudCalendarState.lastError = String(error && error.message || error || 'Unknown error');
                 }
                 console.warn('Nextcloud Calendar fetch failed:', error && error.message ? error.message : error);
+                updateSourceToggleButtons(document.getElementById('calendar'));
                 failureCallback(error);
               });
           }
@@ -3264,13 +3300,12 @@
         var googleBtn = root.querySelector('.fc-googleSourceToggle-button');
         var nextcloudBtn = root.querySelector('.fc-nextcloudSourceToggle-button');
         var googleConfigured = Boolean(window.googleCalendarState && window.googleCalendarState.configured);
-        var googleConnected = Boolean(window.googleCalendarState && window.googleCalendarState.oauthConnected === true);
         var googleHasError = Boolean(window.googleCalendarState && window.googleCalendarState.lastError);
         var nextcloudConfigured = Boolean(window.nextcloudCalendarState && window.nextcloudCalendarState.configured);
         var nextcloudHasError = Boolean(window.nextcloudCalendarState && window.nextcloudCalendarState.lastError);
         var googleEnabled = googleConfigured && calendarUiSettings.showGoogleEvents === true;
         var nextcloudEnabled = nextcloudConfigured && calendarUiSettings.showNextcloudEvents === true;
-        var googleReady = googleConfigured && googleConnected && !googleHasError;
+        var googleReady = googleConfigured && !googleHasError;
         var nextcloudReady = nextcloudConfigured && !nextcloudHasError;
 
         if (googleBtn) {
@@ -3278,7 +3313,7 @@
           googleBtn.classList.toggle('state-error', !googleReady);
           googleBtn.classList.toggle('state-off', googleReady && !googleEnabled);
           googleBtn.classList.toggle('state-on', googleReady && googleEnabled);
-          googleBtn.setAttribute('title', !googleReady ? 'Google not connected' : (googleEnabled ? 'Google events on' : 'Google events off'));
+          googleBtn.setAttribute('title', !googleConfigured ? 'Google not configured' : (googleHasError ? 'Google load error' : (googleEnabled ? 'Google events on' : 'Google events off')));
           googleBtn.setAttribute('aria-pressed', googleEnabled ? 'true' : 'false');
         }
         if (nextcloudBtn) {
@@ -3329,6 +3364,15 @@
         };
 
         if (isHttpContext()) {
+          try {
+            calendarRuntimeState = await fetchCalendarRuntimeStatus();
+          } catch (error) {
+            console.warn('Could not load Calendar runtime status:', error.message);
+            calendarRuntimeState = { writesEnabled: false, mode: 'read-only' };
+          }
+        }
+
+        if (isHttpContext() && isCalendarWriteEnabled()) {
           try {
             calendarApiToken = await fetchCalendarSessionToken();
           } catch (error) {
@@ -3501,15 +3545,21 @@
               eventDisplay: 'block'
             }
           },
-          editable: true,
-          eventStartEditable: true,
-          eventDurationEditable: true,
-          eventResizableFromStart: true,
-          selectable: true,
+          editable: isCalendarWriteEnabled(),
+          eventStartEditable: isCalendarWriteEnabled(),
+          eventDurationEditable: isCalendarWriteEnabled(),
+          eventResizableFromStart: isCalendarWriteEnabled(),
+          selectable: isCalendarWriteEnabled(),
           selectMinDistance: 0,
           eventSources: eventSources,
           eventDataTransform: function(eventData) {
             var next = Object.assign({}, eventData || {});
+            if (!isCalendarWriteEnabled()) {
+              next.editable = false;
+              next.startEditable = false;
+              next.durationEditable = false;
+              return next;
+            }
             if (typeof next.editable === 'undefined') next.editable = true;
             if (typeof next.startEditable === 'undefined') {
               next.startEditable = next.editable === false ? false : true;
@@ -3527,9 +3577,14 @@
           },
           dayHeaderClassNames: dayHeaderClassNamesHook,
           eventClick: onEventClick,
-          dateClick: onDateClick,
-          select: onDateSelect,
-          eventAllow: allowRecurringTimedEdit,
+          dateClick: isCalendarWriteEnabled() ? onDateClick : function(info) {
+            var dateStr = normalizeIsoDate(info && info.dateStr);
+            if (dateStr) {
+              setFocusedDate(info.view.calendar, calendarEl, dateStr, { jumpToFocus: false });
+            }
+          },
+          select: isCalendarWriteEnabled() ? onDateSelect : null,
+          eventAllow: isCalendarWriteEnabled() ? allowRecurringTimedEdit : function() { return false; },
           eventDrop: onEventDateChange,
           eventResize: onEventDateChange,
           datesSet: function(arg) {
@@ -3551,6 +3606,12 @@
           }
         });
         calendar.render();
+        if (!isCalendarWriteEnabled()) {
+          ['.fc-refreshCalendar-button', '.fc-publishCalendar-button'].forEach(function(selector) {
+            var button = calendarEl.closest('body').querySelector(selector);
+            if (button) button.disabled = true;
+          });
+        }
         updateFocusedDateDecorations(calendarEl);
         if (window.googleCalendarState.configured && calendarUiSettings.showGoogleEvents === true) {
           setGoogleEventsEnabled(calendar, true);

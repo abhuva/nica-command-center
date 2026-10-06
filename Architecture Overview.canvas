@@ -2,28 +2,20 @@
 	"nodes":[
 		{"id":"e2644b8b4efd7d91","type":"group","x":-240,"y":-240,"width":840,"height":900,"label":"Tools"},
 		{"id":"ea18d9555eb6af1a","type":"group","x":670,"y":-240,"width":650,"height":840,"label":"Vault / Data"},
-		{"id":"15f5dc546a1b8b59","type":"text","text":"Calender (markdown events based)","x":-220,"y":-220,"width":250,"height":60},
-		{"id":"a2365f024e59c4c6","type":"text","text":"Beantime - Zeiterfassung\n","x":-220,"y":-140,"width":250,"height":60},
-		{"id":"cea3a35667045c6f","type":"text","text":"E-Mail","x":-220,"y":-60,"width":250,"height":60},
-		{"id":"d887e56fc1f3dc60","type":"text","text":"Vault Graph","x":-220,"y":20,"width":250,"height":60},
+		{"id":"c55f009fde04599f","x":-160,"y":-180,"width":290,"height":360,"type":"group","label":"Operational"},
 		{"id":"fcaa29201abd8000","type":"text","text":"Nextcloud based File System","x":720,"y":-180,"width":250,"height":60},
 		{"id":"f0183373d713268a","type":"text","text":"Obsidian","x":720,"y":-80,"width":250,"height":60},
 		{"id":"a4081a9b3281b366","type":"text","text":"Beancount Finance Data - these are the only exception as its technical Data, but also needs Git Control. Those live in Nextcloud - but are also in a git repo (wich is ignored by nextcloud to prevent sync issues)","x":728,"y":20,"width":484,"height":183},
-		{"id":"6d373d955e3a4542","type":"text","text":"Monitoring","x":-220,"y":100,"width":250,"height":60},
-		{"id":"03b6fde3ca207d57","type":"text","text":"Project Creation (UX)","x":-220,"y":180,"width":250,"height":60},
-		{"id":"609cd4564efe496d","type":"text","text":"Website build/deploy (Zensical)\n","x":-220,"y":260,"width":250,"height":60},
-		{"id":"87763b4ef0feeff6","x":-220,"y":343,"width":250,"height":60,"type":"text","text":"Research Agent"},
 		{"id":"d6db53111881bdea","type":"text","text":"Tools are managed in a repo under Git / Github control. They live independendly from the Data / Obsidian Vault","x":-74,"y":460,"width":564,"height":157},
-		{"id":"b3fff5c7dd6ca458","type":"text","text":"Command Center\n","x":240,"y":70,"width":250,"height":60}
+		{"id":"609cd4564efe496d","type":"text","text":"Website build/deploy (Zensical)\n","x":-220,"y":320,"width":250,"height":60},
+		{"id":"6d373d955e3a4542","type":"text","text":"Monitoring","x":-220,"y":240,"width":250,"height":60},
+		{"id":"15f5dc546a1b8b59","type":"text","text":"Calender (markdown events based)","x":-140,"y":-160,"width":250,"height":60},
+		{"id":"cea3a35667045c6f","type":"text","text":"E-Mail","x":-140,"y":-80,"width":250,"height":60},
+		{"id":"03b6fde3ca207d57","type":"text","text":"Project Creation (UX)","x":-140,"y":10,"width":250,"height":60},
+		{"id":"87763b4ef0feeff6","type":"text","text":"Research Agent","x":-140,"y":100,"width":250,"height":60},
+		{"id":"b3fff5c7dd6ca458","type":"text","text":"Command Center\n","x":208,"y":-180,"width":250,"height":60},
+		{"id":"a2365f024e59c4c6","type":"text","text":"Beantime - Zeiterfassung\n","x":83,"y":320,"width":250,"height":60},
+		{"id":"d887e56fc1f3dc60","type":"text","text":"Vault Graph","x":83,"y":240,"width":250,"height":60}
 	],
-	"edges":[
-		{"id":"7cd000326120886a","fromNode":"15f5dc546a1b8b59","fromSide":"right","toNode":"b3fff5c7dd6ca458","toSide":"left"},
-		{"id":"e642aa7c1e08d156","fromNode":"a2365f024e59c4c6","fromSide":"right","toNode":"b3fff5c7dd6ca458","toSide":"left"},
-		{"id":"9088cf74d4cf5c5c","fromNode":"cea3a35667045c6f","fromSide":"right","toNode":"b3fff5c7dd6ca458","toSide":"left"},
-		{"id":"222f092629a21a4a","fromNode":"d887e56fc1f3dc60","fromSide":"right","toNode":"b3fff5c7dd6ca458","toSide":"left"},
-		{"id":"72d0c9192af2fa5c","fromNode":"6d373d955e3a4542","fromSide":"right","toNode":"b3fff5c7dd6ca458","toSide":"left"},
-		{"id":"e8b089bc082c6c69","fromNode":"03b6fde3ca207d57","fromSide":"right","toNode":"b3fff5c7dd6ca458","toSide":"left"},
-		{"id":"e8d1a76c6613b26c","fromNode":"609cd4564efe496d","fromSide":"right","toNode":"b3fff5c7dd6ca458","toSide":"left"},
-		{"id":"e361051ec57cddde","fromNode":"87763b4ef0feeff6","fromSide":"right","toNode":"b3fff5c7dd6ca458","toSide":"left"}
-	]
+	"edges":[]
 }

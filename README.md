@@ -94,6 +94,35 @@ The legacy Homepage on port `4174` remains available as warm rollback during
 the observation period. Both processes perform read-only `HEAD` probes while
 they run; their derived histories are stored separately.
 
+### Gate 5 Calendar read launcher
+
+The migrated Calendar reader runs beside the legacy Calendar on port `4273`.
+Its first start prepares a local read-only credential profile containing only
+the Google API-key and Nextcloud CalDAV values required for reads:
+
+```powershell
+.\scripts\start-calendar-read.ps1 -VaultRoot "C:\path\to\vault" -ObsidianVaultName "vault-name" -InitializeReadProfile
+.\scripts\start-calendar-read.ps1 -VaultRoot "C:\path\to\vault" -ObsidianVaultName "vault-name" -InitializeReadProfile -Apply
+```
+
+Later starts omit `-InitializeReadProfile`. Open it in Obsidian with:
+
+```powershell
+obsidian web url="http://127.0.0.1:4273/cal.html"
+```
+
+Stop only the migrated reader while retaining its filtered local profile and
+derived event bundle:
+
+```powershell
+.\scripts\stop-calendar-read.ps1
+```
+
+OAuth credentials/tokens, remote create targets, and SFTP publishing
+credentials are intentionally not copied. Refresh, publishing, OAuth changes,
+event creation, and event editing remain disabled. The legacy Calendar stays
+available on port `4173` as warm rollback.
+
 ## Ziele
 
 - Homepage in Obsidian Webviewer ueber lokalen Server.

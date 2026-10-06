@@ -5,6 +5,8 @@
 > and PID files are stored below `NICA_STATE_ROOT\calendar`. Actions default to
 > disabled unless `NICA_WRITE_ENABLED=true`. Obsidian CLI access also requires
 > an explicit `OBSIDIAN_VAULT_NAME`; it never falls back to the active vault.
+> `NICA_CALENDAR_ENV_FILE` may identify an absolute external configuration file;
+> when set, repository-local `.env.local` is not loaded.
 
 Updated: 2026-04-08
 Scope: `Tools/Calendar`
@@ -69,12 +71,19 @@ Use this at the beginning of a new session:
 
 Use `.env.local` for machine-specific secrets/settings.
 
+The Gate 5 Calendar reader instead uses a filtered file below local state and
+sets `NICA_CALENDAR_ENV_FILE` explicitly. This prevents credentials from being
+stored beside source. The external path must be absolute and identify an
+existing file. Process-environment values still take precedence.
+
 Template: `.env.example`
 
 Important vars:
 
 - `CALENDAR_HOST` (default `127.0.0.1`)
 - `CALENDAR_PORT` (default `4173`)
+- `NICA_CALENDAR_ENV_FILE` (optional absolute external config file; preferred
+  for the migrated runtime)
 - `OBSIDIAN_VAULT_NAME` (required for Base queries and all Obsidian CLI access)
 - `NICA_OBSIDIAN_ACTIONS_ENABLED` (`true` only when UI actions may target the
   explicitly named vault)
@@ -166,6 +175,11 @@ Write-route protections:
 - JSON content-type required
 - host/origin checks
 - `X-Calendar-Token` required (from `GET /api/session`)
+- all POST routes and OAuth start/callback return `403 NICA_READ_ONLY` while
+  `NICA_WRITE_ENABLED` is false
+- read-only UI disables refresh, publishing, OAuth controls, create controls,
+  selection, dragging, and resizing while retaining source toggles and event
+  previews
 
 ## Architecture Notes
 

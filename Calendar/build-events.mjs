@@ -2,14 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
-import { loadDotEnvFile } from "./lib/env.mjs";
+import { loadCalendarEnvironment } from "./lib/env.mjs";
 import { requireComponentStateDir, requireVaultRoot } from "../lib/runtime-config.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-loadDotEnvFile(path.resolve(__dirname, ".env"));
-loadDotEnvFile(path.resolve(__dirname, ".env.local"));
+loadCalendarEnvironment(__dirname);
 
 const VAULT_ROOT = requireVaultRoot();
 const OUTPUT_FILE = path.join(requireComponentStateDir("calendar"), "events.generated.js");
