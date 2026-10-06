@@ -1,6 +1,6 @@
 # Former Tools repository migration
 
-**Status**: Gates 0 through 4 complete for the credential-free shadow scope
+**Status**: Gates 0 through 4 complete; Gate 5 is in progress
 
 **Production source**: the `Tools` checkout inside the configured NICA vault
 
@@ -17,6 +17,7 @@ passed its acceptance checks and has a tested rollback path.
 - [Gate 2 sanitized-history import record](gate-2-sanitized-import.md)
 - [Gate 3 candidate runtime record](gate-3-candidate-runtime.md)
 - [Gate 4 shadow verification record](gate-4-shadow-verification.md)
+- [Gate 5 VaultGraph cutover record](gate-5-vaultgraph-cutover.md)
 
 These documents are operational plans. Accepted, long-lived architecture
 decisions remain in `docs/adr/`.
@@ -30,7 +31,7 @@ decisions remain in `docs/adr/`.
 | 2 | Import sanitized history into an isolated candidate branch | Complete |
 | 3 | Remove vault-location assumptions and isolate candidate state | Complete |
 | 4 | Shadow-test capabilities without production writes | Complete; external credentials deferred |
-| 5 | Cut over one capability at a time | Not started |
+| 5 | Cut over one capability at a time | In progress; VaultGraph technical cutover complete, user confirmation pending |
 | 6 | Switch the stable launcher | Not started |
 | 7 | Observe, rehearse rollback, and retire the old checkout | Not started |
 

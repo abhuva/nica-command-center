@@ -1,11 +1,12 @@
 # VaultGraph Agent Rules
 
-Scope: `Tools/VaultGraph`
+Scope: `VaultGraph`
 
 ## Start Checklist
 
 1. Read `README.md`.
-2. Run `npm.cmd --prefix .\Tools\VaultGraph run check:smoke`.
+2. Set synthetic `NICA_VAULT_ROOT` and `NICA_STATE_ROOT` values, then run
+   `npm.cmd --prefix .\VaultGraph run check:smoke`.
 3. If smoke fails, fix that first before changing behavior.
 
 ## Source of Truth
@@ -18,8 +19,10 @@ Scope: `Tools/VaultGraph`
 
 ## Operational Rules
 
-- Start preview with `npm.cmd --prefix .\Tools\VaultGraph run preview`.
-- Stop preview with `npm.cmd --prefix .\Tools\VaultGraph run stop:preview`.
+- Start preview with `npm.cmd --prefix .\VaultGraph run preview`.
+- Stop preview with `npm.cmd --prefix .\VaultGraph run stop:preview`.
+- For a live capability cutover, use `scripts/start-vaultgraph.ps1` and
+  `scripts/stop-vaultgraph.ps1`; review the start plan before `-Apply`.
 - Do not kill processes by port manually unless the stop script fails.
 - Treat `graph.generated.json` and `graph.generated.js` as generated output; rebuild instead of manual edits.
 

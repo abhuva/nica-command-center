@@ -5,6 +5,31 @@
 > `NICA_STATE_ROOT\vaultgraph`; manual rebuild is disabled unless
 > `NICA_WRITE_ENABLED=true`.
 
+## Command-centre cutover launcher
+
+From the command-centre repository root, preview the component-only live plan:
+
+```powershell
+.\scripts\start-vaultgraph.ps1 -VaultRoot "C:\path\to\vault"
+```
+
+After reviewing the authority, local state, port, and mode, start it on the
+existing daily URL with rebuild enabled only for derived local state:
+
+```powershell
+.\scripts\start-vaultgraph.ps1 -VaultRoot "C:\path\to\vault" -EnableRebuild -Apply
+```
+
+Stop only the process recorded by this repository's manifest:
+
+```powershell
+.\scripts\stop-vaultgraph.ps1
+```
+
+The default state root is `%LOCALAPPDATA%\NICA\CommandCenter\live`, the default
+port is `4175`, and the launcher never changes the vault or production
+`startup-all.bat`. Omitting `-EnableRebuild` keeps the API read-only.
+
 Local Obsidian/Webviewer tool for visualizing the vault folder hierarchy with Apache ECharts.
 
 ## Purpose
@@ -25,7 +50,7 @@ VaultGraph scans the folder hierarchy of the vault at full depth and renders it 
 
 ## Commands
 
-From the vault root:
+Legacy commands from the former vault checkout:
 
 ```powershell
 npm.cmd --prefix .\Tools\VaultGraph run build:graph
@@ -33,6 +58,9 @@ npm.cmd --prefix .\Tools\VaultGraph run preview
 npm.cmd --prefix .\Tools\VaultGraph run stop:preview
 npm.cmd --prefix .\Tools\VaultGraph run check:smoke
 ```
+
+Commands from this repository use `--prefix .\VaultGraph` with explicit
+`NICA_VAULT_ROOT` and `NICA_STATE_ROOT` values.
 
 Open in Obsidian Webviewer:
 
@@ -85,7 +113,12 @@ Symlinks are skipped to avoid recursive loops.
 For local changes:
 
 ```powershell
-npm.cmd --prefix .\Tools\VaultGraph run check:smoke
-npm.cmd --prefix .\Tools run lint
-npm.cmd --prefix .\Tools run lint:jsdoc
+$env:NICA_VAULT_ROOT = "C:\path\to\synthetic-vault"
+$env:NICA_STATE_ROOT = "C:\path\to\temporary-state"
+npm.cmd --prefix .\VaultGraph run check:smoke
+npm.cmd run lint
+npm.cmd run lint:jsdoc
 ```
+
+Do not use the live vault as an automated fixture. Browser-level verification
+uses the installed Playwright MCP.

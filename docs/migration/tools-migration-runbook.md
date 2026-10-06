@@ -1,6 +1,6 @@
 # Former Tools migration runbook
 
-**Status**: Gates 0 through 4 complete for the credential-free shadow scope
+**Status**: Gates 0 through 4 complete; Gate 5 is in progress
 
 **Availability objective**: Marc retains a working daily toolset throughout the
 migration. Individual capability cutovers may use a controlled maintenance
@@ -195,6 +195,11 @@ For every capability, record:
 - Rollback instructions have been rehearsed where possible.
 
 ## Gate 5 - per-capability cutover
+
+**Progress:** VaultGraph technical cutover is complete. Its migrated server is
+running at the existing daily URL with a rehearsed legacy rollback. Normal
+workflow confirmation remains pending. See
+[Gate 5 VaultGraph cutover](gate-5-vaultgraph-cutover.md).
 
 Use the following sequence for each capability:
 

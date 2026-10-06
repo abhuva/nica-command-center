@@ -1,11 +1,33 @@
 # VaultGraph Task Tracker
 
+## Gate 5 cutover
+
+- status: technical cutover complete; normal-workflow confirmation pending
+- owner: agent
+- dependencies: [Gate 4 shadow verification]
+- validation: synthetic smoke, component launcher rehearsal, Playwright at the
+  daily VaultGraph URL, restart/persistence, and timed rollback
+
+Implemented for cutover:
+
+- Component-only plan/apply launcher on the existing port `4175`.
+- Isolated state below `%LOCALAPPDATA%\NICA\CommandCenter\live\vaultgraph`.
+- Exact-manifest stop path that does not stop unknown listeners.
+- Rebuild opt-in writes only derived graph state, never vault content.
+- Legacy rollback and return to the migrated server rehearsed on port `4175`.
+
+Pending acceptance:
+
+- Confirm the normal VaultGraph workflow is usable in Obsidian Webviewer.
+- Homepage-tab integration remains part of the later Homepage cutover; the
+  current Homepage configuration does not enable the VaultGraph module.
+
 ## v1 Folder Hierarchy Graph
 
 - status: done
 - owner: agent
 - dependencies: []
-- validation: `npm.cmd --prefix .\Tools\VaultGraph run check:smoke`
+- validation: `npm.cmd --prefix .\VaultGraph run check:smoke`
 
 Implemented:
 
