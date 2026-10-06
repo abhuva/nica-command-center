@@ -13,13 +13,13 @@ Scope: `Tools/Calendar`
 Validation baseline:
 
 - `npm.cmd --prefix .\Tools\Calendar run check:smoke` passes
-- Gate 5 Calendar reader runs read-only from an external local-state credential
-  profile; normal-workflow acceptance is pending
+- Gate 5 Calendar reads are accepted from an external local-state credential
+  profile
 
 ## Open Items
 
 - [ ] Manual: rotate/revoke previously exposed Google API key.
-- [ ] Manual: confirm the migrated read-only Calendar workflow on port `4273`.
+- [x] Manual: confirm the migrated read-only Calendar workflow on port `4273`.
 - [ ] Policy decision: strict localhost security posture vs trusted-local-only assumptions.
 - [ ] Policy decision: recurring all-day drag/edit behavior (locked vs editable).
 

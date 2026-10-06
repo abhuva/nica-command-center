@@ -1,6 +1,6 @@
 # Gate 5: Calendar read cutover
 
-**Status:** technical verification complete; normal-workflow acceptance pending
+**Status:** accepted
 
 **Date:** 2026-10-07
 
@@ -102,7 +102,8 @@ process and confirms the port is closed before removing its manifest.
 
 ## Acceptance
 
-Technical verification is complete. Acceptance remains pending until Marc
-opens port `4273` through the normal Obsidian workflow and confirms that vault,
-Google, and Nextcloud events are usable. The legacy Calendar and all write
-credentials remain intact until later capability-specific cutovers.
+Technical verification passed, and Marc confirmed on 2026-10-07 that vault,
+Google, and Nextcloud events are usable through the normal Obsidian workflow
+on port `4273`. Calendar reads are accepted as the fourth Gate 5 capability.
+The legacy Calendar and all write credentials remain intact until later
+capability-specific cutovers.
