@@ -196,9 +196,9 @@ For every capability, record:
 
 ## Gate 5 - per-capability cutover
 
-**Progress:** VaultGraph technical cutover is complete. Its migrated server is
-running at the existing daily URL with a rehearsed legacy rollback. Normal
-workflow confirmation remains pending. See
+**Progress:** VaultGraph is accepted. Its migrated server is running at the
+existing daily URL with a rehearsed legacy rollback, and Marc confirmed the
+normal Obsidian workflow on 2026-10-06. See
 [Gate 5 VaultGraph cutover](gate-5-vaultgraph-cutover.md).
 
 Use the following sequence for each capability:

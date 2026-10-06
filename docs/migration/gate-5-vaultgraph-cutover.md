@@ -1,6 +1,6 @@
 # Gate 5: VaultGraph cutover
 
-**Status:** technical cutover complete; normal-workflow confirmation pending
+**Status:** accepted
 
 **Date:** 2026-10-06
 
@@ -86,9 +86,9 @@ The migrated server was then restored with its component launcher. Active
 command time for either direction was well within the five-minute rollback
 objective; user-response pauses were not counted.
 
-## Remaining acceptance
+## Acceptance outcome
 
-The technical acceptance checks pass. The source checkout is retained and
-must not be retired. VaultGraph is accepted only after Marc confirms that the
-normal workflow is usable in Obsidian Webviewer. Until then, rollback remains
-the two-command procedure above.
+The technical acceptance checks passed, and Marc confirmed on 2026-10-06 that
+the normal workflow is usable in Obsidian Webviewer. VaultGraph is accepted as
+the first Gate 5 capability. The source checkout remains retained throughout
+the observation period, and the rehearsed rollback procedure stays available.

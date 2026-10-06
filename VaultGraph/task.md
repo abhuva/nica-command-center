@@ -2,7 +2,7 @@
 
 ## Gate 5 cutover
 
-- status: technical cutover complete; normal-workflow confirmation pending
+- status: accepted
 - owner: agent
 - dependencies: [Gate 4 shadow verification]
 - validation: synthetic smoke, component launcher rehearsal, Playwright at the
@@ -16,9 +16,10 @@ Implemented for cutover:
 - Rebuild opt-in writes only derived graph state, never vault content.
 - Legacy rollback and return to the migrated server rehearsed on port `4175`.
 
-Pending acceptance:
+Acceptance outcome:
 
-- Confirm the normal VaultGraph workflow is usable in Obsidian Webviewer.
+- Marc confirmed the normal VaultGraph workflow is usable in Obsidian
+  Webviewer on 2026-10-06.
 - Homepage-tab integration remains part of the later Homepage cutover; the
   current Homepage configuration does not enable the VaultGraph module.
 
