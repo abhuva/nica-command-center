@@ -1,6 +1,6 @@
 # Gate 5: Homepage shell cutover
 
-**Status:** technical verification complete; normal-workflow acceptance pending
+**Status:** accepted
 
 **Date:** 2026-10-07
 
@@ -108,7 +108,7 @@ during the short profile restart.
 
 ## Acceptance
 
-Technical verification is complete. Acceptance remains pending until Marc
-opens the port `4274` shell through the normal Obsidian workflow and confirms
-that Bookmarks, Clock, and Website Monitoring are usable. The legacy Homepage
-and all source files remain intact until then.
+Technical verification passed, and Marc confirmed on 2026-10-07 that the port
+`4274` shell works through the normal Obsidian workflow. The Homepage shell is
+accepted as the third Gate 5 capability. The legacy Homepage and all source
+files remain intact during the observation period.
