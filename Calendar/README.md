@@ -175,6 +175,7 @@ Write-route protections:
   - buttons show clear on/off visual state and mirror settings values
 - Source visibility toggles were moved out of settings popover; visibility is controlled from toolbar buttons only.
 - Publish button uploads the current rendered calendar view/selection as a static read-only bundle via SFTP.
+- Calendar event rendering defaults to solid block events, including timed events in dayGrid/month-style views; background events still use `display: background`.
 - Create-event modal uses per-target tabs:
   - `md`: create markdown event note
   - `google`: choose color from currently loaded Google event colors, then create

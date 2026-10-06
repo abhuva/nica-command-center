@@ -3382,6 +3382,7 @@
           fixedWeekCount: false,
           dayMaxEvents: false,
           dayMaxEventRows: false,
+          eventDisplay: 'block',
           customButtons: {
             refreshCalendar: {
               text: '',

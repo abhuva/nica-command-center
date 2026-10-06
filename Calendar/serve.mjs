@@ -1390,6 +1390,7 @@ function writePublicCalendarExport(payload) {
       height: 'auto',
       dayMaxEvents: false,
       dayMaxEventRows: false,
+      eventDisplay: 'block',
       editable: false,
       selectable: false,
       events: Array.isArray(data.events) ? data.events : [],

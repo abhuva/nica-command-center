@@ -70,6 +70,9 @@ Validation baseline:
   - reduced base filter dropdown width in header toolbar
   - added dedicated `G` and `N` toolbar toggle buttons for Google/Nextcloud visibility
   - toolbar toggle state stays in sync with settings toggles
+- Public/static calendar rendering:
+  - timed events now use solid block rendering instead of dayGrid dot styling
+  - background events remain rendered as background events
 - Settings cleanup:
   - removed "Show Google events" and "Show Nextcloud events" toggles from settings popover
   - source visibility is now controlled from toolbar toggle buttons
