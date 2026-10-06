@@ -1,6 +1,6 @@
 # Former Tools repository migration
 
-**Status**: Gate 0 complete; Gate 1 not started
+**Status**: Gates 0 and 1 complete; Gate 2 not started
 
 **Production source**: the `Tools` checkout inside the configured NICA vault
 
@@ -13,6 +13,7 @@ passed its acceptance checks and has a tested rollback path.
 - [Migration runbook](tools-migration-runbook.md)
 - [Capability and state inventory](tools-inventory.md)
 - [Production baseline snapshot](production-baseline.md)
+- [Gate 1 preservation record](gate-1-preservation.md)
 
 These documents are operational plans. Accepted, long-lived architecture
 decisions remain in `docs/adr/`.
@@ -22,7 +23,7 @@ decisions remain in `docs/adr/`.
 | Gate | Purpose | Status |
 | --- | --- | --- |
 | 0 | Record baseline, boundaries, acceptance checks, and rollback rules | Complete |
-| 1 | Preserve source work and create recoverable backups | Not started |
+| 1 | Preserve source work and create recoverable backups | Complete |
 | 2 | Import sanitized history into an isolated candidate branch | Not started |
 | 3 | Remove vault-location assumptions and isolate candidate state | Not started |
 | 4 | Shadow-test capabilities without production writes | Not started |

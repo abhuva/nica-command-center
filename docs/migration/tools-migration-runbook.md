@@ -74,6 +74,9 @@ interfaces. Beantime remains disabled until its Fava port is configurable.
 
 ## Gate 1 - preserve source work and recovery material
 
+**Completion**: Complete. See
+[Gate 1 preservation record](gate-1-preservation.md).
+
 ### Actions
 
 1. Capture the production commit, branch, status, dependency versions, active
