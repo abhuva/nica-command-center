@@ -25,6 +25,40 @@ require `NICA_OBSIDIAN_ACTIONS_ENABLED=true`. Filesystem-only project creation,
 Calendar fixture fallback, monitoring, and local state workflows do not need
 Obsidian actions enabled.
 
+### Gate 5 monitoring launcher
+
+Website monitoring can run independently from the Homepage cutover. Preview
+the component plan from this repository:
+
+```powershell
+.\scripts\start-monitoring.ps1 -VaultRoot "C:\path\to\vault" -InitializeFromLegacy
+```
+
+For the first start, review the plan and add `-Apply`. The initialization takes
+a validated snapshot of only the legacy `updo` settings and derived history;
+it does not change or stop the legacy Homepage. Later starts omit
+`-InitializeFromLegacy`:
+
+```powershell
+.\scripts\start-monitoring.ps1 -VaultRoot "C:\path\to\vault" -Apply
+```
+
+Open the monitoring-only candidate directly:
+
+```text
+http://127.0.0.1:4274/home.html?module=updo
+```
+
+Stop only the migrated monitoring process while retaining its local history:
+
+```powershell
+.\scripts\stop-monitoring.ps1
+```
+
+The legacy Homepage on port `4174` remains available as warm rollback during
+the observation period. Both processes perform read-only `HEAD` probes while
+they run; their derived histories are stored separately.
+
 ## Ziele
 
 - Homepage in Obsidian Webviewer ueber lokalen Server.
