@@ -134,7 +134,13 @@ function looksLikeVaultGraphServerProcess(proc) {
   const name = String(proc?.name || "").toLowerCase();
   const commandLine = String(proc?.commandLine || "").toLowerCase();
   if (name !== "node.exe" && name !== "node") return false;
-  return commandLine.includes("tools\\vaultgraph\\serve.mjs") || commandLine.includes("tools/vaultgraph/serve.mjs");
+  const currentServerPath = path.resolve(__dirname, "serve.mjs").toLowerCase();
+  const normalizedCommandLine = commandLine.replace(/\//g, "\\");
+  const normalizedServerPath = currentServerPath.replace(/\//g, "\\");
+  return (
+    normalizedCommandLine.includes(normalizedServerPath) ||
+    normalizedCommandLine.includes("tools\\vaultgraph\\serve.mjs")
+  );
 }
 
 /**

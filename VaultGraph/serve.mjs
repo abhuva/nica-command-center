@@ -183,7 +183,7 @@ const server = http.createServer((req, res) => {
 server.on("error", (error) => {
   if (error?.code === "EADDRINUSE") {
     console.error(`VaultGraph preview failed to start: ${HOST}:${PORT} is already in use.`);
-    console.error("Run `npm.cmd --prefix .\\Tools\\VaultGraph run stop:preview` and try again.");
+    console.error("Run `npm.cmd --prefix .\\VaultGraph run stop:preview` and try again.");
   } else {
     console.error(`VaultGraph preview server error: ${error?.message || error}`);
   }
