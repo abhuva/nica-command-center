@@ -23,6 +23,8 @@ or live payloads.
 
 The active branch is not published on the configured source remote. Gate 1
 preserved its software changes as commits and in a verified local Git bundle.
+Gate 2 imported a sanitized rewrite of that history into the command-centre
+repository; the production checkout remains in place and independent.
 
 ## Capability inventory
 

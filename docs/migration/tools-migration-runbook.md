@@ -106,6 +106,9 @@ feature branch; do not rewrite or reset the working production checkout.
 
 ## Gate 2 - sanitized import
 
+**Completion**: Complete. See
+[Gate 2 sanitized-history import record](gate-2-sanitized-import.md).
+
 ### Actions
 
 1. Work from a disposable clone, not the production checkout.
