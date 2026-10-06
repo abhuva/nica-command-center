@@ -1,6 +1,6 @@
 # Gate 5: website monitoring cutover
 
-**Status:** technical cutover complete; normal-workflow confirmation pending
+**Status:** accepted
 
 **Date:** 2026-10-07
 
@@ -102,9 +102,9 @@ Open Homepage on port `4174` and select the Website Monitoring tab. No legacy
 restart or state restore is required because that monitor remains warm and was
 verified through Playwright during the rehearsal.
 
-## Remaining acceptance
+## Acceptance outcome
 
-The technical checks pass. Monitoring is accepted only after Marc confirms the
-normal monitoring workflow is usable at the port `4274` URL. Both histories
-and the legacy implementation remain retained throughout the observation
-period.
+The technical checks passed, and Marc confirmed on 2026-10-07 that the normal
+monitoring workflow is usable at the port `4274` URL. Website monitoring is
+accepted as the second Gate 5 capability. Both histories and the legacy
+implementation remain retained throughout the observation period.

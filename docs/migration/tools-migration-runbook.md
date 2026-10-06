@@ -198,10 +198,10 @@ For every capability, record:
 
 **Progress:** VaultGraph is accepted. Its migrated server is running at the
 existing daily URL with a rehearsed legacy rollback, and Marc confirmed the
-normal Obsidian workflow on 2026-10-06. Monitoring has completed its technical
-cutover with a warm legacy rollback; normal-workflow confirmation remains
-pending. See [Gate 5 VaultGraph cutover](gate-5-vaultgraph-cutover.md) and
-[Gate 5 monitoring cutover](gate-5-monitoring-cutover.md).
+normal Obsidian workflow on 2026-10-06. Monitoring is also accepted with a warm
+legacy rollback; Marc confirmed the normal monitoring workflow on 2026-10-07.
+See [Gate 5 VaultGraph cutover](gate-5-vaultgraph-cutover.md) and [Gate 5
+monitoring cutover](gate-5-monitoring-cutover.md).
 
 Use the following sequence for each capability:
 
