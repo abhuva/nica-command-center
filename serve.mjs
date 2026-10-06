@@ -2955,8 +2955,46 @@ for (const part of parts) {
     await app.vault.createFolder(current);
   }
 }
+return "ok";
 })();
-"ok";
+`.trim();
+  runObsidianAction(["eval", `code=${js}`]);
+}
+
+/**
+ * Renames one vault path through Obsidian so its in-memory index stays synchronized.
+ * @param {string} sourcePath - Existing vault-relative path.
+ * @param {string} targetPath - New vault-relative path.
+ * @returns {void}
+ */
+function renameVaultPath(sourcePath, targetPath) {
+  const js = `
+(async () => {
+const sourcePath = ${JSON.stringify(sourcePath)};
+const targetPath = ${JSON.stringify(targetPath)};
+const source = app.vault.getAbstractFileByPath(sourcePath);
+if (!source) throw new Error("Prepared project folder not found");
+if (app.vault.getAbstractFileByPath(targetPath)) throw new Error("Project target already exists");
+await app.vault.rename(source, targetPath);
+return "ok";
+})();
+`.trim();
+  runObsidianAction(["eval", `code=${js}`]);
+}
+
+/**
+ * Removes an exact vault-relative staging path through Obsidian when present.
+ * @param {string} relativePath - Vault-relative staging folder path.
+ * @returns {void}
+ */
+function deleteVaultPathIfPresent(relativePath) {
+  const js = `
+(async () => {
+const targetPath = ${JSON.stringify(relativePath)};
+const target = app.vault.getAbstractFileByPath(targetPath);
+if (target) await app.vault.delete(target, true);
+return "ok";
+})();
 `.trim();
   runObsidianAction(["eval", `code=${js}`]);
 }
@@ -3143,7 +3181,6 @@ function createProject(payload) {
   let committed = false;
 
   try {
-    fs.mkdirSync(stagingFolderAbs, { recursive: false });
     let created = { createdPath: stagingFileRel };
     if (OBSIDIAN_ACTIONS_ENABLED) {
       ensureVaultFolderExists(stagingFolderRel);
@@ -3153,6 +3190,8 @@ function createProject(payload) {
         projectName: plan.folderName,
         templateRelPath: plan.template.path
       });
+    } else {
+      fs.mkdirSync(stagingFolderAbs, { recursive: false });
     }
 
     let renderedFileAbs = stagingFileAbs;
@@ -3183,11 +3222,27 @@ function createProject(payload) {
     if (fs.existsSync(projectFolderAbs) || fs.existsSync(projectFileAbs)) {
       throw new Error("Projektziel wurde waehrend der Vorbereitung angelegt");
     }
-    fs.renameSync(stagingFolderAbs, projectFolderAbs);
+    if (OBSIDIAN_ACTIONS_ENABLED) {
+      renameVaultPath(stagingFolderRel, plan.paths.folder);
+    } else {
+      fs.renameSync(stagingFolderAbs, projectFolderAbs);
+    }
+    if (!fs.existsSync(projectFolderAbs) || !fs.existsSync(projectFileAbs)) {
+      throw new Error("Projekt wurde nicht vollstaendig am Ziel veroeffentlicht");
+    }
     committed = true;
   } finally {
-    if (!committed && fs.existsSync(stagingFolderAbs)) {
-      fs.rmSync(stagingFolderAbs, { recursive: true, force: true });
+    if (!committed) {
+      if (OBSIDIAN_ACTIONS_ENABLED) {
+        try {
+          deleteVaultPathIfPresent(stagingFolderRel);
+        } catch {
+          // The exact filesystem fallback below still removes a partial staging folder.
+        }
+      }
+      if (fs.existsSync(stagingFolderAbs)) {
+        fs.rmSync(stagingFolderAbs, { recursive: true, force: true });
+      }
     }
   }
 

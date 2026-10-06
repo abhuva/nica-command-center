@@ -102,3 +102,8 @@ Homepage shell without changing the legacy process or vault content:
   pressing the final create button.
 - Rollback restored the accepted read-only Homepage profile on `4274`, kept
   legacy `4174` healthy, and the project profile was then reapplied successfully.
+- The first user apply was rejected with `Projektordner nicht gefunden` because
+  the Obsidian folder-creation promise returned before its cache had registered
+  the staging folder. The exact staging folder was removed and no final project
+  remained. The handoff now awaits Obsidian folder creation, template rendering,
+  rename, and cleanup through Obsidian's vault API before reporting completion.
