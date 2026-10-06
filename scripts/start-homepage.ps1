@@ -6,6 +6,7 @@ param(
   [string]$LegacyToolsRoot = "",
   [int]$Port = 4274,
   [switch]$PrepareShellProfile,
+  [switch]$PrepareProjectProfile,
   [switch]$Apply
 )
 
@@ -27,11 +28,15 @@ if ($Port -lt 1 -or $Port -gt 65535) { throw "Port must be between 1 and 65535."
 if ([string]::IsNullOrWhiteSpace($ObsidianVaultName)) {
   throw "ObsidianVaultName is required for explicit Obsidian CLI reads."
 }
+if ($PrepareShellProfile -and $PrepareProjectProfile) {
+  throw "PrepareShellProfile and PrepareProjectProfile are mutually exclusive."
+}
 
 $componentState = Join-Path $resolvedState "homepage"
 $configDir = Join-Path $componentState "config"
 $settingsPath = Join-Path $configDir "settings.local.json"
 $monitoringBackupPath = Join-Path $configDir "settings.monitoring-only.json"
+$shellBackupPath = Join-Path $configDir "settings.homepage-shell.json"
 $profilePath = Join-Path $configDir "runtime-profile.json"
 $homepageManifestPath = Join-Path $componentState "homepage-process.json"
 $monitoringManifestPath = Join-Path $componentState "monitoring-process.json"
@@ -42,7 +47,7 @@ $legacyRootInput = if ([string]::IsNullOrWhiteSpace($LegacyToolsRoot)) {
 }
 $resolvedLegacy = $null
 $legacySettingsPath = $null
-if ($PrepareShellProfile) {
+if ($PrepareShellProfile -or $PrepareProjectProfile) {
   $resolvedLegacy = (Resolve-Path -LiteralPath $legacyRootInput).Path
   $legacySettingsPath = Join-Path $resolvedLegacy "config\settings.local.json"
   if (-not (Test-Path -LiteralPath $legacySettingsPath -PathType Leaf)) {
@@ -150,6 +155,63 @@ function Prepare-HomepageShellProfile {
   }
 }
 
+function Prepare-ProjectCreationProfile {
+  if ((Get-CurrentProfile) -ne "homepage-shell") {
+    throw "The accepted Homepage shell profile must be active before project creation is enabled."
+  }
+  if (-not (Test-Path -LiteralPath $settingsPath -PathType Leaf)) {
+    throw "Accepted Homepage shell settings are missing."
+  }
+
+  $current = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
+  $legacy = Get-Content -LiteralPath $legacySettingsPath -Raw | ConvertFrom-Json
+  $currentEnabled = @(
+    $current.modules.psobject.Properties |
+      Where-Object { [bool]$_.Value.enabled } |
+      ForEach-Object { $_.Name }
+  )
+  if (Compare-Object -ReferenceObject @("bookmarks", "clock", "updo") -DifferenceObject $currentEnabled) {
+    throw "The active settings do not match the accepted Homepage shell profile."
+  }
+
+  if (Test-Path -LiteralPath $shellBackupPath -PathType Leaf) {
+    $currentCanonical = $current | ConvertTo-Json -Depth 20 -Compress
+    $backup = Get-Content -LiteralPath $shellBackupPath -Raw | ConvertFrom-Json
+    $backupCanonical = $backup | ConvertTo-Json -Depth 20 -Compress
+    if ($currentCanonical -ne $backupCanonical) {
+      throw "The Homepage shell backup differs from the active settings; project profile preparation will not overwrite it."
+    }
+  }
+
+  $current.modules.newProject = [pscustomobject][ordered]@{
+    enabled = $true
+    title = [string]$legacy.modules.newProject.title
+    openInNewTab = [bool]$legacy.modules.newProject.openInNewTab
+  }
+  if (-not (Test-Path -LiteralPath $shellBackupPath -PathType Leaf)) {
+    Copy-Item -LiteralPath $settingsPath -Destination $shellBackupPath
+  }
+  try {
+    Write-JsonFile -Path $settingsPath -Value $current
+    Write-JsonFile -Path $profilePath -Value ([ordered]@{
+      version = 1
+      profile = "homepage-project-creation"
+      enabledModules = @("bookmarks", "clock", "newProject", "updo")
+      writeCapabilities = @("project.create")
+      preparedAt = (Get-Date).ToString("o")
+    })
+  } catch {
+    Copy-Item -LiteralPath $shellBackupPath -Destination $settingsPath -Force
+    Write-JsonFile -Path $profilePath -Value ([ordered]@{
+      version = 1
+      profile = "homepage-shell"
+      enabledModules = @("bookmarks", "clock", "updo")
+      preparedAt = (Get-Date).ToString("o")
+    })
+    throw
+  }
+}
+
 $profile = Get-CurrentProfile
 $settingsReady = Test-Path -LiteralPath $settingsPath -PathType Leaf
 $enabledModules = @()
@@ -168,14 +230,16 @@ $plan = [ordered]@{
   obsidianVaultName = $ObsidianVaultName
   localState = $componentState
   port = $Port
-  mode = "read-only"
+  mode = if ($PrepareProjectProfile -or $profile -eq "homepage-project-creation") { "limited-write" } else { "read-only" }
   currentProfile = $profile
   prepareShellProfile = [bool]$PrepareShellProfile
+  prepareProjectProfile = [bool]$PrepareProjectProfile
   settingsReady = $settingsReady
   monitoringBackupReady = Test-Path -LiteralPath $monitoringBackupPath -PathType Leaf
   enabledModules = $enabledModules
-  legacyPreferenceSource = if ($PrepareShellProfile) { $resolvedLegacy } else { $null }
-  vaultWrites = $false
+  legacyPreferenceSource = if ($PrepareShellProfile -or $PrepareProjectProfile) { $resolvedLegacy } else { $null }
+  projectCreationEnabled = [bool]($PrepareProjectProfile -or $profile -eq "homepage-project-creation")
+  vaultWrites = [bool]($PrepareProjectProfile -or $profile -eq "homepage-project-creation")
   remoteWrites = $false
   productionProcessChanged = $false
 }
@@ -202,8 +266,14 @@ if ($PrepareShellProfile) {
   $preparedThisRun = $true
   $profile = "homepage-shell"
 }
-if ($profile -ne "homepage-shell") {
-  throw "The Homepage shell profile is not active. Review and apply once with -PrepareShellProfile."
+if ($PrepareProjectProfile) {
+  if ($profile -eq "homepage-project-creation") { throw "The project-creation profile is already active." }
+  Prepare-ProjectCreationProfile
+  $preparedThisRun = $true
+  $profile = "homepage-project-creation"
+}
+if ($profile -notin @("homepage-shell", "homepage-project-creation")) {
+  throw "No supported Homepage profile is active. Review and prepare the required profile first."
 }
 
 $shellSettings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
@@ -212,7 +282,12 @@ $actualEnabled = @(
     Where-Object { [bool]$_.Value.enabled } |
     ForEach-Object { $_.Name }
 )
-$expectedEnabled = @("bookmarks", "clock", "updo")
+$projectCreationEnabled = $profile -eq "homepage-project-creation"
+$expectedEnabled = if ($projectCreationEnabled) {
+  @("bookmarks", "clock", "newProject", "updo")
+} else {
+  @("bookmarks", "clock", "updo")
+}
 if (Compare-Object -ReferenceObject $expectedEnabled -DifferenceObject $actualEnabled) {
   throw "Homepage shell profile does not contain the expected enabled modules."
 }
@@ -222,13 +297,16 @@ if (-not $targetCount) { throw "Homepage shell profile has no monitoring targets
 $env:NICA_VAULT_ROOT = $resolvedVault
 $env:NICA_STATE_ROOT = $resolvedState
 $env:NICA_WRITE_ENABLED = "false"
-$env:NICA_OBSIDIAN_ACTIONS_ENABLED = "false"
+$env:NICA_PROJECT_CREATE_ENABLED = if ($projectCreationEnabled) { "true" } else { "false" }
+$env:NICA_OBSIDIAN_ACTIONS_ENABLED = if ($projectCreationEnabled) { "true" } else { "false" }
 $env:OBSIDIAN_VAULT_NAME = $ObsidianVaultName
 $env:HOMEPAGE_PORT = [string]$Port
 
 $stdout = Join-Path $componentState "homepage.out.log"
 $stderr = Join-Path $componentState "homepage.err.log"
 $serverPath = Join-Path $repoRoot "serve.mjs"
+$writeCapabilities = [string[]]@()
+if ($projectCreationEnabled) { $writeCapabilities = [string[]]@("project.create") }
 $proc = $null
 try {
   $proc = Start-Process -FilePath "node" -ArgumentList ('"' + $serverPath + '"') -WorkingDirectory $repoRoot -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
@@ -239,7 +317,8 @@ try {
     obsidianVaultName = $ObsidianVaultName
     stateRoot = $resolvedState
     port = $Port
-    mode = "read-only"
+    mode = if ($projectCreationEnabled) { "limited-write" } else { "read-only" }
+    writeCapabilities = $writeCapabilities
     enabledModules = $expectedEnabled
     monitoringTargetCount = $targetCount
     pid = $proc.Id
@@ -264,8 +343,10 @@ try {
       if (
         $ping.ok -and
         $ping.component -eq "homepage" -and
-        $ping.mode -eq "read-only" -and
-        -not [bool]$ping.writesEnabled -and
+        $ping.mode -eq $(if ($projectCreationEnabled) { "limited-write" } else { "read-only" }) -and
+        [bool]$ping.writesEnabled -eq $projectCreationEnabled -and
+        [bool]$ping.writeCapabilities.projectCreate -eq $projectCreationEnabled -and
+        -not [bool]$ping.writeCapabilities.unrestricted -and
         $ping.authority.vault -eq $resolvedVault -and
         $ping.authority.localState -eq $componentState -and
         -not (Compare-Object -ReferenceObject $expectedEnabled -DifferenceObject $healthEnabled) -and
@@ -289,7 +370,15 @@ try {
     foreach ($child in $children) { Stop-Process -Id $child.ProcessId -ErrorAction SilentlyContinue }
   }
   Remove-Item -LiteralPath $homepageManifestPath -Force -ErrorAction SilentlyContinue
-  if ($preparedThisRun -and (Test-Path -LiteralPath $monitoringBackupPath -PathType Leaf)) {
+  if ($preparedThisRun -and $PrepareProjectProfile -and (Test-Path -LiteralPath $shellBackupPath -PathType Leaf)) {
+    Copy-Item -LiteralPath $shellBackupPath -Destination $settingsPath -Force
+    Write-JsonFile -Path $profilePath -Value ([ordered]@{
+      version = 1
+      profile = "homepage-shell"
+      enabledModules = @("bookmarks", "clock", "updo")
+      preparedAt = (Get-Date).ToString("o")
+    })
+  } elseif ($preparedThisRun -and (Test-Path -LiteralPath $monitoringBackupPath -PathType Leaf)) {
     Copy-Item -LiteralPath $monitoringBackupPath -Destination $settingsPath -Force
     Remove-Item -LiteralPath $profilePath -Force -ErrorAction SilentlyContinue
   }

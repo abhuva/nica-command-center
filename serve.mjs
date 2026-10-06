@@ -4,6 +4,7 @@ import path from "node:path";
 import tls from "node:tls";
 import { fileURLToPath } from "node:url";
 import { execFileSync, spawn } from "node:child_process";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   isWriteEnabled,
   requireComponentStateDir,
@@ -22,6 +23,9 @@ const STATE_DIR = requireComponentStateDir("homepage");
 const OBSIDIAN_VAULT_NAME = String(process.env.OBSIDIAN_VAULT_NAME || "").trim();
 const OBSIDIAN_ACTIONS_ENABLED =
   String(process.env.NICA_OBSIDIAN_ACTIONS_ENABLED || "").trim().toLowerCase() === "true";
+const PROJECT_CREATE_ENABLED =
+  String(process.env.NICA_PROJECT_CREATE_ENABLED || "").trim().toLowerCase() === "true";
+const PROJECT_ACTION_TOKEN = PROJECT_CREATE_ENABLED ? randomBytes(32).toString("hex") : "";
 const OBSIDIAN_BIN = resolveObsidianBin();
 
 const BOOKMARKS_FILE = path.join(VAULT_ROOT, ".obsidian", "bookmarks.json");
@@ -44,6 +48,7 @@ const PROJECTS_ROOT = path.join(VAULT_ROOT, PROJECTS_ROOT_REL);
 const PROJECT_TEMPLATE_DIR_REL = "6. Obsidian/_template/project";
 const PROJECT_TEMPLATE_DIR = path.join(VAULT_ROOT, PROJECT_TEMPLATE_DIR_REL);
 const DEFAULT_PROJECT_TEMPLATE_NAME = "Projekt.md";
+const PROJECT_AUDIT_FILE = path.join(STATE_DIR, "audit", "project-creation.jsonl");
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -1056,7 +1061,11 @@ function normalizeFundingCode(value) {
  * @returns {"NICA"|"TOHU"} Uppercase society key.
  */
 function normalizeSociety(value) {
-  return oneOf(value, ["nica", "tohu"], "nica").toUpperCase();
+  const normalized = String(value || "").trim().toUpperCase();
+  if (!(["NICA", "TOHU"].includes(normalized))) {
+    throw new Error("Verein muss NICA oder TOHU sein");
+  }
+  return normalized;
 }
 
 /**
@@ -1065,7 +1074,11 @@ function normalizeSociety(value) {
  * @returns {"funding"|"hired"|"self financed"} Normalized project type.
  */
 function normalizeProjectType(value) {
-  return oneOf(value, ["funding", "hired", "self financed"], "funding");
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!(["funding", "hired", "self financed"].includes(normalized))) {
+    throw new Error("Projektart ist ungueltig");
+  }
+  return normalized;
 }
 
 /**
@@ -1181,6 +1194,7 @@ function renderTemplateFallback(templateRaw, projectTitle) {
 function buildProjectNaming({ year, society, fundingCode, projectTitle, projectType }) {
   const cleanTitle = normalizeProjectTitle(projectTitle);
   if (!cleanTitle) throw new Error("Projekt-Titel darf nicht leer sein");
+  if (cleanTitle.length > 160) throw new Error("Projekt-Titel darf hoechstens 160 Zeichen enthalten");
   if (hasInvalidWindowsPathChars(cleanTitle)) {
     throw new Error("Projekt-Titel enthaelt unzulaessige Zeichen");
   }
@@ -1188,7 +1202,10 @@ function buildProjectNaming({ year, society, fundingCode, projectTitle, projectT
     throw new Error("Projekt-Titel darf nicht mit Punkt oder Leerzeichen enden");
   }
 
-  const parsedYear = toIntInRange(year, new Date().getFullYear(), 2000, 2100);
+  const rawYear = String(year ?? "").trim();
+  if (!/^\d{4}$/.test(rawYear)) throw new Error("Jahr ist ungueltig");
+  const parsedYear = Number.parseInt(rawYear, 10);
+  if (parsedYear < 2000 || parsedYear > 2100) throw new Error("Jahr ist ungueltig");
   const cleanSociety = normalizeSociety(society);
   const cleanType = normalizeProjectType(projectType);
   const cleanFundingCode = normalizeFundingCode(fundingCode);
@@ -1199,6 +1216,9 @@ function buildProjectNaming({ year, society, fundingCode, projectTitle, projectT
     }
     if (hasInvalidWindowsPathChars(cleanFundingCode)) {
       throw new Error("Foerderkuerzel enthaelt unzulaessige Zeichen");
+    }
+    if (cleanFundingCode.length > 40) {
+      throw new Error("Foerderkuerzel darf hoechstens 40 Zeichen enthalten");
     }
     const folderName = `${parsedYear} ${cleanSociety} ${cleanFundingCode} - ${cleanTitle}`;
     return {
@@ -3005,19 +3025,18 @@ function openProjectFile(projectFileRel, openInNewTab = false) {
 }
 
 /**
- * Creates a new project folder and MOC note from template, then opens it in Obsidian.
+ * Builds a deterministic, non-mutating project-creation plan.
  * @param {object} payload - API payload from the "new project" UI.
- * @returns {object} Creation result with paths and applied frontmatter fields.
+ * @returns {object} Validated plan that must be confirmed when applying.
  */
-function createProject(payload) {
-  if (OBSIDIAN_ACTIONS_ENABLED && !OBSIDIAN_VAULT_NAME) {
-    throw new Error("OBSIDIAN_VAULT_NAME is required when Obsidian actions are enabled");
-  }
+function buildProjectPlan(payload) {
   if (!fs.existsSync(PROJECTS_ROOT) || !fs.statSync(PROJECTS_ROOT).isDirectory()) {
     throw new Error("Projektverwaltung-Ordner wurde nicht gefunden");
   }
+  if (fs.lstatSync(PROJECTS_ROOT).isSymbolicLink()) {
+    throw new Error("Projektverwaltung-Ordner darf kein symbolischer Link sein");
+  }
   const template = resolveProjectTemplate(payload?.templatePath);
-
   const naming = buildProjectNaming({
     year: payload?.year,
     society: payload?.society,
@@ -3035,71 +3054,159 @@ function createProject(payload) {
   if (fs.existsSync(projectFolderAbs)) throw new Error("Projektordner existiert bereits");
   if (fs.existsSync(projectFileAbs)) throw new Error("Projektdatei existiert bereits");
 
-  fs.mkdirSync(projectFolderAbs, { recursive: false });
-  let created = { createdPath: projectFileRel };
-  if (OBSIDIAN_ACTIONS_ENABLED) {
-    ensureVaultFolderExists(projectFolderRel);
-    created = createProjectNoteFromTemplate({
-      projectFolderRel,
-      projectFileRel,
-      projectName: naming.folderName,
-      templateRelPath: template.relPath
-    });
-  }
-
-  let targetFileAbs = projectFileAbs;
-  let targetFileRel = projectFileRel;
-  const createdRel = sanitizePathSeparators(created?.createdPath || "");
-  if (createdRel) {
-    const createdAbs = path.resolve(VAULT_ROOT, createdRel);
-    if (fs.existsSync(createdAbs) && createdAbs !== projectFileAbs) {
-      if (!fs.existsSync(projectFileAbs)) {
-        fs.renameSync(createdAbs, projectFileAbs);
-      }
-      targetFileAbs = projectFileAbs;
-      targetFileRel = projectFileRel;
-    }
-  }
-
-  if (!fs.existsSync(targetFileAbs)) {
-    const templateRaw = fs.readFileSync(template.absPath, "utf8");
-    const rendered = renderTemplateFallback(templateRaw, naming.folderName);
-    fs.writeFileSync(targetFileAbs, rendered, "utf8");
-  }
-
-  const raw = fs.readFileSync(targetFileAbs, "utf8");
-  const next = applyProjectFrontmatter(raw, {
-    year: naming.year,
-    antragsteller: naming.society,
-    "f\u00F6rderer": naming.fundingCode,
-    title: naming.title,
-    type: naming.projectType,
-    category: "project-moc"
-  });
-  fs.writeFileSync(targetFileAbs, next, "utf8");
-
-  if (OBSIDIAN_ACTIONS_ENABLED) {
-    openProjectFile(targetFileRel, toBool(payload?.openInNewTab, true));
-  }
-  return {
-    ok: true,
+  const templateDigest = createHash("sha256").update(fs.readFileSync(template.absPath)).digest("hex");
+  const planCore = {
+    version: 1,
     folderName: naming.folderName,
     fileName: projectFileName,
     paths: {
       folder: projectFolderRel,
-      file: targetFileRel
+      file: projectFileRel
     },
     template: {
       path: template.relPath,
-      label: template.label
+      label: template.label,
+      sha256: templateDigest
     },
     frontmatter: {
       year: naming.year,
       antragsteller: naming.society,
       "f\u00F6rderer": naming.fundingCode,
       title: naming.title,
-      type: naming.projectType
+      type: naming.projectType,
+      category: "project-moc"
+    },
+    openInNewTab: toBool(payload?.openInNewTab, true)
+  };
+  const planId = createHash("sha256").update(JSON.stringify(planCore)).digest("hex");
+  return {
+    ok: true,
+    canApply: true,
+    requiresConfirmation: true,
+    planId,
+    ...planCore,
+    template: {
+      path: planCore.template.path,
+      label: planCore.template.label
     }
+  };
+}
+
+/**
+ * Records a minimal project-creation audit event without project titles or paths.
+ * @param {{outcome: string, plan?: object, code?: string}} event - Audit outcome and non-sensitive metadata.
+ * @returns {void}
+ */
+function appendProjectAudit(event) {
+  try {
+    fs.mkdirSync(path.dirname(PROJECT_AUDIT_FILE), { recursive: true });
+    const record = {
+      timestamp: new Date().toISOString(),
+      event: "project.create",
+      outcome: String(event?.outcome || "unknown"),
+      code: String(event?.code || ""),
+      planId: String(event?.plan?.planId || "").slice(0, 12),
+      year: event?.plan?.frontmatter?.year || null,
+      society: String(event?.plan?.frontmatter?.antragsteller || ""),
+      template: String(event?.plan?.template?.path || "")
+    };
+    fs.appendFileSync(PROJECT_AUDIT_FILE, `${JSON.stringify(record)}\n`, "utf8");
+  } catch (error) {
+    console.error(`Project audit write failed: ${error?.code || "UNKNOWN"}`);
+  }
+}
+
+/**
+ * Creates a staged project folder, atomically publishes it, and optionally opens it in Obsidian.
+ * @param {object} payload - Confirmed API payload from the "new project" UI.
+ * @returns {object} Creation result with paths and applied frontmatter fields.
+ */
+function createProject(payload) {
+  if (OBSIDIAN_ACTIONS_ENABLED && !OBSIDIAN_VAULT_NAME) {
+    throw new Error("OBSIDIAN_VAULT_NAME is required when Obsidian actions are enabled");
+  }
+  const plan = buildProjectPlan(payload);
+  const suppliedPlanId = String(payload?.planId || "").trim().toLowerCase();
+  if (!suppliedPlanId || suppliedPlanId !== plan.planId) {
+    const error = new Error("Projektplan ist veraltet oder wurde nicht bestaetigt");
+    error.code = "NICA_PROJECT_PLAN_MISMATCH";
+    throw error;
+  }
+
+  const projectFolderAbs = path.join(VAULT_ROOT, plan.paths.folder);
+  const projectFileAbs = path.join(VAULT_ROOT, plan.paths.file);
+  const stagingFolderName = `.nica-project-staging-${randomUUID()}`;
+  const stagingFolderAbs = path.join(PROJECTS_ROOT, stagingFolderName);
+  const stagingFolderRel = sanitizePathSeparators(path.relative(VAULT_ROOT, stagingFolderAbs));
+  const stagingFileAbs = path.join(stagingFolderAbs, plan.fileName);
+  const stagingFileRel = sanitizePathSeparators(path.relative(VAULT_ROOT, stagingFileAbs));
+  let committed = false;
+
+  try {
+    fs.mkdirSync(stagingFolderAbs, { recursive: false });
+    let created = { createdPath: stagingFileRel };
+    if (OBSIDIAN_ACTIONS_ENABLED) {
+      ensureVaultFolderExists(stagingFolderRel);
+      created = createProjectNoteFromTemplate({
+        projectFolderRel: stagingFolderRel,
+        projectFileRel: stagingFileRel,
+        projectName: plan.folderName,
+        templateRelPath: plan.template.path
+      });
+    }
+
+    let renderedFileAbs = stagingFileAbs;
+    const createdRel = sanitizePathSeparators(created?.createdPath || "");
+    if (createdRel) {
+      const createdAbs = path.resolve(VAULT_ROOT, createdRel);
+      const relativeToStaging = path.relative(stagingFolderAbs, createdAbs);
+      if (relativeToStaging.startsWith("..") || path.isAbsolute(relativeToStaging)) {
+        throw new Error("Template-Ausgabe liegt ausserhalb des vorbereiteten Projektordners");
+      }
+      if (fs.existsSync(createdAbs) && createdAbs !== stagingFileAbs) {
+        if (fs.existsSync(stagingFileAbs)) throw new Error("Projektdatei existiert im Entwurf doppelt");
+        fs.renameSync(createdAbs, stagingFileAbs);
+      }
+      renderedFileAbs = stagingFileAbs;
+    }
+
+    if (!fs.existsSync(renderedFileAbs)) {
+      const templateAbs = path.resolve(VAULT_ROOT, plan.template.path);
+      const templateRaw = fs.readFileSync(templateAbs, "utf8");
+      const rendered = renderTemplateFallback(templateRaw, plan.folderName);
+      fs.writeFileSync(renderedFileAbs, rendered, { encoding: "utf8", flag: "wx" });
+    }
+
+    const raw = fs.readFileSync(renderedFileAbs, "utf8");
+    const next = applyProjectFrontmatter(raw, plan.frontmatter);
+    fs.writeFileSync(renderedFileAbs, next, "utf8");
+    if (fs.existsSync(projectFolderAbs) || fs.existsSync(projectFileAbs)) {
+      throw new Error("Projektziel wurde waehrend der Vorbereitung angelegt");
+    }
+    fs.renameSync(stagingFolderAbs, projectFolderAbs);
+    committed = true;
+  } finally {
+    if (!committed && fs.existsSync(stagingFolderAbs)) {
+      fs.rmSync(stagingFolderAbs, { recursive: true, force: true });
+    }
+  }
+
+  let opened = false;
+  let warning = "";
+  if (OBSIDIAN_ACTIONS_ENABLED) {
+    try {
+      openProjectFile(plan.paths.file, plan.openInNewTab);
+      opened = true;
+    } catch {
+      warning = "Projekt wurde erstellt, konnte aber nicht automatisch in Obsidian geoeffnet werden";
+    }
+  }
+
+  return {
+    ...plan,
+    created: true,
+    opened,
+    warning
   };
 }
 
@@ -3127,16 +3234,69 @@ function sendText(res, statusCode, text) {
   res.end(text);
 }
 
+/**
+ * Checks the ephemeral same-origin token required for project apply requests.
+ * @param {import("node:http").IncomingMessage} req - Incoming HTTP request.
+ * @returns {boolean} Whether the supplied token matches this process.
+ */
+function hasValidProjectActionToken(req) {
+  const supplied = String(req.headers["x-nica-action-token"] || "").trim();
+  if (!PROJECT_ACTION_TOKEN || supplied.length !== PROJECT_ACTION_TOKEN.length) return false;
+  return timingSafeEqual(Buffer.from(supplied), Buffer.from(PROJECT_ACTION_TOKEN));
+}
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url || "/", `http://${HOST}:${PORT}`);
   const pathname = url.pathname;
 
   if (req.method === "GET" && pathname === "/api/ping") {
-    sendJson(res, 200, { ok: true, ...runtimeHealth("homepage", VAULT_ROOT, STATE_DIR) });
+    const health = runtimeHealth("homepage", VAULT_ROOT, STATE_DIR);
+    sendJson(res, 200, {
+      ok: true,
+      ...health,
+      mode: PROJECT_CREATE_ENABLED ? "limited-write" : health.mode,
+      writesEnabled: health.writesEnabled || PROJECT_CREATE_ENABLED,
+      writeCapabilities: {
+        projectCreate: PROJECT_CREATE_ENABLED,
+        unrestricted: health.writesEnabled
+      }
+    });
     return;
   }
 
-  if (req.method === "POST" && !isWriteEnabled()) {
+  if (req.method === "GET" && pathname === "/api/projects/session") {
+    if (!PROJECT_CREATE_ENABLED) {
+      sendJson(res, 200, { ok: true, enabled: false });
+      return;
+    }
+    sendJson(res, 200, { ok: true, enabled: true, actionToken: PROJECT_ACTION_TOKEN });
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/projects/plan") {
+    readRequestBody(req)
+      .then((rawBody) => {
+        let payload;
+        try {
+          payload = JSON.parse(rawBody || "{}");
+        } catch {
+          sendText(res, 400, "Invalid JSON payload");
+          return;
+        }
+        try {
+          sendJson(res, 200, buildProjectPlan(payload));
+        } catch (error) {
+          sendText(res, 422, error.message || "Could not plan project creation");
+        }
+      })
+      .catch((error) => {
+        sendText(res, 500, error.message || "Unknown error while planning project creation");
+      });
+    return;
+  }
+
+  const scopedProjectApply = pathname === "/api/projects/create" && PROJECT_CREATE_ENABLED;
+  if (req.method === "POST" && !isWriteEnabled() && !scopedProjectApply) {
     sendJson(res, 403, {
       ok: false,
       code: "NICA_READ_ONLY",
@@ -3408,6 +3568,26 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "POST" && pathname === "/api/projects/create") {
+    if (!PROJECT_CREATE_ENABLED) {
+      sendJson(res, 403, {
+        ok: false,
+        code: "NICA_PROJECT_CREATE_DISABLED",
+        message: "Project creation is not enabled for this runtime"
+      });
+      return;
+    }
+    if (!String(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) {
+      sendText(res, 415, "Project creation requires application/json");
+      return;
+    }
+    if (!hasValidProjectActionToken(req)) {
+      sendJson(res, 403, {
+        ok: false,
+        code: "NICA_ACTION_TOKEN_INVALID",
+        message: "Project action token is missing or invalid"
+      });
+      return;
+    }
     readRequestBody(req)
       .then((rawBody) => {
         let payload;
@@ -3418,10 +3598,14 @@ const server = http.createServer((req, res) => {
           return;
         }
 
+        let plan = null;
         try {
+          plan = buildProjectPlan(payload);
           const result = createProject(payload);
+          appendProjectAudit({ outcome: "created", plan: result });
           sendJson(res, 200, result);
         } catch (error) {
+          appendProjectAudit({ outcome: "rejected", plan, code: error?.code || "VALIDATION" });
           sendText(res, 422, error.message || "Could not create project");
         }
       })
@@ -3509,9 +3693,10 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, HOST, () => {
   ensureUpdoMonitor();
   console.log(`Homepage preview server: http://${HOST}:${PORT}/home.html`);
-  console.log(`Runtime mode: ${isWriteEnabled() ? "read-write" : "read-only"}; vault authority: ${VAULT_ROOT}`);
+  const runtimeMode = PROJECT_CREATE_ENABLED ? "limited-write (project-create)" : isWriteEnabled() ? "read-write" : "read-only";
+  console.log(`Runtime mode: ${runtimeMode}; vault authority: ${VAULT_ROOT}`);
   console.log(
-    "Homepage API endpoints ready: GET /api/ping, GET/POST /api/settings, GET /api/bookmarks, GET /api/obsidian/theme, POST /api/bookmarks/open, POST /api/search/open, GET /api/beantime/meta, POST /api/beantime/start, POST /api/beantime/stop, POST /api/beantime/show, GET /api/projects/meta, POST /api/projects/create, GET /api/updo/snapshot, GET /api/updo/history, POST /api/updo/restart"
+    "Homepage API endpoints ready: GET /api/ping, GET/POST /api/settings, GET /api/bookmarks, GET /api/obsidian/theme, POST /api/bookmarks/open, POST /api/search/open, GET /api/beantime/meta, POST /api/beantime/start, POST /api/beantime/stop, POST /api/beantime/show, GET /api/projects/meta, POST /api/projects/plan, POST /api/projects/create, GET /api/updo/snapshot, GET /api/updo/history, POST /api/updo/restart"
   );
 });
 

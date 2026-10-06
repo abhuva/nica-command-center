@@ -21,6 +21,7 @@ passed its acceptance checks and has a tested rollback path.
 - [Gate 5 monitoring cutover record](gate-5-monitoring-cutover.md)
 - [Gate 5 Homepage shell cutover record](gate-5-homepage-shell-cutover.md)
 - [Gate 5 Calendar read cutover record](gate-5-calendar-read-cutover.md)
+- [Gate 5 project creation cutover record](gate-5-project-creation-cutover.md)
 
 These documents are operational plans. Accepted, long-lived architecture
 decisions remain in `docs/adr/`.
@@ -34,7 +35,7 @@ decisions remain in `docs/adr/`.
 | 2 | Import sanitized history into an isolated candidate branch | Complete |
 | 3 | Remove vault-location assumptions and isolate candidate state | Complete |
 | 4 | Shadow-test capabilities without production writes | Complete; external credentials deferred |
-| 5 | Cut over one capability at a time | In progress; VaultGraph, monitoring, Homepage shell, and Calendar reads accepted |
+| 5 | Cut over one capability at a time | In progress; four capabilities accepted, project creation awaiting workflow confirmation |
 | 6 | Switch the stable launcher | Not started |
 | 7 | Observe, rehearse rollback, and retire the old checkout | Not started |
 

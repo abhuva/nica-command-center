@@ -1,6 +1,6 @@
 # NICA command-centre architecture
 
-**Status**: Foundation; implementation not started
+**Status**: Foundation established; Gate 5 capability cutovers in progress
 
 **Date**: 2026-10-06
 
@@ -269,7 +269,8 @@ accepted boundary decisions remain in ADRs.
 8. Where will secrets be stored, rotated, and recovered?
 9. Which Beancount files form a repository, who may access its remote, and how
    are other financial documents excluded?
-10. Which tool should provide the initial proof of integration?
+10. Which capability should next test controlled writes after the accepted
+    read-only integrations? Project creation is the current Gate 5 candidate.
 
 ## Success criteria
 

@@ -34,6 +34,8 @@ function buildFolderPreview({ year, society, fundingCode, title, projectType }) 
  */
 export async function renderNewProjectModule(shell, moduleSettings) {
   let meta = null;
+  let activePlan = null;
+  let actionToken = "";
   const openInNewTab = moduleSettings?.openInNewTab !== false;
 
   const intro = document.createElement("p");
@@ -80,21 +82,41 @@ export async function renderNewProjectModule(shell, moduleSettings) {
   }
 
   /**
-   * Creates a project through the backend API.
-   * @param {object} payload - Normalized creation payload from form values.
-   * @returns {Promise<object>} API response with created paths.
+   * Sends a project payload to one backend workflow endpoint.
+   * @param {"plan"|"create"} operation - Project workflow operation.
+   * @param {object} payload - Normalized project payload.
+   * @returns {Promise<object>} Parsed API response.
    */
-  async function createProject(payload) {
-    const response = await fetch("/api/projects/create", {
+  async function requestProjectOperation(operation, payload) {
+    const headers = { "Content-Type": "application/json" };
+    if (operation === "create") {
+      if (!actionToken) throw new Error("Projekt-Aktionsfreigabe fehlt. Bitte Modul neu laden.");
+      headers["X-NICA-Action-Token"] = actionToken;
+    }
+    const response = await fetch(`/api/projects/${operation}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(payload)
     });
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(text || "Projekt konnte nicht angelegt werden");
+      throw new Error(text || "Projekt-Aktion ist fehlgeschlagen");
     }
     return response.json();
+  }
+
+  /**
+   * Refreshes the ephemeral apply token from the same-origin server.
+   * @returns {Promise<void>} Resolves when project apply is authorized for this page.
+   */
+  async function refreshProjectSession() {
+    const response = await fetch("/api/projects/session", { cache: "no-store" });
+    if (!response.ok) throw new Error("Projekt-Aktionsfreigabe konnte nicht geladen werden");
+    const payload = await response.json();
+    if (!payload?.enabled || !payload?.actionToken) {
+      throw new Error("Projekterstellung ist in diesem Prozess nicht freigeschaltet");
+    }
+    actionToken = String(payload.actionToken);
   }
 
   /**
@@ -186,14 +208,20 @@ export async function renderNewProjectModule(shell, moduleSettings) {
 
     const actions = document.createElement("div");
     actions.className = "new-project-actions";
+    const planBtn = document.createElement("button");
+    planBtn.type = "button";
+    planBtn.className = "btn btn-primary";
+    planBtn.textContent = "Vorschau pr\u00fcfen";
     const createBtn = document.createElement("button");
     createBtn.type = "button";
-    createBtn.className = "btn btn-primary";
-    createBtn.textContent = "Erstellen";
+    createBtn.className = "btn btn-ghost";
+    createBtn.textContent = "Projekt erstellen";
+    createBtn.disabled = true;
     const cancelBtn = document.createElement("button");
     cancelBtn.type = "button";
     cancelBtn.className = "btn btn-ghost";
     cancelBtn.textContent = "Abbrechen";
+    actions.appendChild(planBtn);
     actions.appendChild(createBtn);
     actions.appendChild(cancelBtn);
 
@@ -246,6 +274,43 @@ export async function renderNewProjectModule(shell, moduleSettings) {
     }
 
     /**
+     * Invalidates a prior server-side preview after any input change.
+     * @returns {void}
+     */
+    function invalidatePlan() {
+      activePlan = null;
+      createBtn.disabled = true;
+      createBtn.classList.remove("btn-primary");
+      createBtn.classList.add("btn-ghost");
+    }
+
+    /**
+     * Reads and validates the current form values.
+     * @returns {object} Normalized project payload.
+     */
+    function getPayload() {
+      const payload = {
+        year: Number.parseInt(String(yearInput.value || ""), 10),
+        society: cleanText(societySelect.value).toUpperCase(),
+        fundingCode: cleanText(fundingInput.value),
+        title: cleanText(titleInput.value),
+        projectType: cleanText(typeSelect.value).toLowerCase(),
+        templatePath: cleanText(templateSelect.value),
+        openInNewTab
+      };
+
+      if (!payload.title) throw new Error("Projekt-Titel fehlt.");
+      if (!payload.year || payload.year < 2000 || payload.year > 2100) {
+        throw new Error("Jahr ist ungueltig.");
+      }
+      if (payload.projectType === "funding" && (!payload.fundingCode || payload.fundingCode === "-")) {
+        throw new Error("Foerderkuerzel fehlt.");
+      }
+      if (!payload.templatePath) throw new Error("Template fehlt.");
+      return payload;
+    }
+
+    /**
      * Updates the status message inside the modal form.
      * @param {string} text - Status text.
      * @param {"ok"|"err"|""} [state] - Optional visual state.
@@ -266,6 +331,7 @@ export async function renderNewProjectModule(shell, moduleSettings) {
       overlay.hidden = false;
       overlay.setAttribute("aria-hidden", "false");
       setFormStatus("");
+      invalidatePlan();
       updatePreview();
       titleInput.focus();
     }
@@ -354,54 +420,77 @@ export async function renderNewProjectModule(shell, moduleSettings) {
     };
     document.addEventListener("keydown", onKeyDown);
 
-    yearInput.addEventListener("input", updatePreview);
-    societySelect.addEventListener("change", updatePreview);
+    const onProjectInput = () => {
+      const hadPlan = Boolean(activePlan);
+      invalidatePlan();
+      updatePreview();
+      if (hadPlan) setFormStatus("Eingaben wurden geaendert. Bitte Vorschau erneut pruefen.");
+    };
+    yearInput.addEventListener("input", onProjectInput);
+    societySelect.addEventListener("change", onProjectInput);
     typeSelect.addEventListener("change", () => {
       updateFundingState();
-      updatePreview();
+      onProjectInput();
     });
-    fundingInput.addEventListener("input", updatePreview);
-    titleInput.addEventListener("input", updatePreview);
+    templateSelect.addEventListener("change", onProjectInput);
+    fundingInput.addEventListener("input", onProjectInput);
+    titleInput.addEventListener("input", onProjectInput);
 
-    createBtn.addEventListener("click", async () => {
-      const payload = {
-        year: Number.parseInt(String(yearInput.value || ""), 10),
-        society: cleanText(societySelect.value).toUpperCase(),
-        fundingCode: cleanText(fundingInput.value),
-        title: cleanText(titleInput.value),
-        projectType: cleanText(typeSelect.value).toLowerCase(),
-        templatePath: cleanText(templateSelect.value),
-        openInNewTab
-      };
-
-      if (!payload.title) {
-        setFormStatus("Projekt-Titel fehlt.", "err");
-        return;
-      }
-      if (!payload.year || payload.year < 2000 || payload.year > 2100) {
-        setFormStatus("Jahr ist ungueltig.", "err");
-        return;
-      }
-      if (payload.projectType === "funding" && (!payload.fundingCode || payload.fundingCode === "-")) {
-        setFormStatus("Foerderkuerzel fehlt.", "err");
-        return;
-      }
-      if (!payload.templatePath) {
-        setFormStatus("Template fehlt.", "err");
-        return;
-      }
-
-      setFormStatus("Projekt wird erstellt...");
-      createBtn.disabled = true;
+    planBtn.addEventListener("click", async () => {
+      invalidatePlan();
+      let payload;
       try {
-        const result = await createProject(payload);
-        setFormStatus(`Erstellt: ${result.folderName}`, "ok");
-        setStatus(`Projekt erstellt: ${result.folderName}`, "ok");
-        hide();
+        payload = getPayload();
+      } catch (error) {
+        setFormStatus(error.message || String(error), "err");
+        return;
+      }
+
+      setFormStatus("Pr\u00fcfe Projektplan...");
+      planBtn.disabled = true;
+      try {
+        await refreshProjectSession();
+        activePlan = await requestProjectOperation("plan", payload);
+        preview.textContent = `Geplant: ${activePlan.paths.folder} mit ${activePlan.template.label}`;
+        createBtn.disabled = false;
+        createBtn.classList.remove("btn-ghost");
+        createBtn.classList.add("btn-primary");
+        setFormStatus("Vorschau ist g\u00fcltig. Erst der n\u00e4chste Schritt legt das Projekt an.", "ok");
       } catch (error) {
         setFormStatus(error.message || String(error), "err");
       } finally {
-        createBtn.disabled = false;
+        planBtn.disabled = false;
+      }
+    });
+
+    createBtn.addEventListener("click", async () => {
+      if (!activePlan?.planId) {
+        setFormStatus("Bitte zuerst die Vorschau pr\u00fcfen.", "err");
+        return;
+      }
+      let payload;
+      try {
+        payload = { ...getPayload(), planId: activePlan.planId };
+      } catch (error) {
+        invalidatePlan();
+        setFormStatus(error.message || String(error), "err");
+        return;
+      }
+
+      setFormStatus("Projekt wird jetzt erstellt...");
+      createBtn.disabled = true;
+      planBtn.disabled = true;
+      try {
+        const result = await requestProjectOperation("create", payload);
+        const suffix = result.warning ? ` (${result.warning})` : "";
+        setFormStatus(`Erstellt: ${result.folderName}${suffix}`, "ok");
+        setStatus(`Projekt erstellt: ${result.folderName}${suffix}`, "ok");
+        hide();
+      } catch (error) {
+        invalidatePlan();
+        setFormStatus(error.message || String(error), "err");
+      } finally {
+        planBtn.disabled = false;
       }
     });
 
@@ -420,7 +509,7 @@ export async function renderNewProjectModule(shell, moduleSettings) {
 
   setStatus("Lade Projekt-Metadaten...");
   try {
-    meta = await fetchMeta();
+    [meta] = await Promise.all([fetchMeta(), refreshProjectSession()]);
     modal.hydrateFromMeta(meta);
     setStatus("");
   } catch (error) {

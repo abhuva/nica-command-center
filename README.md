@@ -60,6 +60,24 @@ To restore the monitoring-only profile, stop the shell and run:
 The legacy Homepage remains available on port `4174`. Use it for New Project
 and Beantime until those capabilities complete their own cutovers.
 
+### Gate 5 project-creation launcher
+
+Project creation is enabled as a narrowly scoped addition to the migrated
+Homepage. Preview the profile transition first:
+
+```powershell
+.\scripts\start-homepage.ps1 -VaultRoot "C:\path\to\vault" -ObsidianVaultName "vault-name" -PrepareProjectProfile
+```
+
+After stopping only the migrated Homepage, apply it once with
+`-PrepareProjectProfile -Apply`. Later starts use the retained profile and only
+`-Apply`. The UI requires a successful server preview before its separate
+create action becomes available. Other Homepage POST actions remain disabled.
+
+To restore the accepted read-only shell, stop the migrated Homepage, preview
+and apply `scripts/restore-homepage-shell-profile.ps1`, then start the Homepage
+normally. The legacy Homepage on `4174` remains available throughout.
+
 ### Gate 5 monitoring launcher
 
 Website monitoring can run independently from the Homepage cutover. Preview
