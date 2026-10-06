@@ -4,6 +4,12 @@ import path from "node:path";
 import tls from "node:tls";
 import { fileURLToPath } from "node:url";
 import { execFileSync, spawn } from "node:child_process";
+import {
+  isWriteEnabled,
+  requireComponentStateDir,
+  requireVaultRoot,
+  runtimeHealth
+} from "./lib/runtime-config.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,23 +17,24 @@ const __dirname = path.dirname(__filename);
 const HOST = process.env.HOMEPAGE_HOST || "127.0.0.1";
 const PORT = Number(process.env.HOMEPAGE_PORT || 4174);
 const ROOT = __dirname;
-const VAULT_ROOT = path.resolve(__dirname, "..");
+const VAULT_ROOT = requireVaultRoot();
+const STATE_DIR = requireComponentStateDir("homepage");
 const OBSIDIAN_VAULT_NAME = String(process.env.OBSIDIAN_VAULT_NAME || "").trim();
 const OBSIDIAN_BIN = resolveObsidianBin();
 
 const BOOKMARKS_FILE = path.join(VAULT_ROOT, ".obsidian", "bookmarks.json");
-const SETTINGS_DIR = path.join(ROOT, "config");
-const DEFAULT_SETTINGS_FILE = path.join(SETTINGS_DIR, "settings.default.json");
+const SETTINGS_DIR = path.join(STATE_DIR, "config");
+const DEFAULT_SETTINGS_FILE = path.join(ROOT, "config", "settings.default.json");
 const LOCAL_SETTINGS_FILE = path.join(SETTINGS_DIR, "settings.local.json");
-const DATA_DIR = path.join(ROOT, "data", "updo");
+const DATA_DIR = path.join(STATE_DIR, "updo");
 const UPDO_RAW_FILE = path.join(DATA_DIR, "raw.jsonl");
 const UPDO_LONGTERM_FILE = path.join(DATA_DIR, "longterm.jsonl");
 const UPDO_INCIDENTS_FILE = path.join(DATA_DIR, "incidents.jsonl");
 const UPDO_STATE_FILE = path.join(DATA_DIR, "state.json");
-const BEANTIME_STATE_FILE = path.join(ROOT, "data", "beantime", "state.json");
+const BEANTIME_STATE_FILE = path.join(STATE_DIR, "beantime", "state.json");
 const BEANTIME_TEMPLATE_FILE = path.join(ROOT, "beantime", "zeit.beancount");
 const BEANTIME_FAVA_HOST = "127.0.0.1";
-const BEANTIME_FAVA_PORT = 3464;
+const BEANTIME_FAVA_PORT = Number(process.env.BEANTIME_FAVA_PORT || 3464);
 const BEANTIME_FAVA_READY_TIMEOUT_MS = 12000;
 const BEANTIME_FAVA_POLL_INTERVAL_MS = 300;
 const PROJECTS_ROOT_REL = "2. Projektverwaltung";
@@ -90,6 +97,16 @@ const DEFAULT_SETTINGS_FALLBACK = {
       personAccount: "Zeit:Example",
       stateFile: "data/beantime/state.json",
       bookableAccountPrefix: "Projekte:"
+    },
+    vaultGraph: {
+      enabled: true,
+      title: "VaultGraph",
+      url: "http://127.0.0.1:4175/vault-graph.html"
+    },
+    email: {
+      enabled: true,
+      title: "Email",
+      url: "http://127.0.0.1:4176/email.html"
     },
     updo: {
       enabled: true,
@@ -417,7 +434,7 @@ function toNumberInRange(value, fallback, min, max) {
 }
 
 /**
- * Resolves persisted data paths relative to `Tools/`.
+ * Resolves persisted data paths relative to the component state directory.
  * @param {unknown} relativePath - Configured relative path value.
  * @param {string} fallbackAbsolutePath - Fallback absolute path.
  * @returns {string} Absolute path for the data file.
@@ -428,7 +445,7 @@ function resolveDataPath(relativePath, fallbackAbsolutePath) {
   if (path.isAbsolute(raw)) return fallbackAbsolutePath;
   if (/^[a-zA-Z]:/.test(raw)) return fallbackAbsolutePath;
 
-  const toolsRoot = path.resolve(ROOT);
+  const toolsRoot = path.resolve(STATE_DIR);
   const normalized = path.normalize(raw.replace(/[\\/]+/g, path.sep));
   if (!normalized || normalized === ".") return fallbackAbsolutePath;
 
@@ -464,7 +481,7 @@ function getBeantimeConfigFromSettings(settings) {
     title: toCleanString(moduleCfg.title, DEFAULT_SETTINGS_FALLBACK.modules.beantime.title),
     filePath: resolveDataPath(
       toCleanString(moduleCfg.file, DEFAULT_SETTINGS_FALLBACK.modules.beantime.file),
-      path.join(ROOT, "data", "beantime", "zeit.beancount")
+      path.join(STATE_DIR, "beantime", "zeit.beancount")
     ),
     personAccount: toCleanString(
       moduleCfg.personAccount,
@@ -1317,6 +1334,22 @@ function normalizeSettings(input) {
         bookableAccountPrefix: toCleanString(
           merged?.modules?.beantime?.bookableAccountPrefix,
           DEFAULT_SETTINGS_FALLBACK.modules.beantime.bookableAccountPrefix
+        )
+      },
+      vaultGraph: {
+        enabled: toBool(merged?.modules?.vaultGraph?.enabled, DEFAULT_SETTINGS_FALLBACK.modules.vaultGraph.enabled),
+        title: toCleanString(merged?.modules?.vaultGraph?.title, DEFAULT_SETTINGS_FALLBACK.modules.vaultGraph.title),
+        url: toCleanString(
+          process.env.VAULTGRAPH_URL || merged?.modules?.vaultGraph?.url,
+          DEFAULT_SETTINGS_FALLBACK.modules.vaultGraph.url
+        )
+      },
+      email: {
+        enabled: toBool(merged?.modules?.email?.enabled, DEFAULT_SETTINGS_FALLBACK.modules.email.enabled),
+        title: toCleanString(merged?.modules?.email?.title, DEFAULT_SETTINGS_FALLBACK.modules.email.title),
+        url: toCleanString(
+          process.env.EMAIL_URL || merged?.modules?.email?.url,
+          DEFAULT_SETTINGS_FALLBACK.modules.email.url
         )
       },
       updo: {
@@ -3089,7 +3122,16 @@ const server = http.createServer((req, res) => {
   const pathname = url.pathname;
 
   if (req.method === "GET" && pathname === "/api/ping") {
-    sendJson(res, 200, { ok: true });
+    sendJson(res, 200, { ok: true, ...runtimeHealth("homepage", VAULT_ROOT, STATE_DIR) });
+    return;
+  }
+
+  if (req.method === "POST" && !isWriteEnabled()) {
+    sendJson(res, 403, {
+      ok: false,
+      code: "NICA_READ_ONLY",
+      message: "Action disabled: set NICA_WRITE_ENABLED=true in an intentional apply run"
+    });
     return;
   }
 
@@ -3457,6 +3499,7 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, HOST, () => {
   ensureUpdoMonitor();
   console.log(`Homepage preview server: http://${HOST}:${PORT}/home.html`);
+  console.log(`Runtime mode: ${isWriteEnabled() ? "read-write" : "read-only"}; vault authority: ${VAULT_ROOT}`);
   console.log(
     "Homepage API endpoints ready: GET /api/ping, GET/POST /api/settings, GET /api/bookmarks, GET /api/obsidian/theme, POST /api/bookmarks/open, POST /api/search/open, GET /api/beantime/meta, POST /api/beantime/start, POST /api/beantime/stop, POST /api/beantime/show, GET /api/projects/meta, POST /api/projects/create, GET /api/updo/snapshot, GET /api/updo/history, POST /api/updo/restart"
   );

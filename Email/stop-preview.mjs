@@ -3,7 +3,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
-const pidPath = path.join(root, "email.preview.pid");
+const pidPath = process.env.NICA_STATE_ROOT
+  ? path.resolve(process.env.NICA_STATE_ROOT, "email", "email.preview.pid")
+  : path.join(root, "email.preview.pid");
 
 /**
  * Reads the stored preview PID.

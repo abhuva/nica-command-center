@@ -24,6 +24,20 @@ body {
   color: var(--email-text);
   font: 13px/1.45 "IBM Plex Sans", "Segoe UI", sans-serif;
 }
+
+.migration-candidate-badge {
+  position: fixed;
+  right: 8px;
+  bottom: 8px;
+  z-index: 10000;
+  padding: 4px 8px;
+  border: 1px solid #b7791f;
+  border-radius: 999px;
+  background: #fff7d6;
+  color: #6b4300;
+  font: 600 11px/1.2 system-ui, sans-serif;
+  pointer-events: none;
+}
 button, input, select {
   border: 1px solid var(--email-line);
   border-radius: 4px;

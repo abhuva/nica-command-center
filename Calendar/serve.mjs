@@ -6,6 +6,12 @@ import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import SftpClient from "ssh2-sftp-client";
 import { loadDotEnvFile } from "./lib/env.mjs";
+import {
+  isWriteEnabled,
+  requireComponentStateDir,
+  requireVaultRoot,
+  runtimeHealth
+} from "../lib/runtime-config.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,7 +22,9 @@ loadDotEnvFile(path.resolve(__dirname, ".env.local"));
 const HOST = process.env.CALENDAR_HOST || "127.0.0.1";
 const PORT = Number(process.env.CALENDAR_PORT || 4173);
 const ROOT = __dirname;
-const VAULT_ROOT = path.resolve(__dirname, "..", "..");
+const VAULT_ROOT = requireVaultRoot();
+const STATE_DIR = requireComponentStateDir("calendar");
+const GENERATED_EVENTS_FILE = path.join(STATE_DIR, "events.generated.js");
 const INBOX_PATH = process.env.CALENDAR_INBOX_PATH || "6. Obsidian/Inbox";
 const DEFAULT_BASE_PATH = process.env.OBSIDIAN_BASE_PATH || "6. Obsidian/Live/Kalender.base";
 const DEFAULT_BASE_VIEW = process.env.OBSIDIAN_BASE_VIEW || "Tabelle";
@@ -39,10 +47,11 @@ const GOOGLE_OAUTH_SCOPES = String(
   .split(/\s+/)
   .map((value) => value.trim())
   .filter(Boolean);
-const GOOGLE_OAUTH_TOKEN_FILE = path.resolve(
-  ROOT,
-  String(process.env.GOOGLE_OAUTH_TOKEN_FILE || "google-oauth-token.json")
-);
+const GOOGLE_OAUTH_TOKEN_NAME = String(process.env.GOOGLE_OAUTH_TOKEN_FILE || "google-oauth-token.json").trim();
+if (path.isAbsolute(GOOGLE_OAUTH_TOKEN_NAME) || GOOGLE_OAUTH_TOKEN_NAME.split(/[\\/]+/).includes("..")) {
+  throw new Error("GOOGLE_OAUTH_TOKEN_FILE must be relative to the Calendar state directory");
+}
+const GOOGLE_OAUTH_TOKEN_FILE = path.resolve(STATE_DIR, GOOGLE_OAUTH_TOKEN_NAME);
 const GOOGLE_DEFAULT_CREATE_CALENDAR_ID =
   String(process.env.GOOGLE_CREATE_CALENDAR_ID || "").trim() || GOOGLE_CALENDAR_IDS[0] || "";
 const NEXTCLOUD_CALDAV_BASE_URL = String(process.env.NEXTCLOUD_CALDAV_BASE_URL || "").trim();
@@ -55,8 +64,8 @@ const NEXTCLOUD_CALDAV_CALENDARS = String(process.env.NEXTCLOUD_CALDAV_CALENDARS
 const NEXTCLOUD_DEFAULT_CREATE_CALENDAR_ID =
   String(process.env.NEXTCLOUD_CREATE_CALENDAR_ID || "").trim() || NEXTCLOUD_CALDAV_CALENDARS[0] || "";
 const BOOKMARKS_FILE = path.resolve(VAULT_ROOT, ".obsidian", "bookmarks.json");
-const FILTER_STATE_FILE = path.resolve(ROOT, "calendar.filter-state.json");
-const PID_FILE = path.resolve(ROOT, "calendar.preview.pid");
+const FILTER_STATE_FILE = path.resolve(STATE_DIR, "calendar.filter-state.json");
+const PID_FILE = path.resolve(STATE_DIR, "calendar.preview.pid");
 const PUBLIC_EXPORT_DIR = resolvePublicExportDir(process.env.CALENDAR_PUBLIC_EXPORT_DIR);
 const PUBLIC_SFTP_URL = String(process.env.CALENDAR_PUBLIC_SFTP_URL || "").trim();
 const PUBLIC_SFTP_USER = String(process.env.CALENDAR_PUBLIC_SFTP_USER || "").trim();
@@ -1123,19 +1132,19 @@ function publicExportString(value) {
 }
 
 /**
- * Resolves the local public export directory without allowing path traversal.
+ * Resolves the local public export directory below the component state root.
  * @param {unknown} rawDir - Optional environment value.
- * @returns {string} Absolute export directory below the Calendar tool root.
+ * @returns {string} Absolute export directory below the Calendar state root.
  */
 function resolvePublicExportDir(rawDir) {
   const raw = String(rawDir || "public-export").trim() || "public-export";
   if (path.isAbsolute(raw) || raw.split(/[\\/]+/).includes("..")) {
-    throw new Error("CALENDAR_PUBLIC_EXPORT_DIR must be a relative path below Tools/Calendar");
+    throw new Error("CALENDAR_PUBLIC_EXPORT_DIR must be relative to the Calendar state directory");
   }
-  const resolved = path.resolve(ROOT, raw);
-  const relativeToRoot = path.relative(ROOT, resolved);
+  const resolved = path.resolve(STATE_DIR, raw);
+  const relativeToRoot = path.relative(STATE_DIR, resolved);
   if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
-    throw new Error("CALENDAR_PUBLIC_EXPORT_DIR must resolve below Tools/Calendar");
+    throw new Error("CALENDAR_PUBLIC_EXPORT_DIR must resolve below the Calendar state directory");
   }
   return resolved;
 }
@@ -3066,7 +3075,17 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "GET" && req.url === "/api/ping") {
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-    res.end(JSON.stringify({ ok: true }));
+    res.end(JSON.stringify({ ok: true, ...runtimeHealth("calendar", VAULT_ROOT, STATE_DIR) }));
+    return;
+  }
+
+  if (
+    req.method === "GET" &&
+    (requestUrl.pathname === "/api/google-oauth/start" || requestUrl.pathname === "/api/google-oauth/callback") &&
+    !isWriteEnabled()
+  ) {
+    res.writeHead(403, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({ ok: false, code: "NICA_READ_ONLY", message: "OAuth changes are disabled" }));
     return;
   }
 
@@ -3179,6 +3198,17 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "POST") {
+    if (!isWriteEnabled()) {
+      res.writeHead(403, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(
+        JSON.stringify({
+          ok: false,
+          code: "NICA_READ_ONLY",
+          message: "Action disabled: set NICA_WRITE_ENABLED=true in an intentional apply run"
+        })
+      );
+      return;
+    }
     if (!hasJsonContentType(req)) {
       res.writeHead(415, { "Content-Type": "text/plain; charset=utf-8" });
       res.end("Content-Type must be application/json");
@@ -3719,7 +3749,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const target = safeResolve(req.url || "/");
+  const target = requestUrl.pathname === "/events.generated.js" ? GENERATED_EVENTS_FILE : safeResolve(req.url || "/");
   if (!target) {
     res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("Forbidden");
@@ -3757,6 +3787,7 @@ server.on("error", (error) => {
 server.listen(PORT, HOST, () => {
   writePidFile();
   console.log(`Calendar preview server: http://${HOST}:${PORT}/cal.html`);
+  console.log(`Runtime mode: ${isWriteEnabled() ? "read-write" : "read-only"}; vault authority: ${VAULT_ROOT}`);
   console.log(
     "Calendar API endpoints ready: GET /api/ping, GET /api/obsidian/theme, GET /api/calendar/filters, GET /api/google-calendar/config, GET /api/google-calendar/events, GET /api/google-oauth/status, GET /api/google-oauth/start, GET /api/google-oauth/callback, GET /api/nextcloud-calendar/config, GET /api/nextcloud-calendar/events, GET /api/session, GET /api/events/preview, POST /api/google-oauth/disconnect, POST /api/google-calendar/events/create, POST /api/google-calendar/events/update, POST /api/google-calendar/events/delete, POST /api/nextcloud-calendar/events/create, POST /api/nextcloud-calendar/events/update, POST /api/nextcloud-calendar/events/delete, POST /api/events/update-dates, POST /api/events/open-note, POST /api/events/open-map, POST /api/events/create, POST /api/events/rebuild, POST /api/events/publish-public"
   );

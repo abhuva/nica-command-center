@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { loadDotEnvFile } from "./lib/env.mjs";
+import { requireComponentStateDir, requireVaultRoot } from "../lib/runtime-config.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,8 +11,8 @@ const __dirname = path.dirname(__filename);
 loadDotEnvFile(path.resolve(__dirname, ".env"));
 loadDotEnvFile(path.resolve(__dirname, ".env.local"));
 
-const VAULT_ROOT = path.resolve(__dirname, "..", "..");
-const OUTPUT_FILE = path.resolve(__dirname, "events.generated.js");
+const VAULT_ROOT = requireVaultRoot();
+const OUTPUT_FILE = path.join(requireComponentStateDir("calendar"), "events.generated.js");
 const BASE_PATH = process.env.OBSIDIAN_BASE_PATH || "6. Obsidian/Live/Kalender.base";
 const BASE_VIEW = process.env.OBSIDIAN_BASE_VIEW || "Tabelle";
 const OBSIDIAN_VAULT_NAME = String(process.env.OBSIDIAN_VAULT_NAME || "").trim();

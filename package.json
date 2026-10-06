@@ -6,6 +6,8 @@
     "preview": "node ./serve.mjs",
     "stop:preview": "node ./stop-preview.mjs",
     "restart:preview": "npm run stop:preview && npm run preview",
+    "doctor": "node ./scripts/doctor.mjs",
+    "check:runtime": "node ./tests/runtime-config-smoke.mjs",
     "lint": "eslint .",
     "lint:jsdoc": "eslint \"**/*.{js,mjs}\""
   },

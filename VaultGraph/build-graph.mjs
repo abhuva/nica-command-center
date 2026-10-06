@@ -1,14 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { requireComponentStateDir, requireVaultRoot } from "../lib/runtime-config.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export const TOOL_ROOT = __dirname;
-export const VAULT_ROOT = path.resolve(__dirname, "..", "..");
-export const GENERATED_JSON_FILE = path.resolve(TOOL_ROOT, "graph.generated.json");
-export const GENERATED_JS_FILE = path.resolve(TOOL_ROOT, "graph.generated.js");
+export const VAULT_ROOT = requireVaultRoot();
+export const STATE_DIR = requireComponentStateDir("vaultgraph");
+export const GENERATED_JSON_FILE = path.resolve(STATE_DIR, "graph.generated.json");
+export const GENERATED_JS_FILE = path.resolve(STATE_DIR, "graph.generated.js");
 
 const ROOT_ID = ".";
 const HIDDEN_SYSTEM_ROOTS = new Set([".git"]);

@@ -2,7 +2,14 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildAndWriteGraph, GENERATED_JSON_FILE } from "./build-graph.mjs";
+import {
+  buildAndWriteGraph,
+  GENERATED_JS_FILE,
+  GENERATED_JSON_FILE,
+  STATE_DIR,
+  VAULT_ROOT
+} from "./build-graph.mjs";
+import { isWriteEnabled, runtimeHealth } from "../lib/runtime-config.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,7 +18,7 @@ const HOST = process.env.VAULTGRAPH_HOST || "127.0.0.1";
 const PORT = Number(process.env.VAULTGRAPH_PORT || 4175);
 const ROOT = __dirname;
 const ROOT_REAL = fs.realpathSync(ROOT);
-const PID_FILE = path.resolve(ROOT, "vault-graph.preview.pid");
+const PID_FILE = path.resolve(STATE_DIR, "vault-graph.preview.pid");
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -104,7 +111,7 @@ const server = http.createServer((req, res) => {
   const pathname = url.pathname;
 
   if (req.method === "GET" && pathname === "/api/ping") {
-    sendJson(res, 200, { ok: true });
+    sendJson(res, 200, { ok: true, ...runtimeHealth("vaultgraph", VAULT_ROOT, STATE_DIR) });
     return;
   }
 
@@ -118,6 +125,14 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "POST" && pathname === "/api/graph/rebuild") {
+    if (!isWriteEnabled()) {
+      sendJson(res, 403, {
+        ok: false,
+        code: "NICA_READ_ONLY",
+        message: "Rebuild disabled: set NICA_WRITE_ENABLED=true in an intentional apply run"
+      });
+      return;
+    }
     try {
       const graph = buildAndWriteGraph();
       sendJson(res, 200, { ok: true, graph });
@@ -127,7 +142,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const target = safeResolve(req.url || "/");
+  const target = pathname === "/graph.generated.js" ? GENERATED_JS_FILE : safeResolve(req.url || "/");
   if (!target) {
     sendText(res, 403, "Forbidden");
     return;
@@ -144,7 +159,8 @@ const server = http.createServer((req, res) => {
   }
   const realFilePath = fs.realpathSync(filePath);
   const relativeToRealRoot = path.relative(ROOT_REAL, realFilePath);
-  if (relativeToRealRoot.startsWith("..") || path.isAbsolute(relativeToRealRoot)) {
+  const isGeneratedGraph = realFilePath === fs.realpathSync(GENERATED_JS_FILE);
+  if (!isGeneratedGraph && (relativeToRealRoot.startsWith("..") || path.isAbsolute(relativeToRealRoot))) {
     sendText(res, 403, "Forbidden");
     return;
   }
@@ -178,6 +194,7 @@ server.on("error", (error) => {
 server.listen(PORT, HOST, () => {
   writePidFile();
   console.log(`VaultGraph preview server: http://${HOST}:${PORT}/vault-graph.html`);
+  console.log(`Runtime mode: ${isWriteEnabled() ? "read-write" : "read-only"}; vault authority: ${VAULT_ROOT}`);
   console.log("VaultGraph API endpoints ready: GET /api/ping, GET /api/graph, POST /api/graph/rebuild");
 });
 

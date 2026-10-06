@@ -35,7 +35,8 @@ DEFAULT_CONFIG = {
     "host": "127.0.0.1",
     "port": 4176,
     "database": "email.db",
-    "vaultRoot": "../..",
+    "runtimeRoot": "",
+    "vaultRoot": "",
     "emailVaultDir": "8. Emails",
     "accounts": [],
 }
@@ -103,9 +104,9 @@ class EmailTool:
     config: dict[str, Any]
 
     def __post_init__(self) -> None:
-        self.root = ROOT
+        self.root = Path(self.config.get("runtimeRoot") or ROOT).resolve()
         self.db_path = self.resolve_tool_path(self.config.get("database", "email.db"))
-        self.vault_root = self.resolve_tool_path(self.config.get("vaultRoot", "../.."))
+        self.vault_root = Path(self.config.get("vaultRoot") or "").resolve()
         self.email_vault_dir = str(self.config.get("emailVaultDir", "8. Emails")).strip() or "8. Emails"
         self._lock = threading.Lock()
         self._progress_lock = threading.Lock()
@@ -1108,10 +1109,10 @@ def load_env(path: Path) -> None:
         os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
-def load_config() -> dict[str, Any]:
+def load_config(state_dir: Path) -> dict[str, Any]:
     config = json.loads(json.dumps(DEFAULT_CONFIG))
     for name in ("config.json", "config.local.json"):
-        path = ROOT / name
+        path = state_dir / name
         if path.exists():
             config = deep_merge(config, json.loads(path.read_text(encoding="utf-8")))
     return config
@@ -1124,11 +1125,12 @@ def ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -
 
 
 def fetch_homepage_theme_snapshot() -> dict[str, Any]:
+    homepage_url = os.environ.get("NICA_HOMEPAGE_URL", "http://127.0.0.1:4174").rstrip("/")
     try:
-        with urllib.request.urlopen("http://127.0.0.1:4174/api/obsidian/theme", timeout=3) as response:
+        with urllib.request.urlopen(f"{homepage_url}/api/obsidian/theme", timeout=3) as response:
             return json.loads(response.read().decode("utf-8"))
     except Exception as exc:
-        raise RuntimeError("Could not read Obsidian theme via Homepage server on port 4174") from exc
+        raise RuntimeError(f"Could not read Obsidian theme via Homepage server at {homepage_url}") from exc
 
 
 def deep_merge(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
@@ -1484,6 +1486,8 @@ class Handler(BaseHTTPRequestHandler):
     """HTTP bridge for the local email UI."""
 
     tool: EmailTool
+    write_enabled = False
+    state_dir: Path
 
     def log_message(self, format: str, *args: Any) -> None:
         sys.stderr.write("Email server: " + format % args + "\n")
@@ -1492,7 +1496,17 @@ class Handler(BaseHTTPRequestHandler):
         try:
             parsed = urllib.parse.urlparse(self.path)
             if parsed.path == "/api/ping":
-                self.send_json({"ok": True})
+                self.send_json({
+                    "ok": True,
+                    "component": "email",
+                    "mode": "read-write" if self.write_enabled else "read-only",
+                    "writesEnabled": self.write_enabled,
+                    "authority": {
+                        "vault": str(self.tool.vault_root),
+                        "localState": str(self.state_dir),
+                        "vaultIsAuthoritative": True,
+                    },
+                })
                 return
             if parsed.path == "/api/state":
                 self.send_json({"ok": True, "stats": self.tool.stats(), "accounts": self.tool.accounts(), "rules": self.tool.list_rules()})
@@ -1534,6 +1548,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         try:
+            if not self.write_enabled:
+                self.send_json({
+                    "ok": False,
+                    "code": "NICA_READ_ONLY",
+                    "error": "Action disabled: set NICA_WRITE_ENABLED=true in an intentional apply run",
+                }, status=403)
+                return
             payload = self.read_json()
             parsed = urllib.parse.urlparse(self.path)
             if parsed.path == "/api/fetch":
@@ -1660,20 +1681,70 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
+def require_directory_env(name: str, create: bool = False) -> Path:
+    """Return a validated absolute directory configured through the environment."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        raise RuntimeError(f"{name} is required")
+    candidate = Path(raw)
+    if not candidate.is_absolute():
+        raise RuntimeError(f"{name} must be an absolute path")
+    if create:
+        candidate.mkdir(parents=True, exist_ok=True)
+    if not candidate.is_dir():
+        raise RuntimeError(f"{name} must identify an existing directory")
+    return candidate.resolve()
+
+
+def require_state_root(vault_root: Path) -> Path:
+    """Create local state only after proving its path is outside the vault."""
+    raw = os.environ.get("NICA_STATE_ROOT", "").strip()
+    if not raw:
+        raise RuntimeError("NICA_STATE_ROOT is required")
+    candidate = Path(raw)
+    if not candidate.is_absolute():
+        raise RuntimeError("NICA_STATE_ROOT must be an absolute path")
+    unresolved = candidate.resolve()
+    if unresolved == vault_root or unresolved in vault_root.parents or vault_root in unresolved.parents:
+        raise RuntimeError("NICA_STATE_ROOT and NICA_VAULT_ROOT must be separate directory trees")
+    candidate.mkdir(parents=True, exist_ok=True)
+    state_root = candidate.resolve()
+    if state_root == vault_root or state_root in vault_root.parents or vault_root in state_root.parents:
+        raise RuntimeError("NICA_STATE_ROOT and NICA_VAULT_ROOT must be separate directory trees")
+    return state_root
+
+
 def serve(args: argparse.Namespace) -> None:
-    load_env(ROOT / ".env")
-    tool = EmailTool(load_config())
+    vault_root = require_directory_env("NICA_VAULT_ROOT")
+    state_root = require_state_root(vault_root)
+    state_dir = state_root / "email"
+    if state_dir.is_symlink():
+        raise RuntimeError("Email state directory must not be a symbolic link")
+    state_dir.mkdir(parents=True, exist_ok=True)
+    state_dir = state_dir.resolve()
+    if state_root not in state_dir.parents:
+        raise RuntimeError("Email state directory escaped NICA_STATE_ROOT")
+    config = load_config(state_dir)
+    config["runtimeRoot"] = str(state_dir)
+    config["vaultRoot"] = str(vault_root)
+    config["host"] = os.environ.get("EMAIL_HOST", config.get("host") or "127.0.0.1")
+    config["port"] = int(os.environ.get("EMAIL_PORT", args.port or config.get("port") or 4176))
+    tool = EmailTool(config)
     host = str(tool.config.get("host") or "127.0.0.1")
-    port = int(args.port or tool.config.get("port") or 4176)
+    port = int(tool.config.get("port") or 4176)
     Handler.tool = tool
+    Handler.state_dir = state_dir
+    Handler.write_enabled = os.environ.get("NICA_WRITE_ENABLED", "").strip().lower() == "true"
     server = ThreadingHTTPServer((host, port), Handler)
-    (ROOT / "email.preview.pid").write_text(str(os.getpid()), encoding="ascii")
+    pid_file = state_dir / "email.preview.pid"
+    pid_file.write_text(str(os.getpid()), encoding="ascii")
     print(f"Email preview server: http://{host}:{port}/email.html", flush=True)
+    print(f"Runtime mode: {'read-write' if Handler.write_enabled else 'read-only'}; vault authority: {vault_root}", flush=True)
     try:
         server.serve_forever()
     finally:
         try:
-            (ROOT / "email.preview.pid").unlink()
+            pid_file.unlink()
         except FileNotFoundError:
             pass
 
@@ -1683,6 +1754,7 @@ def smoke() -> None:
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
         config = dict(DEFAULT_CONFIG)
+        config["runtimeRoot"] = temp_dir
         config["database"] = str(Path(temp_dir) / "email.db")
         config["vaultRoot"] = temp_dir
         config["emailVaultDir"] = "8. Emails"

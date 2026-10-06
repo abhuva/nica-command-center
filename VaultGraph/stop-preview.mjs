@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const PID_FILE = path.resolve(__dirname, "vault-graph.preview.pid");
+const PID_FILE = process.env.NICA_STATE_ROOT
+  ? path.resolve(process.env.NICA_STATE_ROOT, "vaultgraph", "vault-graph.preview.pid")
+  : path.resolve(__dirname, "vault-graph.preview.pid");
 const PORT = Number(process.env.VAULTGRAPH_PORT || 4175);
 
 /**

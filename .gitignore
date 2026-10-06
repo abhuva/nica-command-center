@@ -53,7 +53,7 @@ VaultGraph/vault-graph.preview.pid
 # Editors and operating systems
 .idea/
 .vscode/
-.obsidian/
+/.obsidian/
 .DS_Store
 Thumbs.db
 Desktop.ini

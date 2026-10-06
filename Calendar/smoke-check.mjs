@@ -1,10 +1,11 @@
 ﻿import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { requireComponentStateDir } from "../lib/runtime-config.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const EVENTS_FILE = path.resolve(__dirname, "events.generated.js");
+const EVENTS_FILE = path.resolve(requireComponentStateDir("calendar"), "events.generated.js");
 
 /**
  * Fail.

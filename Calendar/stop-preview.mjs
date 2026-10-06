@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const PID_FILE = path.resolve(__dirname, "calendar.preview.pid");
+const PID_FILE = process.env.NICA_STATE_ROOT
+  ? path.resolve(process.env.NICA_STATE_ROOT, "calendar", "calendar.preview.pid")
+  : path.resolve(__dirname, "calendar.preview.pid");
 const PORT = Number(process.env.CALENDAR_PORT || 4173);
 
 /**
