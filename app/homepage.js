@@ -271,6 +271,18 @@ function restoreActiveModuleKey() {
 }
 
 /**
+ * Reads an explicitly requested module key from the current page URL.
+ * @returns {string} Requested module key or an empty string.
+ */
+function requestedModuleKeyFromLocation() {
+  try {
+    return String(new URLSearchParams(window.location.search).get("module") || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Re-renders tab button active states to mirror current selection.
  * @returns {void}
  */
@@ -321,6 +333,8 @@ async function activateModule(moduleKey, opts = {}) {
 function pickActiveModuleKey() {
   const enabledKeys = enabledModuleEntries.map(([moduleKey]) => moduleKey);
   if (enabledKeys.includes(activeModuleKey)) return activeModuleKey;
+  const requested = requestedModuleKeyFromLocation();
+  if (enabledKeys.includes(requested)) return requested;
   const cached = restoreActiveModuleKey();
   if (enabledKeys.includes(cached)) return cached;
   return enabledKeys[0] || "";

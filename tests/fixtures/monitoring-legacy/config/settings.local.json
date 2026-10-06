@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "modules": {
+    "updo": {
+      "enabled": true,
+      "title": "Synthetic Website Monitoring",
+      "refreshSec": 3,
+      "windowMinutes": 60,
+      "maxPoints": 120,
+      "persistence": {
+        "enabled": true,
+        "rawFile": "data/updo/raw.jsonl",
+        "longtermFile": "data/updo/longterm.jsonl",
+        "incidentsFile": "data/updo/incidents.jsonl",
+        "stateFile": "data/updo/state.json"
+      },
+      "compression": {
+        "compressCount": 120,
+        "compressSpanMinutes": 1440,
+        "keepTailPoints": 20
+      },
+      "spikeDetection": {
+        "staticThresholdMs": 1200,
+        "multiplierOverAvg": 2.5,
+        "minConsecutivePoints": 2
+      },
+      "outageDetection": {
+        "minConsecutiveFailures": 2
+      },
+      "gapDetection": {
+        "gapFactor": 3
+      },
+      "targets": [
+        {
+          "id": "fixture",
+          "name": "Synthetic local target",
+          "url": "http://127.0.0.1:4399"
+        }
+      ]
+    }
+  }
+}
