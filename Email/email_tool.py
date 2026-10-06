@@ -1,0 +1,1743 @@
+﻿#!/usr/bin/env python3
+"""Database-first email bridge for the Obsidian Tools workspace."""
+from __future__ import annotations
+
+import argparse
+import base64
+import datetime as dt
+import email
+import email.policy
+import hashlib
+import html
+import imaplib
+import json
+import os
+import re
+import secrets
+import sqlite3
+import ssl
+import sys
+import threading
+import time
+import urllib.parse
+import urllib.request
+import urllib.error
+from dataclasses import dataclass
+from email.header import decode_header
+from email.utils import getaddresses, parsedate_to_datetime, parseaddr
+from html.parser import HTMLParser
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any, Iterable
+
+ROOT = Path(__file__).resolve().parent
+DEFAULT_CONFIG = {
+    "host": "127.0.0.1",
+    "port": 4176,
+    "database": "email.db",
+    "vaultRoot": "../..",
+    "emailVaultDir": "8. Emails",
+    "accounts": [],
+}
+MIME_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".ico": "image/x-icon",
+}
+
+
+class HtmlToText(HTMLParser):
+    """Small HTML-to-text converter for email bodies."""
+
+    BLOCK_TAGS = {"p", "div", "br", "li", "tr", "table", "section", "article", "header", "footer", "blockquote"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self.skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.lower()
+        if tag in {"script", "style", "noscript"}:
+            self.skip_depth += 1
+            return
+        if self.skip_depth:
+            return
+        if tag == "li":
+            self.parts.append("\n- ")
+        elif tag in self.BLOCK_TAGS:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if tag in {"script", "style", "noscript"} and self.skip_depth:
+            self.skip_depth -= 1
+            return
+        if self.skip_depth:
+            return
+        if tag in self.BLOCK_TAGS:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if not self.skip_depth:
+            self.parts.append(data)
+
+    def text(self) -> str:
+        raw = "".join(self.parts)
+        raw = html.unescape(raw)
+        raw = re.sub(r"[ \t]+", " ", raw)
+        raw = re.sub(r"\n{3,}", "\n\n", raw)
+        return raw.strip()
+
+
+@dataclass
+class EmailTool:
+    """Main application service."""
+
+    config: dict[str, Any]
+
+    def __post_init__(self) -> None:
+        self.root = ROOT
+        self.db_path = self.resolve_tool_path(self.config.get("database", "email.db"))
+        self.vault_root = self.resolve_tool_path(self.config.get("vaultRoot", "../.."))
+        self.email_vault_dir = str(self.config.get("emailVaultDir", "8. Emails")).strip() or "8. Emails"
+        self._lock = threading.Lock()
+        self._progress_lock = threading.Lock()
+        self.progress: dict[str, Any] = {"active": False, "phase": "idle", "message": "Idle", "updatedAt": iso_now()}
+        self.oauth_flows: dict[str, dict[str, Any]] = {}
+        self.oauth_callback_server: ThreadingHTTPServer | None = None
+        self.init_db()
+
+    def resolve_tool_path(self, value: str | os.PathLike[str]) -> Path:
+        path = Path(value)
+        if not path.is_absolute():
+            path = self.root / path
+        return path.resolve()
+
+    def connect(self) -> sqlite3.Connection:
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        return conn
+
+    def set_progress(self, **updates: Any) -> None:
+        with self._progress_lock:
+            self.progress.update(updates)
+            self.progress["updatedAt"] = iso_now()
+
+    def get_progress(self) -> dict[str, Any]:
+        with self._progress_lock:
+            return dict(self.progress)
+
+    def init_db(self) -> None:
+        with self.connect() as conn:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS accounts (
+                  id TEXT PRIMARY KEY,
+                  email TEXT NOT NULL,
+                  provider TEXT DEFAULT '',
+                  enabled INTEGER DEFAULT 1,
+                  config_json TEXT NOT NULL,
+                  last_sync_at TEXT,
+                  last_error TEXT
+                );
+                CREATE TABLE IF NOT EXISTS messages (
+                  id TEXT PRIMARY KEY,
+                  account_id TEXT NOT NULL,
+                  mailbox TEXT NOT NULL,
+                  uid TEXT NOT NULL,
+                  message_id TEXT,
+                  thread_key TEXT,
+                  subject TEXT,
+                  sender_name TEXT,
+                  sender_email TEXT,
+                  recipients_json TEXT NOT NULL DEFAULT '[]',
+                  cc_json TEXT NOT NULL DEFAULT '[]',
+                  sent_at TEXT,
+                  received_at TEXT,
+                  raw_headers_json TEXT NOT NULL DEFAULT '{}',
+                  body_text TEXT,
+                  body_markdown TEXT,
+                  body_hash TEXT,
+                  attachment_count INTEGER DEFAULT 0,
+                  size_bytes INTEGER DEFAULT 0,
+                  fetched_at TEXT NOT NULL,
+                  last_seen_at TEXT,
+                  include_state TEXT NOT NULL DEFAULT 'candidate',
+                  include_reason TEXT,
+                  summary TEXT,
+                  importance_score REAL,
+                  spam_score REAL,
+                  exported_path TEXT,
+                  exported_at TEXT,
+                  export_hash TEXT,
+                  UNIQUE(account_id, mailbox, uid)
+                );
+                CREATE INDEX IF NOT EXISTS idx_messages_date ON messages(sent_at);
+                CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_email);
+                CREATE INDEX IF NOT EXISTS idx_messages_state ON messages(include_state);
+                CREATE TABLE IF NOT EXISTS mailbox_sync (
+                  account_id TEXT NOT NULL,
+                  mailbox TEXT NOT NULL,
+                  highest_uid INTEGER NOT NULL DEFAULT 0,
+                  last_sync_at TEXT,
+                  last_total INTEGER DEFAULT 0,
+                  last_matched INTEGER DEFAULT 0,
+                  last_error TEXT,
+                  PRIMARY KEY(account_id, mailbox)
+                );
+                CREATE TABLE IF NOT EXISTS message_tags (
+                  message_id TEXT NOT NULL,
+                  tag TEXT NOT NULL,
+                  source TEXT NOT NULL DEFAULT 'manual',
+                  created_at TEXT NOT NULL,
+                  PRIMARY KEY(message_id, tag, source),
+                  FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS rules (
+                  id TEXT PRIMARY KEY,
+                  name TEXT NOT NULL,
+                  enabled INTEGER NOT NULL DEFAULT 1,
+                  scope TEXT NOT NULL DEFAULT 'global',
+                  account_id TEXT,
+                  field TEXT NOT NULL,
+                  operator TEXT NOT NULL,
+                  pattern TEXT NOT NULL,
+                  action TEXT NOT NULL,
+                  tag TEXT,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS rule_matches (
+                  message_id TEXT NOT NULL,
+                  rule_id TEXT NOT NULL,
+                  matched_at TEXT NOT NULL,
+                  result_json TEXT NOT NULL DEFAULT '{}',
+                  PRIMARY KEY(message_id, rule_id),
+                  FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
+                  FOREIGN KEY(rule_id) REFERENCES rules(id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS exports (
+                  message_id TEXT NOT NULL,
+                  profile TEXT NOT NULL,
+                  exported_path TEXT NOT NULL,
+                  content_hash TEXT NOT NULL,
+                  exported_at TEXT NOT NULL,
+                  status TEXT NOT NULL DEFAULT 'written',
+                  PRIMARY KEY(message_id, profile),
+                  FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
+                );
+                """
+            )
+            ensure_column(conn, "rules", "scope", "TEXT NOT NULL DEFAULT 'global'")
+            ensure_column(conn, "rules", "account_id", "TEXT")
+            self.sync_accounts(conn)
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO mailbox_sync(account_id, mailbox, highest_uid, last_sync_at)
+                SELECT account_id, mailbox, MAX(CAST(uid AS INTEGER)), ?
+                FROM messages
+                WHERE uid GLOB '[0-9]*'
+                GROUP BY account_id, mailbox
+                """,
+                (iso_now(),),
+            )
+
+    def sync_accounts(self, conn: sqlite3.Connection) -> None:
+        now = iso_now()
+        for account in self.config.get("accounts", []):
+            account_id = str(account.get("id", "")).strip()
+            email_addr = str(account.get("email") or account.get("username") or "").strip()
+            if not account_id or not email_addr:
+                continue
+            conn.execute(
+                """
+                INSERT INTO accounts(id, email, provider, enabled, config_json)
+                VALUES(?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  email=excluded.email,
+                  provider=excluded.provider,
+                  enabled=excluded.enabled,
+                  config_json=excluded.config_json
+                """,
+                (
+                    account_id,
+                    email_addr,
+                    str(account.get("provider", "")),
+                    1 if account.get("enabled", True) else 0,
+                    json.dumps(account, ensure_ascii=False, sort_keys=True),
+                ),
+            )
+        conn.execute("UPDATE accounts SET last_sync_at = COALESCE(last_sync_at, ?)", (now,))
+
+    def accounts(self) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT a.id, a.email, a.provider, a.enabled, a.last_sync_at, a.last_error,
+                       COUNT(m.id) AS message_count,
+                       SUM(CASE WHEN m.include_state='candidate' THEN 1 ELSE 0 END) AS candidate_count,
+                       SUM(CASE WHEN m.include_state='included' THEN 1 ELSE 0 END) AS included_count,
+                       SUM(CASE WHEN m.include_state='excluded' THEN 1 ELSE 0 END) AS excluded_count,
+                       SUM(CASE WHEN m.exported_path IS NOT NULL THEN 1 ELSE 0 END) AS exported_count
+                FROM accounts a
+                LEFT JOIN messages m ON m.account_id = a.id
+                GROUP BY a.id
+                ORDER BY a.id
+                """
+            ).fetchall()
+            account_configs = {str(account.get("id") or ""): account for account in self.config.get("accounts", [])}
+            sync_rows = conn.execute(
+                """
+                SELECT account_id,
+                       SUM(last_total) AS server_total,
+                       SUM(last_matched) AS server_matched,
+                       MAX(last_sync_at) AS sync_last_at,
+                       MAX(highest_uid) AS sync_highest_uid
+                FROM mailbox_sync
+                GROUP BY account_id
+                """
+            ).fetchall()
+            sync_by_account = {row["account_id"]: dict(row) for row in sync_rows}
+            result = []
+            for row in rows:
+                item = dict(row)
+                sync = sync_by_account.get(item["id"], {})
+                item["server_total"] = sync.get("server_total") or 0
+                item["server_matched"] = sync.get("server_matched") or 0
+                item["sync_last_at"] = sync.get("sync_last_at") or ""
+                item["sync_highest_uid"] = sync.get("sync_highest_uid") or 0
+                auth = account_configs.get(item["id"], {}).get("auth")
+                if isinstance(auth, dict):
+                    item["auth_method"] = str(auth.get("method") or "password")
+                    item["auth_provider"] = str(auth.get("provider") or "")
+                else:
+                    item["auth_method"] = "password"
+                    item["auth_provider"] = ""
+                result.append(item)
+            return result
+
+    def stats(self) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS total,
+                       SUM(CASE WHEN include_state='candidate' THEN 1 ELSE 0 END) AS candidate,
+                       SUM(CASE WHEN include_state='included' THEN 1 ELSE 0 END) AS included,
+                       SUM(CASE WHEN include_state='excluded' THEN 1 ELSE 0 END) AS excluded,
+                       SUM(CASE WHEN exported_path IS NOT NULL THEN 1 ELSE 0 END) AS exported
+                FROM messages
+                """
+            ).fetchone()
+            tags = conn.execute(
+                "SELECT tag, COUNT(*) AS count FROM message_tags GROUP BY tag ORDER BY count DESC, tag LIMIT 30"
+            ).fetchall()
+            return {
+                "database": str(self.db_path),
+                "emailVaultDir": str((self.vault_root / self.email_vault_dir).resolve()),
+                "messages": dict(row) if row else {},
+                "accounts": self.accounts(),
+                "topTags": [dict(tag) for tag in tags],
+            }
+
+    def dashboard(self, limit: int = 30) -> dict[str, Any]:
+        accounts = self.accounts()
+        stats = self.stats()
+        recent = self.list_messages({"limit": [str(limit)], "state": ["active"]})["messages"]
+        enabled_accounts = [account for account in accounts if account.get("enabled")]
+        return {
+            "ok": True,
+            "stats": stats,
+            "accounts": accounts,
+            "recent": recent,
+            "summary": {
+                "accounts": len(accounts),
+                "enabledAccounts": len(enabled_accounts),
+                "serverTotal": sum(int(account.get("server_total") or 0) for account in accounts),
+                "serverMatched": sum(int(account.get("server_matched") or 0) for account in accounts),
+                "localTotal": int((stats.get("messages") or {}).get("total") or 0),
+                "exported": int((stats.get("messages") or {}).get("exported") or 0),
+            },
+        }
+
+    def list_messages(self, query: dict[str, list[str]]) -> dict[str, Any]:
+        limit = clamp_int(first(query, "limit", "100"), 1, 500, 100)
+        offset = clamp_int(first(query, "offset", "0"), 0, 1_000_000, 0)
+        where = []
+        args: list[Any] = []
+        q = first(query, "q", "").strip()
+        state = first(query, "state", "").strip()
+        account = first(query, "account", "").strip()
+        tag = first(query, "tag", "").strip()
+        if q:
+            like = f"%{q}%"
+            where.append("(m.subject LIKE ? OR m.sender_email LIKE ? OR m.sender_name LIKE ? OR m.body_markdown LIKE ?)")
+            args.extend([like, like, like, like])
+        if state == "active":
+            where.append("m.include_state IN ('candidate', 'included')")
+        elif state:
+            where.append("m.include_state = ?")
+            args.append(state)
+        if account:
+            where.append("m.account_id = ?")
+            args.append(account)
+        if tag:
+            where.append("EXISTS (SELECT 1 FROM message_tags mt WHERE mt.message_id=m.id AND mt.tag=?)")
+            args.append(tag)
+        where_sql = " WHERE " + " AND ".join(where) if where else ""
+        with self.connect() as conn:
+            total = conn.execute(f"SELECT COUNT(*) AS c FROM messages m{where_sql}", args).fetchone()["c"]
+            rows = conn.execute(
+                f"""
+                SELECT m.id, m.account_id, m.mailbox, m.uid, m.message_id, m.subject,
+                       m.sender_name, m.sender_email, m.sent_at, m.fetched_at, m.include_state,
+                       m.include_reason, m.importance_score, m.spam_score, m.exported_path,
+                       COALESCE(GROUP_CONCAT(mt.tag, ','), '') AS tags
+                FROM messages m
+                LEFT JOIN message_tags mt ON mt.message_id = m.id
+                {where_sql}
+                GROUP BY m.id
+                ORDER BY COALESCE(m.sent_at, m.fetched_at) DESC
+                LIMIT ? OFFSET ?
+                """,
+                args + [limit, offset],
+            ).fetchall()
+            return {"total": total, "limit": limit, "offset": offset, "messages": [dict(row) for row in rows]}
+
+    def get_message(self, message_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone()
+            if not row:
+                return None
+            tags = conn.execute("SELECT tag, source FROM message_tags WHERE message_id=? ORDER BY tag", (message_id,)).fetchall()
+            data = dict(row)
+            data["tags"] = [dict(tag) for tag in tags]
+            return data
+
+    def upsert_rule(self, payload: dict[str, Any]) -> dict[str, Any]:
+        scope = str(payload.get("scope") or "global").strip()
+        account_id = str(payload.get("accountId") or payload.get("account_id") or "").strip() or None
+        if scope not in {"global", "account"}:
+            raise ValueError("Unsupported rule scope")
+        if scope == "account" and not account_id:
+            raise ValueError("Account-scoped rule requires accountId")
+        if scope == "global":
+            account_id = None
+        rule_id = str(payload.get("id") or stable_hash([payload.get("name"), payload.get("field"), payload.get("pattern"), scope, account_id])[:16])
+        now = iso_now()
+        name = str(payload.get("name") or payload.get("pattern") or rule_id).strip()
+        field = str(payload.get("field") or "sender_email").strip()
+        operator = str(payload.get("operator") or "contains").strip()
+        pattern = str(payload.get("pattern") or "").strip()
+        action = str(payload.get("action") or "tag").strip()
+        tag = str(payload.get("tag") or "").strip() or None
+        enabled = 1 if payload.get("enabled", True) else 0
+        if not pattern:
+            raise ValueError("Rule pattern is required")
+        if field not in {"sender_email", "sender_domain", "subject", "body", "account_id"}:
+            raise ValueError("Unsupported rule field")
+        if operator not in {"contains", "equals", "regex"}:
+            raise ValueError("Unsupported rule operator")
+        if action not in {"exclude", "include", "tag"}:
+            raise ValueError("Unsupported rule action")
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO rules(id, name, enabled, scope, account_id, field, operator, pattern, action, tag, created_at, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  name=excluded.name, enabled=excluded.enabled, scope=excluded.scope,
+                  account_id=excluded.account_id, field=excluded.field,
+                  operator=excluded.operator, pattern=excluded.pattern, action=excluded.action,
+                  tag=excluded.tag, updated_at=excluded.updated_at
+                """,
+                (rule_id, name, enabled, scope, account_id, field, operator, pattern, action, tag, now, now),
+            )
+        return {"ok": True, "id": rule_id}
+
+    def list_rules(self) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT r.*, COALESCE(hit_counts.hit_count, 0) AS hit_count
+                FROM rules r
+                LEFT JOIN (
+                  SELECT rule_id, COUNT(*) AS hit_count
+                  FROM rule_matches
+                  GROUP BY rule_id
+                ) hit_counts ON hit_counts.rule_id = r.id
+                ORDER BY r.enabled DESC, r.updated_at DESC, r.name
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def list_tags(self) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT tag, COUNT(*) AS count FROM message_tags GROUP BY tag ORDER BY count DESC, tag"
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def delete_rule(self, rule_id: str) -> dict[str, Any]:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM rules WHERE id=?", (rule_id,))
+        return {"ok": True}
+
+    def tag_message(self, payload: dict[str, Any]) -> dict[str, Any]:
+        message_id = str(payload.get("messageId") or "").strip()
+        tag = normalize_tag(payload.get("tag"))
+        state = str(payload.get("state") or "").strip()
+        source = str(payload.get("source") or "manual").strip() or "manual"
+        with self.connect() as conn:
+            if tag:
+                conn.execute(
+                    "INSERT OR IGNORE INTO message_tags(message_id, tag, source, created_at) VALUES(?, ?, ?, ?)",
+                    (message_id, tag, source, iso_now()),
+                )
+            if state in {"candidate", "included", "excluded"}:
+                conn.execute(
+                    "UPDATE messages SET include_state=?, include_reason=? WHERE id=?",
+                    (state, "manual", message_id),
+                )
+        return {"ok": True}
+
+    def apply_rules(self) -> dict[str, Any]:
+        with self.connect() as conn:
+            rules = [dict(row) for row in conn.execute("SELECT * FROM rules WHERE enabled=1 ORDER BY updated_at ASC")]
+            rows = [dict(row) for row in conn.execute("SELECT id, account_id, sender_email, subject, body_markdown FROM messages")]
+            changed = 0
+            matched = 0
+            now = iso_now()
+            for msg in rows:
+                for rule in rules:
+                    if not rule_matches(rule, msg):
+                        continue
+                    matched += 1
+                    conn.execute(
+                        "INSERT OR REPLACE INTO rule_matches(message_id, rule_id, matched_at, result_json) VALUES(?, ?, ?, ?)",
+                        (msg["id"], rule["id"], now, json.dumps({"action": rule["action"], "tag": rule.get("tag")})),
+                    )
+                    if rule["action"] in {"include", "exclude"}:
+                        state = "included" if rule["action"] == "include" else "excluded"
+                        conn.execute(
+                            "UPDATE messages SET include_state=?, include_reason=? WHERE id=?",
+                            (state, f"rule:{rule['id']}", msg["id"]),
+                        )
+                        changed += 1
+                    if rule.get("tag"):
+                        conn.execute(
+                            "INSERT OR IGNORE INTO message_tags(message_id, tag, source, created_at) VALUES(?, ?, ?, ?)",
+                            (msg["id"], normalize_tag(rule["tag"]), f"rule:{rule['id']}", now),
+                        )
+            return {"ok": True, "rules": len(rules), "matches": matched, "changed": changed}
+
+    def fetch(self, payload: dict[str, Any]) -> dict[str, Any]:
+        account_id = str(payload.get("accountId") or "").strip()
+        if not account_id:
+            raise ValueError("accountId is required")
+        account = self.account_config(account_id)
+        if not account:
+            raise ValueError(f"Unknown account: {account_id}")
+        if account.get("enabled") is False:
+            raise ValueError(f"Account is disabled: {account_id}")
+        mailboxes = payload.get("mailboxes") or account.get("mailboxes") or ["INBOX"]
+        if isinstance(mailboxes, str):
+            mailboxes = [mailboxes]
+        limit = clamp_int(payload.get("limit"), 1, 10000, 500)
+        if not payload.get("nestedProgress"):
+            self.set_progress(
+                active=True,
+                phase="connect",
+                operation="fetch-new" if payload.get("incremental") else "fetch-range",
+                accountId=account_id,
+                mailbox="",
+                current=0,
+                total=0,
+                fetched=0,
+                message=f"Connecting {account_id}...",
+            )
+        result = {"ok": True, "accountId": account_id, "fetched": 0, "mailboxes": []}
+        try:
+            with self._lock:
+                with self.open_imap(account) as imap:
+                    for mailbox in mailboxes:
+                        mailbox_name = str(mailbox)
+                        mailbox_payload = dict(payload)
+                        if payload.get("incremental"):
+                            state = self.get_mailbox_sync_state(account_id, mailbox_name)
+                            mailbox_payload["minUid"] = int(state.get("highest_uid") or 0) + 1
+                        box_result = self.fetch_mailbox(imap, account, mailbox_name, mailbox_payload, limit)
+                        result["mailboxes"].append(box_result)
+                        result["fetched"] += box_result["stored"]
+                        if payload.get("incremental") and box_result.get("highestFetchedUid"):
+                            self.update_mailbox_sync_state(
+                                account_id,
+                                mailbox_name,
+                                int(box_result["highestFetchedUid"]),
+                                int(box_result.get("total") or 0),
+                                int(box_result.get("matched") or 0),
+                            )
+        except Exception as exc:
+            self.set_progress(active=False, phase="error", message=str(exc))
+            raise
+        result["total"] = sum(item["total"] for item in result["mailboxes"])
+        result["matched"] = sum(item["matched"] for item in result["mailboxes"])
+        result["stored"] = sum(item["stored"] for item in result["mailboxes"])
+        result["localStored"] = sum(item.get("localStored", item["stored"]) for item in result["mailboxes"])
+        if not payload.get("nestedProgress"):
+            self.set_progress(
+                active=False,
+                phase="done",
+                accountId=account_id,
+                current=result["matched"],
+                total=result["matched"],
+                fetched=result["fetched"],
+                message=f"Fetched {result['fetched']} new messages from {account_id}",
+            )
+        return result
+
+    def fetch_new(self, payload: dict[str, Any]) -> dict[str, Any]:
+        next_payload = dict(payload)
+        next_payload["incremental"] = True
+        next_payload.pop("minUid", None)
+        return self.fetch(next_payload)
+
+    def get_mailbox_sync_state(self, account_id: str, mailbox: str) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM mailbox_sync WHERE account_id=? AND mailbox=?",
+                (account_id, mailbox),
+            ).fetchone()
+            if row:
+                return dict(row)
+            max_uid = conn.execute(
+                "SELECT MAX(CAST(uid AS INTEGER)) AS uid FROM messages WHERE account_id=? AND mailbox=? AND uid GLOB '[0-9]*'",
+                (account_id, mailbox),
+            ).fetchone()["uid"]
+            return {"account_id": account_id, "mailbox": mailbox, "highest_uid": int(max_uid or 0)}
+
+    def update_mailbox_sync_state(self, account_id: str, mailbox: str, highest_uid: int, total: int, matched: int) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO mailbox_sync(account_id, mailbox, highest_uid, last_sync_at, last_total, last_matched, last_error)
+                VALUES(?, ?, ?, ?, ?, ?, NULL)
+                ON CONFLICT(account_id, mailbox) DO UPDATE SET
+                  highest_uid=MAX(mailbox_sync.highest_uid, excluded.highest_uid),
+                  last_sync_at=excluded.last_sync_at,
+                  last_total=excluded.last_total,
+                  last_matched=excluded.last_matched,
+                  last_error=NULL
+                """,
+                (account_id, mailbox, highest_uid, iso_now(), total, matched),
+            )
+
+    def update_mailbox_count_state(self, account_id: str, mailbox: str, total: int, matched: int) -> None:
+        state = self.get_mailbox_sync_state(account_id, mailbox)
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO mailbox_sync(account_id, mailbox, highest_uid, last_sync_at, last_total, last_matched, last_error)
+                VALUES(?, ?, ?, ?, ?, ?, NULL)
+                ON CONFLICT(account_id, mailbox) DO UPDATE SET
+                  last_sync_at=excluded.last_sync_at,
+                  last_total=excluded.last_total,
+                  last_matched=excluded.last_matched,
+                  last_error=NULL
+                """,
+                (account_id, mailbox, int(state.get("highest_uid") or 0), iso_now(), total, matched),
+            )
+
+    def count_mailboxes(self, payload: dict[str, Any]) -> dict[str, Any]:
+        account_id = str(payload.get("accountId") or "").strip()
+        if not account_id:
+            raise ValueError("accountId is required")
+        account = self.account_config(account_id)
+        if not account:
+            raise ValueError(f"Unknown account: {account_id}")
+        if account.get("enabled") is False:
+            raise ValueError(f"Account is disabled: {account_id}")
+        mailboxes = payload.get("mailboxes") or account.get("mailboxes") or ["INBOX"]
+        if isinstance(mailboxes, str):
+            mailboxes = [mailboxes]
+        result = {"ok": True, "accountId": account_id, "mailboxes": []}
+        if not payload.get("nestedProgress"):
+            self.set_progress(
+                active=True,
+                phase="count",
+                operation="count",
+                accountId=account_id,
+                current=0,
+                total=len(mailboxes),
+                fetched=0,
+                message=f"Counting {account_id}...",
+            )
+        with self._lock:
+            with self.open_imap(account) as imap:
+                for index, mailbox in enumerate(mailboxes, start=1):
+                    mailbox_name = str(mailbox)
+                    self.set_progress(current=index - 1, total=len(mailboxes), mailbox=mailbox_name, message=f"Counting {account_id} / {mailbox_name}")
+                    box_result = self.count_mailbox(imap, account_id, mailbox_name, payload)
+                    result["mailboxes"].append(box_result)
+                    self.update_mailbox_count_state(
+                        account_id,
+                        mailbox_name,
+                        int(box_result.get("total") or 0),
+                        int(box_result.get("matched") or 0),
+                    )
+                    self.set_progress(current=index, total=len(mailboxes), mailbox=mailbox_name, message=f"Counted {account_id} / {mailbox_name}")
+        result["total"] = sum(item["total"] for item in result["mailboxes"])
+        result["matched"] = sum(item["matched"] for item in result["mailboxes"])
+        result["stored"] = sum(item["stored"] for item in result["mailboxes"])
+        result["localStored"] = result["stored"]
+        result["newAvailable"] = sum(item.get("newAvailable", 0) for item in result["mailboxes"])
+        if not payload.get("nestedProgress"):
+            self.set_progress(
+                active=False,
+                phase="done",
+                accountId=account_id,
+                current=len(mailboxes),
+                total=len(mailboxes),
+                fetched=0,
+                message=f"Counted {account_id}: {result['newAvailable']} new",
+            )
+        return result
+
+    def count_all(self, payload: dict[str, Any]) -> dict[str, Any]:
+        results = []
+        total = 0
+        matched = 0
+        local_stored = 0
+        new_available = 0
+        enabled_accounts = [account for account in self.config.get("accounts", []) if str(account.get("id") or "").strip() and account.get("enabled") is not False]
+        self.set_progress(active=True, phase="count", operation="count-all", current=0, total=len(enabled_accounts), fetched=0, message="Counting all accounts...")
+        for index, account in enumerate(enabled_accounts, start=1):
+            account_id = str(account.get("id") or "").strip()
+            try:
+                self.set_progress(current=index - 1, total=len(enabled_accounts), accountId=account_id, message=f"Counting {account_id} ({index}/{len(enabled_accounts)})")
+                result = self.count_mailboxes({"accountId": account_id, **payload, "nestedProgress": True})
+                results.append(result)
+                total += int(result.get("total") or 0)
+                matched += int(result.get("matched") or 0)
+                local_stored += int(result.get("localStored") or 0)
+                new_available += int(result.get("newAvailable") or 0)
+            except Exception as exc:
+                results.append({"ok": False, "accountId": account_id, "error": str(exc)})
+            self.set_progress(current=index, total=len(enabled_accounts), accountId=account_id, message=f"Counted {index}/{len(enabled_accounts)} accounts")
+        self.set_progress(active=False, phase="done", current=len(enabled_accounts), total=len(enabled_accounts), fetched=0, message=f"Counted {len(enabled_accounts)} accounts")
+        return {
+            "ok": True,
+            "accounts": results,
+            "total": total,
+            "matched": matched,
+            "localStored": local_stored,
+            "newAvailable": new_available,
+        }
+
+    def fetch_new_all(self, payload: dict[str, Any]) -> dict[str, Any]:
+        results = []
+        fetched = 0
+        matched = 0
+        total = 0
+        enabled_accounts = [account for account in self.config.get("accounts", []) if str(account.get("id") or "").strip() and account.get("enabled") is not False]
+        self.set_progress(active=True, phase="fetch", operation="fetch-new-all", current=0, total=len(enabled_accounts), fetched=0, message="Fetching new mail from all accounts...")
+        for index, account in enumerate(enabled_accounts, start=1):
+            account_id = str(account.get("id") or "").strip()
+            try:
+                self.set_progress(current=index - 1, total=len(enabled_accounts), accountId=account_id, message=f"Fetching {account_id} ({index}/{len(enabled_accounts)})")
+                result = self.fetch_new({"accountId": account_id, **payload, "nestedProgress": True})
+                results.append(result)
+                fetched += int(result.get("fetched") or 0)
+                matched += int(result.get("matched") or 0)
+                total += int(result.get("total") or 0)
+            except Exception as exc:
+                results.append({"ok": False, "accountId": account_id, "error": str(exc)})
+            self.set_progress(current=index, total=len(enabled_accounts), accountId=account_id, fetched=fetched, message=f"Fetched {index}/{len(enabled_accounts)} accounts, {fetched} new messages")
+        self.set_progress(active=False, phase="done", current=len(enabled_accounts), total=len(enabled_accounts), fetched=fetched, message=f"Fetched {fetched} new messages across all accounts")
+        return {"ok": True, "accounts": results, "fetched": fetched, "matched": matched, "total": total}
+
+    def account_config(self, account_id: str) -> dict[str, Any] | None:
+        for account in self.config.get("accounts", []):
+            if str(account.get("id") or "") == account_id:
+                return account
+        return None
+
+    def open_imap(self, account: dict[str, Any]) -> imaplib.IMAP4:
+        host = str(account.get("server") or account.get("host") or "").strip()
+        if not host:
+            raise ValueError("Account server is required")
+        port = int(account.get("port") or (993 if account.get("ssl", True) else 143))
+        username = str(account.get("username") or account.get("email") or "").strip()
+        password = str(account.get("password") or "")
+        password_env = str(account.get("passwordEnv") or "").strip()
+        if password_env:
+            password = os.environ.get(password_env, password)
+        auth = account.get("auth") if isinstance(account.get("auth"), dict) else {}
+        auth_method = str(auth.get("method") or "password").strip().lower()
+        if not username:
+            raise ValueError(f"Missing IMAP username for account {account.get('id')}")
+        if account.get("ssl", True):
+            client: imaplib.IMAP4 = imaplib.IMAP4_SSL(host, port, ssl_context=ssl.create_default_context())
+        else:
+            client = imaplib.IMAP4(host, port)
+            if account.get("starttls"):
+                client.starttls(ssl_context=ssl.create_default_context())
+        if auth_method == "oauth":
+            access_token = self.get_oauth_access_token(account)
+            client.authenticate("XOAUTH2", lambda _challenge: xoauth2_sasl(username, access_token))
+        else:
+            if not password:
+                raise ValueError(f"Missing IMAP credentials for account {account.get('id')}")
+            client.login(username, password)
+        return client
+
+    def get_oauth_access_token(self, account: dict[str, Any]) -> str:
+        auth = account.get("auth") if isinstance(account.get("auth"), dict) else {}
+        provider = str(auth.get("provider") or "").strip().lower()
+        account_id = str(account.get("id") or "").strip()
+        token_path = self.resolve_tool_path(account.get("oauthTokenPath") or f"{account_id}.json")
+        if not token_path.exists():
+            raise ValueError(f"OAuth token file is missing for account {account_id}")
+        tokens = json.loads(token_path.read_text(encoding="utf-8"))
+        if oauth_token_expired(tokens):
+            tokens = refresh_oauth_token(provider, tokens)
+            token_path.write_text(json.dumps(tokens, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        access_token = str(tokens.get("access_token") or "").strip()
+        if not access_token:
+            raise ValueError(f"OAuth access token is missing for account {account_id}")
+        return access_token
+
+    def start_oauth_login(self, payload: dict[str, Any]) -> dict[str, Any]:
+        account_id = str(payload.get("accountId") or "").strip()
+        account = self.account_config(account_id)
+        if not account:
+            raise ValueError(f"Unknown account: {account_id}")
+        auth = account.get("auth") if isinstance(account.get("auth"), dict) else {}
+        provider = str(auth.get("provider") or "").strip().lower()
+        if provider != "microsoft":
+            raise ValueError("Only Microsoft OAuth login is currently implemented")
+        token_url, client_id, _client_secret = oauth_provider_config(provider)
+        redirect_uri = "http://localhost:8080/callback"
+        state = secrets.token_urlsafe(24)
+        flow = {
+            "account_id": account_id,
+            "provider": provider,
+            "token_url": token_url,
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "state": state,
+            "created_at": time.time(),
+            "expires_in": 900,
+            "pending": True,
+        }
+        self.oauth_flows[account_id] = flow
+        self.ensure_oauth_callback_server()
+        auth_url = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?" + urllib.parse.urlencode(
+            {
+                "client_id": client_id,
+                "response_type": "code",
+                "redirect_uri": redirect_uri,
+                "response_mode": "query",
+                "scope": "offline_access https://outlook.office.com/IMAP.AccessAsUser.All",
+                "state": state,
+                "prompt": "select_account",
+                "login_hint": account.get("username") or account.get("email") or "",
+            }
+        )
+        return {
+            "ok": True,
+            "accountId": account_id,
+            "authorizationUrl": auth_url,
+            "verificationUri": auth_url,
+            "userCode": "",
+            "message": "Open the authorization URL, sign in, and approve IMAP access.",
+            "expiresIn": flow.get("expires_in"),
+            "interval": 2,
+        }
+
+    def poll_oauth_login(self, payload: dict[str, Any]) -> dict[str, Any]:
+        account_id = str(payload.get("accountId") or "").strip()
+        flow = self.oauth_flows.get(account_id)
+        if not flow:
+            raise ValueError("No OAuth login flow is active for this account")
+        if time.time() > flow["created_at"] + int(flow.get("expires_in") or 900):
+            self.oauth_flows.pop(account_id, None)
+            raise ValueError("OAuth login flow expired")
+        if flow.get("error"):
+            raise ValueError(str(flow["error"]))
+        if flow.get("pending", True):
+            return {"ok": True, "pending": True}
+        payload = exchange_oauth_code(flow)
+        account = self.account_config(account_id)
+        if not account:
+            raise ValueError(f"Unknown account: {account_id}")
+        token_path = self.resolve_tool_path(account.get("oauthTokenPath") or f"{account_id}.json")
+        token_path.write_text(json.dumps(oauth_payload_to_tokens(payload), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        self.oauth_flows.pop(account_id, None)
+        return {"ok": True, "pending": False, "accountId": account_id}
+
+    def ensure_oauth_callback_server(self) -> None:
+        if self.oauth_callback_server:
+            return
+        OAuthCallbackHandler.tool = self
+        server = ThreadingHTTPServer(("localhost", 8080), OAuthCallbackHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.oauth_callback_server = server
+
+    def fetch_mailbox(
+        self,
+        imap: imaplib.IMAP4,
+        account: dict[str, Any],
+        mailbox: str,
+        payload: dict[str, Any],
+        limit: int,
+    ) -> dict[str, Any]:
+        status, select_data = imap.select(mailbox, readonly=True)
+        if status != "OK":
+            raise RuntimeError(f"Cannot open mailbox {mailbox}")
+        total = int(select_data[0]) if select_data and select_data[0] else 0
+        criteria = build_search_criteria(payload)
+        status, data = imap.uid("SEARCH", None, *criteria)
+        if status != "OK" or not data:
+            return {"mailbox": mailbox, "total": total, "matched": 0, "stored": 0, "localStored": 0, "highestFetchedUid": 0}
+        uids = data[0].split()
+        if payload.get("minUid"):
+            min_uid = int(payload["minUid"])
+            uids = [uid for uid in uids if int(uid) >= min_uid]
+        matched = len(uids)
+        uids = uids[-limit:]
+        to_fetch = len(uids)
+        stored = 0
+        highest_fetched_uid = 0
+        self.set_progress(
+            active=True,
+            phase="fetch",
+            accountId=str(account.get("id")),
+            mailbox=mailbox,
+            current=0,
+            total=to_fetch,
+            matched=matched,
+            fetched=0,
+            message=f"{account.get('id')} / {mailbox}: 0/{to_fetch} fetched",
+        )
+        for index, uid in enumerate(uids, start=1):
+            status, msg_data = imap.uid("FETCH", uid, "(BODY.PEEK[])")
+            if status != "OK" or not msg_data:
+                self.set_progress(current=index, total=to_fetch, fetched=stored, message=f"{account.get('id')} / {mailbox}: {index}/{to_fetch} fetched")
+                continue
+            raw = first_bytes(msg_data)
+            if not raw:
+                self.set_progress(current=index, total=to_fetch, fetched=stored, message=f"{account.get('id')} / {mailbox}: {index}/{to_fetch} fetched")
+                continue
+            parsed = parse_email(raw)
+            parsed["account_id"] = str(account.get("id"))
+            parsed["mailbox"] = mailbox
+            parsed["uid"] = uid.decode("ascii", errors="ignore")
+            highest_fetched_uid = max(highest_fetched_uid, int(parsed["uid"] or 0))
+            stored += self.store_message(parsed)
+            self.set_progress(current=index, total=to_fetch, fetched=stored, message=f"{account.get('id')} / {mailbox}: {index}/{to_fetch} fetched")
+        with self.connect() as conn:
+            local_stored = conn.execute(
+                "SELECT COUNT(*) AS c FROM messages WHERE account_id=? AND mailbox=?",
+                (str(account.get("id")), mailbox),
+            ).fetchone()["c"]
+        return {
+            "mailbox": mailbox,
+            "total": total,
+            "matched": matched,
+            "stored": stored,
+            "localStored": local_stored,
+            "highestFetchedUid": highest_fetched_uid,
+        }
+
+    def count_mailbox(self, imap: imaplib.IMAP4, account_id: str, mailbox: str, payload: dict[str, Any]) -> dict[str, Any]:
+        status, data = imap.select(mailbox, readonly=True)
+        if status != "OK":
+            raise RuntimeError(f"Cannot open mailbox {mailbox}")
+        total = int(data[0]) if data and data[0] else 0
+        criteria = build_search_criteria(payload)
+        status, search_data = imap.uid("SEARCH", None, *criteria)
+        if status != "OK" or not search_data:
+            matched = 0
+            uids: list[bytes] = []
+        else:
+            uids = search_data[0].split()
+            if payload.get("minUid"):
+                min_uid = int(payload["minUid"])
+                uids = [uid for uid in uids if int(uid) >= min_uid]
+            matched = len(uids)
+        sync_state = self.get_mailbox_sync_state(account_id, mailbox)
+        sync_highest_uid = int(sync_state.get("highest_uid") or 0)
+        new_available = len([uid for uid in uids if int(uid) > sync_highest_uid])
+        with self.connect() as conn:
+            stored = conn.execute(
+                "SELECT COUNT(*) AS c FROM messages WHERE account_id=? AND mailbox=?",
+                (account_id, mailbox),
+            ).fetchone()["c"]
+        return {
+            "mailbox": mailbox,
+            "total": total,
+            "matched": matched,
+            "stored": stored,
+            "localStored": stored,
+            "syncHighestUid": sync_highest_uid,
+            "newAvailable": new_available,
+        }
+
+    def store_message(self, parsed: dict[str, Any]) -> int:
+        message_id = parsed.get("message_id") or ""
+        stable_id = stable_hash([parsed["account_id"], parsed["mailbox"], parsed["uid"], message_id])
+        now = iso_now()
+        with self.connect() as conn:
+            before = conn.execute("SELECT id FROM messages WHERE id=?", (stable_id,)).fetchone()
+            conn.execute(
+                """
+                INSERT INTO messages(
+                  id, account_id, mailbox, uid, message_id, thread_key, subject,
+                  sender_name, sender_email, recipients_json, cc_json, sent_at, fetched_at,
+                  raw_headers_json, body_text, body_markdown, body_hash, attachment_count,
+                  size_bytes, include_state, include_reason
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  message_id=excluded.message_id, thread_key=excluded.thread_key, subject=excluded.subject,
+                  sender_name=excluded.sender_name, sender_email=excluded.sender_email,
+                  recipients_json=excluded.recipients_json, cc_json=excluded.cc_json,
+                  sent_at=excluded.sent_at, fetched_at=excluded.fetched_at,
+                  raw_headers_json=excluded.raw_headers_json, body_text=excluded.body_text,
+                  body_markdown=excluded.body_markdown, body_hash=excluded.body_hash,
+                  attachment_count=excluded.attachment_count, size_bytes=excluded.size_bytes
+                """,
+                (
+                    stable_id,
+                    parsed["account_id"],
+                    parsed["mailbox"],
+                    parsed["uid"],
+                    message_id,
+                    parsed.get("thread_key"),
+                    parsed.get("subject"),
+                    parsed.get("sender_name"),
+                    parsed.get("sender_email"),
+                    json.dumps(parsed.get("recipients") or [], ensure_ascii=False),
+                    json.dumps(parsed.get("cc") or [], ensure_ascii=False),
+                    parsed.get("sent_at"),
+                    now,
+                    json.dumps(parsed.get("headers") or {}, ensure_ascii=False),
+                    parsed.get("body_text"),
+                    parsed.get("body_markdown"),
+                    parsed.get("body_hash"),
+                    parsed.get("attachment_count") or 0,
+                    parsed.get("size_bytes") or 0,
+                    "candidate",
+                    "fetched",
+                ),
+            )
+            return 0 if before else 1
+
+    def export_markdown(self, payload: dict[str, Any]) -> dict[str, Any]:
+        state = str(payload.get("state") or "included").strip()
+        if state not in {"candidate", "included", "excluded", "all"}:
+            raise ValueError("Unsupported export state")
+        limit = clamp_int(payload.get("limit"), 1, 100000, 5000)
+        args: list[Any] = []
+        where = []
+        if state != "all":
+            where.append("include_state=?")
+            args.append(state)
+        account_id = str(payload.get("accountId") or "").strip()
+        if account_id:
+            where.append("account_id=?")
+            args.append(account_id)
+        where_sql = " WHERE " + " AND ".join(where) if where else ""
+        export_root = (self.vault_root / self.email_vault_dir).resolve()
+        export_root.mkdir(parents=True, exist_ok=True)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM messages{where_sql} ORDER BY COALESCE(sent_at, fetched_at) DESC LIMIT ?",
+                args + [limit],
+            ).fetchall()
+            count = 0
+            for row in rows:
+                msg = dict(row)
+                tags = [tag["tag"] for tag in conn.execute("SELECT tag FROM message_tags WHERE message_id=? ORDER BY tag", (msg["id"],))]
+                msg["tags"] = tags
+                rel_path = self.export_path_for(msg)
+                target = (export_root / rel_path).resolve()
+                if target != export_root and export_root not in target.parents:
+                    raise RuntimeError("Export path escaped email directory")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(render_markdown(msg), encoding="utf-8")
+                exported_path = normalize_slashes(str(Path(self.email_vault_dir) / rel_path))
+                conn.execute(
+                    "UPDATE messages SET exported_path=?, exported_at=? WHERE id=?",
+                    (exported_path, iso_now(), msg["id"]),
+                )
+                conn.execute(
+                    "INSERT OR REPLACE INTO exports(message_id, profile, exported_path, content_hash, exported_at, status) VALUES(?, ?, ?, ?, ?, ?)",
+                    (msg["id"], state, exported_path, sha256_text(render_markdown(msg)), iso_now(), "written"),
+                )
+                count += 1
+        return {"ok": True, "exported": count, "dir": normalize_slashes(str(export_root))}
+
+    def export_path_for(self, msg: dict[str, Any]) -> Path:
+        sent = parse_iso_date(msg.get("sent_at")) or dt.datetime.now(dt.timezone.utc)
+        year = f"{sent.year:04d}"
+        month = f"{sent.month:02d}"
+        sender = sanitize_path_part(msg.get("sender_email") or msg.get("sender_name") or "unknown")
+        subject = sanitize_path_part(msg.get("subject") or "no subject")[:80]
+        return Path(str(msg.get("account_id") or "account")) / year / month / f"{sent.strftime('%Y-%m-%d')} - {sender} - {subject} - {msg['id'][:8]}.md"
+
+
+def load_env(path: Path) -> None:
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def load_config() -> dict[str, Any]:
+    config = json.loads(json.dumps(DEFAULT_CONFIG))
+    for name in ("config.json", "config.local.json"):
+        path = ROOT / name
+        if path.exists():
+            config = deep_merge(config, json.loads(path.read_text(encoding="utf-8")))
+    return config
+
+
+def ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
+    columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+
+def fetch_homepage_theme_snapshot() -> dict[str, Any]:
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:4174/api/obsidian/theme", timeout=3) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        raise RuntimeError("Could not read Obsidian theme via Homepage server on port 4174") from exc
+
+
+def deep_merge(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
+    result = dict(base)
+    for key, value in update.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def iso_now() -> str:
+    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
+
+
+def stable_hash(values: Iterable[Any]) -> str:
+    payload = "\u001f".join("" if value is None else str(value) for value in values)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def first(query: dict[str, list[str]] | list[str] | None, key: str | None = None, default: str = "") -> str:
+    if key is None:
+        values = query if isinstance(query, list) else None
+    else:
+        values = query.get(key) if isinstance(query, dict) else None
+    return str(values[0]) if values else default
+
+
+def clamp_int(value: Any, minimum: int, maximum: int, default: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        number = default
+    return max(minimum, min(maximum, number))
+
+
+def decode_header_value(value: str | None) -> str:
+    if not value:
+        return ""
+    parts: list[str] = []
+    for chunk, charset in decode_header(value):
+        if isinstance(chunk, bytes):
+            parts.append(chunk.decode(charset or "utf-8", errors="replace"))
+        else:
+            parts.append(chunk)
+    return "".join(parts).strip()
+
+
+def parse_email(raw: bytes) -> dict[str, Any]:
+    message = email.message_from_bytes(raw, policy=email.policy.default)
+    subject = decode_header_value(message.get("subject"))
+    sender_name, sender_email = parseaddr(decode_header_value(message.get("from")))
+    body_text = ""
+    body_html = ""
+    attachment_count = 0
+    for part in message.walk():
+        content_disposition = (part.get_content_disposition() or "").lower()
+        content_type = part.get_content_type().lower()
+        if content_disposition == "attachment":
+            attachment_count += 1
+            continue
+        try:
+            content = part.get_content()
+        except Exception:
+            continue
+        if content_type == "text/plain" and not body_text:
+            body_text = str(content)
+        elif content_type == "text/html" and not body_html:
+            body_html = str(content)
+    body_markdown = body_text.strip() or html_to_text(body_html)
+    recipients = parse_address_list(message.get_all("to", []))
+    cc = parse_address_list(message.get_all("cc", []))
+    sent_at = parse_email_date(message.get("date"))
+    msg_id = decode_header_value(message.get("message-id"))
+    headers = {key.lower(): decode_header_value(value) for key, value in message.items() if key.lower() in {"from", "to", "cc", "date", "subject", "message-id", "in-reply-to", "references"}}
+    return {
+        "message_id": msg_id,
+        "thread_key": decode_header_value(message.get("in-reply-to")) or msg_id,
+        "subject": subject,
+        "sender_name": sender_name,
+        "sender_email": sender_email.lower(),
+        "recipients": recipients,
+        "cc": cc,
+        "sent_at": sent_at,
+        "headers": headers,
+        "body_text": body_text.strip(),
+        "body_markdown": body_markdown.strip(),
+        "body_hash": sha256_text(body_markdown.strip()),
+        "attachment_count": attachment_count,
+        "size_bytes": len(raw),
+    }
+
+
+def parse_address_list(values: list[str]) -> list[dict[str, str]]:
+    decoded = [decode_header_value(value) for value in values]
+    return [{"name": name, "email": addr.lower()} for name, addr in getaddresses(decoded) if addr]
+
+
+def parse_email_date(value: str | None) -> str | None:
+    if not value:
+        return None
+    try:
+        parsed = parsedate_to_datetime(value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+        return parsed.astimezone(dt.timezone.utc).replace(microsecond=0).isoformat()
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return None
+
+
+def html_to_text(value: str) -> str:
+    parser = HtmlToText()
+    parser.feed(value or "")
+    return parser.text()
+
+
+def build_search_criteria(payload: dict[str, Any]) -> list[str]:
+    criteria = ["ALL"]
+    since = str(payload.get("since") or "").strip()
+    before = str(payload.get("before") or "").strip()
+    if since:
+        criteria.extend(["SINCE", to_imap_date(since)])
+    if before:
+        criteria.extend(["BEFORE", to_imap_date(before)])
+    return criteria
+
+
+def to_imap_date(value: str) -> str:
+    parsed = dt.date.fromisoformat(value[:10])
+    return parsed.strftime("%d-%b-%Y")
+
+
+def first_bytes(msg_data: list[Any]) -> bytes | None:
+    for item in msg_data:
+        if isinstance(item, tuple) and len(item) >= 2 and isinstance(item[1], bytes):
+            return item[1]
+    return None
+
+
+def oauth_token_expired(tokens: dict[str, Any]) -> bool:
+    expires_at = tokens.get("expires_at")
+    if expires_at:
+        parsed = parse_iso_date(expires_at)
+        if parsed:
+            return parsed.timestamp() <= time.time() + 300
+    expires_in = tokens.get("expires_in")
+    if expires_in is not None:
+        try:
+            return float(expires_in) <= 300
+        except (TypeError, ValueError):
+            return True
+    return True
+
+
+def refresh_oauth_token(provider: str, tokens: dict[str, Any]) -> dict[str, Any]:
+    refresh_token = str(tokens.get("refresh_token") or "").strip()
+    if not refresh_token:
+        raise ValueError("OAuth refresh token is missing")
+    token_url, client_id, client_secret = oauth_provider_config(provider)
+    fields = {
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "client_id": client_id,
+    }
+    if client_secret:
+        fields["client_secret"] = client_secret
+    body = urllib.parse.urlencode(fields).encode("utf-8")
+    request = urllib.request.Request(token_url, data=body, method="POST")
+    request.add_header("Content-Type", "application/x-www-form-urlencoded")
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        try:
+            detail = json.loads(body)
+            message = detail.get("error_description") or detail.get("error") or body
+        except json.JSONDecodeError:
+            message = body or str(exc)
+        raise ValueError(f"OAuth token refresh failed: HTTP {exc.code}: {message}") from exc
+    except Exception as exc:
+        raise ValueError(f"OAuth token refresh failed: {exc}") from exc
+    if payload.get("error"):
+        raise ValueError(f"OAuth token refresh failed: {payload.get('error_description') or payload.get('error')}")
+    access_token = str(payload.get("access_token") or "").strip()
+    if not access_token:
+        raise ValueError("OAuth token refresh response did not include access_token")
+    updated = oauth_payload_to_tokens(payload)
+    updated["refresh_token"] = updated.get("refresh_token") or refresh_token
+    return updated
+
+
+def oauth_payload_to_tokens(payload: dict[str, Any]) -> dict[str, Any]:
+    expires_in = int(payload.get("expires_in") or 3600)
+    expires_at = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=expires_in)
+    return {
+        "access_token": payload.get("access_token"),
+        "refresh_token": payload.get("refresh_token"),
+        "expires_at": expires_at.replace(microsecond=0).isoformat(),
+        "expires_in": expires_in,
+    }
+
+
+def exchange_oauth_code(flow: dict[str, Any]) -> dict[str, Any]:
+    code = str(flow.get("code") or "").strip()
+    if not code:
+        raise ValueError("OAuth authorization code is missing")
+    fields = {
+        "grant_type": "authorization_code",
+        "client_id": flow["client_id"],
+        "code": code,
+        "redirect_uri": flow["redirect_uri"],
+        "scope": "offline_access https://outlook.office.com/IMAP.AccessAsUser.All",
+    }
+    client_secret = os.environ.get("MS_CLIENT_SECRET", "").strip()
+    if client_secret:
+        fields["client_secret"] = client_secret
+    body = urllib.parse.urlencode(fields).encode("utf-8")
+    request = urllib.request.Request(flow["token_url"], data=body, method="POST")
+    request.add_header("Content-Type", "application/x-www-form-urlencoded")
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body_text = exc.read().decode("utf-8", errors="replace")
+        try:
+            detail = json.loads(body_text)
+            message = detail.get("error_description") or detail.get("error") or body_text
+        except json.JSONDecodeError:
+            message = body_text or str(exc)
+        raise ValueError(f"OAuth code exchange failed: HTTP {exc.code}: {message}") from exc
+    if payload.get("error"):
+        raise ValueError(payload.get("error_description") or payload.get("error"))
+    return payload
+
+
+def oauth_provider_config(provider: str) -> tuple[str, str, str | None]:
+    if provider == "microsoft":
+        client_id = os.environ.get("MS_CLIENT_ID", "").strip()
+        client_secret = os.environ.get("MS_CLIENT_SECRET", "").strip() or None
+        if not client_id:
+            raise ValueError("MS_CLIENT_ID is required for Microsoft OAuth")
+        return "https://login.microsoftonline.com/common/oauth2/v2.0/token", client_id, client_secret
+    if provider == "google":
+        client_id = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+        client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "").strip()
+        if not client_id or not client_secret:
+            raise ValueError("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are required for Google OAuth")
+        return "https://oauth2.googleapis.com/token", client_id, client_secret
+    raise ValueError(f"Unsupported OAuth provider: {provider}")
+
+
+def xoauth2_sasl(username: str, access_token: str) -> bytes:
+    raw = f"user={username}\x01auth=Bearer {access_token}\x01\x01"
+    return raw.encode("utf-8")
+
+
+def rule_matches(rule: dict[str, Any], msg: dict[str, Any]) -> bool:
+    if str(rule.get("scope") or "global") == "account":
+        if str(rule.get("account_id") or "") != str(msg.get("account_id") or ""):
+            return False
+    field = rule["field"]
+    if field == "sender_domain":
+        value = str(msg.get("sender_email") or "").split("@")[-1]
+    elif field == "body":
+        value = str(msg.get("body_markdown") or "")
+    else:
+        value = str(msg.get(field) or "")
+    pattern = str(rule.get("pattern") or "")
+    operator = str(rule.get("operator") or "contains")
+    if operator == "equals":
+        return value.lower() == pattern.lower()
+    if operator == "regex":
+        try:
+            return re.search(pattern, value, re.IGNORECASE) is not None
+        except re.error:
+            return False
+    return pattern.lower() in value.lower()
+
+
+def normalize_tag(value: Any) -> str:
+    tag = re.sub(r"[^a-zA-Z0-9_.:/-]+", "-", str(value or "").strip()).strip("-").lower()
+    return tag[:80]
+
+
+def sanitize_path_part(value: Any) -> str:
+    text = re.sub(r"[<>:\\|?*\x00-\x1f]+", "-", str(value or "").strip())
+    text = re.sub(r"\s+", " ", text).strip(" .-")
+    return text[:120] or "untitled"
+
+
+def normalize_slashes(value: str) -> str:
+    return value.replace("\\", "/")
+
+
+def parse_iso_date(value: Any) -> dt.datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+        return parsed
+    except ValueError:
+        return None
+
+
+def render_markdown(msg: dict[str, Any]) -> str:
+    tags = [normalize_tag(tag) for tag in msg.get("tags", []) if normalize_tag(tag)]
+    frontmatter = [
+        "---",
+        yaml_line("email_id", msg.get("id")),
+        yaml_line("account", msg.get("account_id")),
+        yaml_line("mailbox", msg.get("mailbox")),
+        yaml_line("uid", msg.get("uid")),
+        yaml_line("message_id", msg.get("message_id")),
+        yaml_line("subject", msg.get("subject")),
+        yaml_line("from", msg.get("sender_email")),
+        yaml_line("from_name", msg.get("sender_name")),
+        yaml_line("sent", msg.get("sent_at")),
+        yaml_line("include_state", msg.get("include_state")),
+        "tags: [" + ", ".join(json.dumps(tag, ensure_ascii=False) for tag in tags) + "]",
+        "---",
+        "",
+    ]
+    recipients = json.loads(msg.get("recipients_json") or "[]")
+    cc = json.loads(msg.get("cc_json") or "[]")
+    meta = [
+        f"# {msg.get('subject') or '(no subject)'}",
+        "",
+        f"- From: {msg.get('sender_name') or ''} <{msg.get('sender_email') or ''}>",
+        f"- Sent: {msg.get('sent_at') or ''}",
+        f"- Account: {msg.get('account_id') or ''}",
+        f"- Mailbox: {msg.get('mailbox') or ''}",
+        f"- To: {', '.join(addr.get('email', '') for addr in recipients)}",
+    ]
+    if cc:
+        meta.append(f"- Cc: {', '.join(addr.get('email', '') for addr in cc)}")
+    meta.extend(["", "## Body", "", msg.get("body_markdown") or ""])
+    return "\n".join(frontmatter + meta).rstrip() + "\n"
+
+
+def yaml_line(key: str, value: Any) -> str:
+    return f"{key}: {json.dumps('' if value is None else value, ensure_ascii=False)}"
+
+
+class Handler(BaseHTTPRequestHandler):
+    """HTTP bridge for the local email UI."""
+
+    tool: EmailTool
+
+    def log_message(self, format: str, *args: Any) -> None:
+        sys.stderr.write("Email server: " + format % args + "\n")
+
+    def do_GET(self) -> None:
+        try:
+            parsed = urllib.parse.urlparse(self.path)
+            if parsed.path == "/api/ping":
+                self.send_json({"ok": True})
+                return
+            if parsed.path == "/api/state":
+                self.send_json({"ok": True, "stats": self.tool.stats(), "accounts": self.tool.accounts(), "rules": self.tool.list_rules()})
+                return
+            if parsed.path == "/api/progress":
+                self.send_json({"ok": True, "progress": self.tool.get_progress()})
+                return
+            if parsed.path == "/api/dashboard":
+                query = urllib.parse.parse_qs(parsed.query)
+                self.send_json(self.tool.dashboard(clamp_int(first(query, "limit", "30"), 1, 200, 30)))
+                return
+            if parsed.path == "/api/accounts":
+                self.send_json({"ok": True, "accounts": self.tool.accounts()})
+                return
+            if parsed.path == "/api/obsidian/theme":
+                self.send_json(fetch_homepage_theme_snapshot())
+                return
+            if parsed.path == "/api/rules":
+                self.send_json({"ok": True, "rules": self.tool.list_rules()})
+                return
+            if parsed.path == "/api/tags":
+                self.send_json({"ok": True, "tags": self.tool.list_tags()})
+                return
+            if parsed.path == "/api/messages":
+                query = urllib.parse.parse_qs(parsed.query)
+                self.send_json({"ok": True, **self.tool.list_messages(query)})
+                return
+            if parsed.path.startswith("/api/messages/"):
+                message_id = parsed.path.rsplit("/", 1)[-1]
+                message = self.tool.get_message(message_id)
+                if not message:
+                    self.send_error(404, "Message not found")
+                    return
+                self.send_json({"ok": True, "message": message})
+                return
+            self.serve_static(parsed.path)
+        except Exception as exc:
+            self.send_json({"ok": False, "error": str(exc)}, status=500)
+
+    def do_POST(self) -> None:
+        try:
+            payload = self.read_json()
+            parsed = urllib.parse.urlparse(self.path)
+            if parsed.path == "/api/fetch":
+                self.send_json(self.tool.fetch(payload))
+                return
+            if parsed.path == "/api/fetch-new":
+                self.send_json(self.tool.fetch_new(payload))
+                return
+            if parsed.path == "/api/count":
+                self.send_json(self.tool.count_mailboxes(payload))
+                return
+            if parsed.path == "/api/count-all":
+                self.send_json(self.tool.count_all(payload))
+                return
+            if parsed.path == "/api/fetch-new-all":
+                self.send_json(self.tool.fetch_new_all(payload))
+                return
+            if parsed.path == "/api/export":
+                self.send_json(self.tool.export_markdown(payload))
+                return
+            if parsed.path == "/api/rules":
+                self.send_json(self.tool.upsert_rule(payload))
+                return
+            if parsed.path == "/api/rules/delete":
+                self.send_json(self.tool.delete_rule(str(payload.get("id") or "")))
+                return
+            if parsed.path == "/api/rules/apply":
+                self.send_json(self.tool.apply_rules())
+                return
+            if parsed.path == "/api/messages/tag":
+                self.send_json(self.tool.tag_message(payload))
+                return
+            if parsed.path == "/api/oauth/start":
+                self.send_json(self.tool.start_oauth_login(payload))
+                return
+            if parsed.path == "/api/oauth/poll":
+                self.send_json(self.tool.poll_oauth_login(payload))
+                return
+            self.send_error(404, "Not found")
+        except Exception as exc:
+            self.send_json({"ok": False, "error": str(exc)}, status=400)
+
+    def read_json(self) -> dict[str, Any]:
+        length = int(self.headers.get("content-length") or "0")
+        if not length:
+            return {}
+        return json.loads(self.rfile.read(length).decode("utf-8"))
+
+    def send_json(self, payload: dict[str, Any], status: int = 200) -> None:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def serve_static(self, request_path: str) -> None:
+        path = "/email.html" if request_path in {"/", ""} else request_path
+        rel = Path(urllib.parse.unquote(path.lstrip("/")))
+        if rel.is_absolute() or ".." in rel.parts:
+            self.send_error(403, "Forbidden")
+            return
+        target = (ROOT / rel).resolve()
+        if target != ROOT and ROOT not in target.parents:
+            self.send_error(403, "Forbidden")
+            return
+        if not target.exists() or not target.is_file():
+            self.send_error(404, "Not found")
+            return
+        data = target.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", MIME_TYPES.get(target.suffix.lower(), "application/octet-stream"))
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+
+class OAuthCallbackHandler(BaseHTTPRequestHandler):
+    """Receives OAuth authorization-code callbacks on localhost:8080."""
+
+    tool: EmailTool
+
+    def log_message(self, format: str, *args: Any) -> None:
+        sys.stderr.write("Email OAuth callback: " + format % args + "\n")
+
+    def do_GET(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path != "/callback":
+            self.send_response(404)
+            self.end_headers()
+            return
+        params = urllib.parse.parse_qs(parsed.query)
+        state = first(params, "state")
+        code = first(params, "code")
+        error = first(params, "error_description") or first(params, "error")
+        flow = None
+        for candidate in self.tool.oauth_flows.values():
+            if candidate.get("state") == state:
+                flow = candidate
+                break
+        if not flow:
+            self.respond("OAuth state mismatch. You can close this tab.", status=400)
+            return
+        if error:
+            flow["error"] = error
+            flow["pending"] = False
+            self.respond("OAuth login failed. You can close this tab.", status=400)
+            return
+        if not code:
+            flow["error"] = "OAuth callback did not include an authorization code"
+            flow["pending"] = False
+            self.respond("OAuth login failed: missing code. You can close this tab.", status=400)
+            return
+        flow["code"] = code
+        flow["pending"] = False
+        self.respond("OAuth login received. You can close this tab and return to Email DB.")
+
+    def respond(self, text: str, status: int = 200) -> None:
+        data = f"<!doctype html><meta charset='utf-8'><title>Email OAuth</title><p>{html.escape(text)}</p>".encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+
+def serve(args: argparse.Namespace) -> None:
+    load_env(ROOT / ".env")
+    tool = EmailTool(load_config())
+    host = str(tool.config.get("host") or "127.0.0.1")
+    port = int(args.port or tool.config.get("port") or 4176)
+    Handler.tool = tool
+    server = ThreadingHTTPServer((host, port), Handler)
+    (ROOT / "email.preview.pid").write_text(str(os.getpid()), encoding="ascii")
+    print(f"Email preview server: http://{host}:{port}/email.html", flush=True)
+    try:
+        server.serve_forever()
+    finally:
+        try:
+            (ROOT / "email.preview.pid").unlink()
+        except FileNotFoundError:
+            pass
+
+
+def smoke() -> None:
+    import tempfile
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
+        config = dict(DEFAULT_CONFIG)
+        config["database"] = str(Path(temp_dir) / "email.db")
+        config["vaultRoot"] = temp_dir
+        config["emailVaultDir"] = "8. Emails"
+        tool = EmailTool(config)
+        sample = {
+            "account_id": "demo",
+            "mailbox": "INBOX",
+            "uid": "1",
+            "message_id": "<demo@example.test>",
+            "thread_key": "<demo@example.test>",
+            "subject": "Demo message",
+            "sender_name": "Demo Sender",
+            "sender_email": "demo@example.test",
+            "recipients": [{"name": "Example User", "email": "user@example.test"}],
+            "cc": [],
+            "sent_at": "2026-01-02T03:04:05+00:00",
+            "headers": {},
+            "body_text": "Hello from the email DB.",
+            "body_markdown": "Hello from the email DB.",
+            "body_hash": sha256_text("Hello from the email DB."),
+            "attachment_count": 0,
+            "size_bytes": 32,
+        }
+        assert tool.store_message(sample) == 1
+        assert tool.store_message(sample) == 0
+        assert tool.stats()["messages"]["total"] == 1
+        listed = tool.list_messages({"q": ["demo"], "limit": ["10"]})
+        assert listed["total"] == 1
+        tool.tag_message({"messageId": listed["messages"][0]["id"], "tag": "manual-test"})
+        tagged = tool.list_messages({"tag": ["manual-test"], "limit": ["10"]})
+        assert tagged["total"] == 1
+        tool.upsert_rule({"name": "demo", "scope": "account", "accountId": "demo", "field": "sender_domain", "operator": "equals", "pattern": "example.test", "action": "include", "tag": "demo"})
+        applied = tool.apply_rules()
+        assert applied["matches"] == 1
+        tool.upsert_rule({"name": "wrong account", "scope": "account", "accountId": "other", "field": "sender_domain", "operator": "equals", "pattern": "example.test", "action": "exclude"})
+        applied = tool.apply_rules()
+        assert applied["matches"] == 1
+        assert tool.list_tags()
+        exported = tool.export_markdown({"state": "included"})
+        assert exported["exported"] == 1
+    print("Email smoke check passed")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Database-first email bridge")
+    sub = parser.add_subparsers(dest="command", required=True)
+    serve_parser = sub.add_parser("serve")
+    serve_parser.add_argument("--port", type=int)
+    sub.add_parser("smoke")
+    args = parser.parse_args()
+    if args.command == "serve":
+        serve(args)
+    elif args.command == "smoke":
+        smoke()
+
+
+if __name__ == "__main__":
+    main()

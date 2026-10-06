@@ -1,0 +1,1214 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Homepage Settings</title>
+    <script>
+      (function () {
+        const CACHE_KEY = "homepage-theme-bootstrap-v1";
+        const root = document.documentElement;
+        const raw = localStorage.getItem(CACHE_KEY);
+        if (!raw) return;
+
+        let cached = null;
+        try {
+          cached = JSON.parse(raw);
+        } catch {
+          return;
+        }
+        if (!cached || typeof cached !== "object") return;
+
+        const mode = String(cached.mode || "preset");
+        const preset = String(cached.preset || "soft");
+        const shape = String(cached.shape || "rounded");
+
+        root.dataset.themePreset = preset;
+        root.dataset.themeShape = shape;
+
+        const vars = cached.vars && typeof cached.vars === "object" ? cached.vars : null;
+        if (mode === "mirror-obsidian" && vars) {
+          for (const [key, value] of Object.entries(vars)) {
+            if (String(key).startsWith("--") && typeof value === "string" && value.trim()) {
+              root.style.setProperty(key, value);
+            }
+          }
+          root.dataset.themeMode = "mirror-obsidian";
+        } else {
+          root.dataset.themeMode = "preset";
+        }
+      })();
+    </script>
+    <style>
+      :root {
+        --bg-a: #f4f8ff;
+        --bg-b: #f8faf4;
+        --surface: rgba(255, 255, 255, 0.9);
+        --surface-strong: rgba(255, 255, 255, 0.96);
+        --row-bg: rgba(255, 255, 255, 0.7);
+        --input-bg: #fff;
+        --border: rgba(22, 34, 63, 0.12);
+        --text: #13213b;
+        --text-soft: #4a5b7c;
+        --accent: #0f72d8;
+        --accent-soft: #64b5ff;
+        --ok: #1b8e4a;
+        --danger: #a42130;
+        --radius-hero: 20px;
+        --radius-panel: 16px;
+        --radius-card: 12px;
+        --radius-control: 10px;
+      }
+
+      html[data-theme-preset="flat"] {
+        --bg-a: #f5f7fa;
+        --bg-b: #edf1f7;
+        --surface: #ffffff;
+        --surface-strong: #ffffff;
+        --row-bg: #f5f8fc;
+        --input-bg: #ffffff;
+        --border: rgba(25, 40, 68, 0.16);
+        --text: #17243f;
+        --text-soft: #4e5e7b;
+        --accent: #1d63c1;
+        --accent-soft: #3c85e6;
+      }
+
+      html[data-theme-preset="high-contrast"] {
+        --bg-a: #0f131b;
+        --bg-b: #151d29;
+        --surface: #1b2533;
+        --surface-strong: #223042;
+        --row-bg: #24354b;
+        --input-bg: #1f2b3b;
+        --border: rgba(197, 219, 250, 0.3);
+        --text: #edf4ff;
+        --text-soft: #b5c8e5;
+        --accent: #4ba3ff;
+        --accent-soft: #8cc8ff;
+        --ok: #4fd08a;
+        --danger: #ff6f7e;
+      }
+
+      html[data-theme-shape="comfortable"] {
+        --radius-hero: 14px;
+        --radius-panel: 11px;
+        --radius-card: 9px;
+        --radius-control: 8px;
+      }
+
+      html[data-theme-shape="sharp"] {
+        --radius-hero: 0px;
+        --radius-panel: 0px;
+        --radius-card: 0px;
+        --radius-control: 0px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        font-family: "Segoe UI", "Aptos", "Helvetica Neue", sans-serif;
+        color: var(--text);
+        background: linear-gradient(155deg, var(--bg-a), var(--bg-b));
+      }
+
+      .wrap {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 24px 16px 36px;
+      }
+
+      .hero {
+        background: var(--surface-strong);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-hero);
+        padding: 16px 18px;
+      }
+
+      .hero-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .hero h1 {
+        margin: 0;
+        font-size: clamp(1.25rem, 1.1rem + 1vw, 2rem);
+      }
+
+      .hero p {
+        margin: 7px 0 0;
+        color: var(--text-soft);
+      }
+
+      .icon-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 42px;
+        height: 42px;
+        border-radius: var(--radius-card);
+        border: 1px solid var(--border);
+        text-decoration: none;
+        background: var(--input-bg);
+        color: var(--text);
+        font-size: 1.15rem;
+      }
+
+      .panel {
+        margin-top: 15px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-panel);
+        overflow: hidden;
+      }
+
+      .panel-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 11px 13px;
+        border-bottom: 1px solid var(--border);
+        background: var(--row-bg);
+      }
+
+      .panel-collapsible .panel-head {
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .panel-collapsible .panel-head::after {
+        content: "▾";
+        font-size: 0.9rem;
+        color: var(--text-soft);
+        margin-top: 2px;
+      }
+
+      .panel-collapsible.panel-collapsed .panel-head::after {
+        content: "▸";
+      }
+
+      .panel-collapsible.panel-collapsed .panel-body {
+        display: none;
+      }
+
+      .panel-title {
+        margin: 0;
+        font-size: 0.85rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-soft);
+      }
+
+      .panel-help {
+        margin-top: 4px;
+        color: var(--text-soft);
+        font-size: 0.9rem;
+      }
+
+      .panel-body {
+        padding: 12px 13px 13px;
+      }
+
+      .section-divider {
+        margin: 18px 0 8px;
+        position: relative;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--text-soft);
+        font-size: 0.78rem;
+      }
+
+      .section-divider::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 50%;
+        border-top: 1px solid var(--border);
+      }
+
+      .section-divider span {
+        position: relative;
+        background: linear-gradient(155deg, var(--bg-a), var(--bg-b));
+        padding-right: 10px;
+      }
+
+      .toggle-line {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 10px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-card);
+        background: var(--row-bg);
+      }
+
+      .toggle-line + .toggle-line {
+        margin-top: 9px;
+      }
+
+      .toggle-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .toggle-title {
+        font-weight: 600;
+      }
+
+      .toggle-help {
+        color: var(--text-soft);
+        font-size: 0.9rem;
+      }
+
+      .switch {
+        width: 20px;
+        height: 20px;
+        margin: 0;
+        margin-top: 1px;
+        flex: 0 0 auto;
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .field + .field,
+      .toggle-line + .field,
+      .field + .toggle-line {
+        margin-top: 9px;
+      }
+
+      .field label {
+        font-size: 0.86rem;
+        color: var(--text-soft);
+      }
+
+      .field input[type="text"],
+      .field input[type="number"],
+      .field textarea,
+      .field select {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-control);
+        padding: 8px 10px;
+        font-size: 0.95rem;
+        background: var(--input-bg);
+        color: var(--text);
+      }
+
+      .actions {
+        margin-top: 14px;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .btn {
+        border: 1px solid transparent;
+        border-radius: var(--radius-control);
+        padding: 9px 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .btn-primary {
+        color: #fff;
+        background: linear-gradient(125deg, var(--accent), var(--accent-soft));
+      }
+
+      .btn-ghost {
+        background: var(--input-bg);
+        border-color: var(--border);
+        color: var(--text);
+      }
+
+      .status {
+        margin-top: 10px;
+        min-height: 20px;
+        color: var(--text-soft);
+        font-size: 0.9rem;
+      }
+
+      .status.ok {
+        color: var(--ok);
+      }
+
+      .status.err {
+        color: var(--danger);
+      }
+
+      .footnote {
+        margin-top: 10px;
+        color: var(--text-soft);
+        font-size: 0.85rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <section class="hero">
+        <div class="hero-top">
+          <div>
+            <h1>Homepage Settings</h1>
+            <p>Module aktivieren/deaktivieren und Basiseinstellungen anpassen.</p>
+          </div>
+          <a class="icon-link" href="/home.html" target="_top" title="Zur Homepage" aria-label="Zur Homepage">🏠</a>
+        </div>
+      </section>
+
+      <section class="panel panel-collapsible">
+        <header class="panel-head">
+          <div>
+            <h2 class="panel-title">Allgemein</h2>
+            <div class="panel-help">Basiseinstellungen fuer Titel, Suche und Theme.</div>
+          </div>
+        </header>
+        <div class="panel-body">
+          <div class="field">
+            <label for="titleInput">Titel</label>
+            <input id="titleInput" type="text" />
+          </div>
+          <div class="field">
+            <label for="titleSizeInput">Titelgroesse (px)</label>
+            <input id="titleSizeInput" type="number" min="18" max="72" step="1" />
+          </div>
+          <div class="field">
+            <label for="searchProvider">Header-Suche: Typ</label>
+            <select id="searchProvider">
+              <option value="omnisearch">Omnisearch (Vault)</option>
+              <option value="obsidian-search">Obsidian Suche (global)</option>
+              <option value="quick-file">Quick File Opener</option>
+            </select>
+          </div>
+          <label class="toggle-line" for="searchOpenInNewTab">
+            <input id="searchOpenInNewTab" class="switch" type="checkbox" />
+            <span class="toggle-copy">
+              <span class="toggle-title">Header-Suche in neuem Tab</span>
+              <span class="toggle-help">Bei aktivem Toggle wird die Suche in einem neuen Tab gestartet.</span>
+            </span>
+          </label>
+          <div class="field">
+            <label for="themeMode">Theme-Modus</label>
+            <select id="themeMode">
+              <option value="preset">Preset</option>
+              <option value="mirror-obsidian">Obsidian-Theme spiegeln</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="themePreset">Preset</label>
+            <select id="themePreset">
+              <option value="soft">Soft (aktuell)</option>
+              <option value="flat">Flat</option>
+              <option value="high-contrast">High Contrast</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="themeShape">Formen</label>
+            <select id="themeShape">
+              <option value="rounded">Rounded</option>
+              <option value="comfortable">Comfortable</option>
+              <option value="sharp">Sharp</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <div class="section-divider"><span>Module</span></div>
+
+      <section class="panel panel-collapsible">
+        <header class="panel-head">
+          <div>
+            <h2 class="panel-title">Bookmarks</h2>
+            <div class="panel-help">Konfiguration der Bookmark-Kartenansicht.</div>
+          </div>
+        </header>
+        <div class="panel-body">
+          <label class="toggle-line" for="bookmarksEnabled">
+            <input id="bookmarksEnabled" class="switch" type="checkbox" />
+            <span class="toggle-copy">
+              <span class="toggle-title">Modul aktiv</span>
+              <span class="toggle-help">Zeigt die aktuellen Obsidian-Bookmarks auf der Homepage.</span>
+            </span>
+          </label>
+          <label class="toggle-line" for="bookmarksShowPath">
+            <input id="bookmarksShowPath" class="switch" type="checkbox" />
+            <span class="toggle-copy">
+              <span class="toggle-title">Voller Zielpfad</span>
+              <span class="toggle-help">Blendet den kompletten Dateipfad oder Link unter dem Titel ein.</span>
+            </span>
+          </label>
+          <label class="toggle-line" for="bookmarksShowType">
+            <input id="bookmarksShowType" class="switch" type="checkbox" />
+            <span class="toggle-copy">
+              <span class="toggle-title">Typ-Badge anzeigen</span>
+              <span class="toggle-help">Zeigt Dateityp wie Datei, Link, Graph oder Search.</span>
+            </span>
+          </label>
+          <label class="toggle-line" for="bookmarksOpenInNewTab">
+            <input id="bookmarksOpenInNewTab" class="switch" type="checkbox" />
+            <span class="toggle-copy">
+              <span class="toggle-title">In neuem Tab oeffnen</span>
+              <span class="toggle-help">Oeffnet Bookmark-Ziele standardmaessig in einem neuen Tab.</span>
+            </span>
+          </label>
+          <div class="field">
+            <label for="bookmarksCardMaxWidth">Kartenbreite max (px)</label>
+            <input id="bookmarksCardMaxWidth" type="number" min="205" max="420" step="5" />
+          </div>
+        </div>
+      </section>
+
+      <section class="panel panel-collapsible">
+        <header class="panel-head">
+          <div>
+            <h2 class="panel-title">Uhrzeit</h2>
+            <div class="panel-help">Steuert die Header-Uhr auf der Homepage.</div>
+          </div>
+        </header>
+        <div class="panel-body">
+          <label class="toggle-line" for="clockEnabled">
+            <input id="clockEnabled" class="switch" type="checkbox" />
+            <span class="toggle-copy">
+              <span class="toggle-title">Modul aktiv</span>
+              <span class="toggle-help">Zeigt die Live-Uhr mit Datum in der Kopfzeile.</span>
+            </span>
+          </label>
+          <label class="toggle-line" for="clockSeconds">
+            <input id="clockSeconds" class="switch" type="checkbox" />
+            <span class="toggle-copy">
+              <span class="toggle-title">Sekunden anzeigen</span>
+              <span class="toggle-help">Aktualisiert die Uhr jede Sekunde statt nur minutengenau.</span>
+            </span>
+          </label>
+          <label class="toggle-line" for="clock12h">
+            <input id="clock12h" class="switch" type="checkbox" />
+            <span class="toggle-copy">
+              <span class="toggle-title">12-Stunden-Format</span>
+              <span class="toggle-help">Nutze AM/PM statt 24-Stunden-Darstellung.</span>
+            </span>
+          </label>
+        </div>
+      </section>
+
+      <section class="panel panel-collapsible">
+        <header class="panel-head">
+          <div>
+            <h2 class="panel-title">Neues Projekt erstellen</h2>
+            <div class="panel-help">Button + Dialog fuer neue Projektordner und MOC-Datei.</div>
+          </div>
+        </header>
+        <div class="panel-body">
+          <label class="toggle-line" for="newProjectEnabled">
+            <input id="newProjectEnabled" class="switch" type="checkbox" />
+            <span class="toggle-copy">
+              <span class="toggle-title">Modul aktiv</span>
+              <span class="toggle-help">Zeigt den Projekt-Anlegen-Dialog auf der Homepage.</span>
+            </span>
+          </label>
+          <label class="toggle-line" for="newProjectOpenInNewTab">
+            <input id="newProjectOpenInNewTab" class="switch" type="checkbox" />
+            <span class="toggle-copy">
+              <span class="toggle-title">Erstellte Datei in neuem Tab oeffnen</span>
+              <span class="toggle-help">Wenn aktiv, wird die neue Projektdatei in einem neuen Tab geoeffnet.</span>
+            </span>
+          </label>
+        </div>
+      </section>
+
+      <section class="panel panel-collapsible">
+        <header class="panel-head">
+          <div>
+            <h2 class="panel-title">Beantime (Beancount)</h2>
+            <div class="panel-help">Start/Stop-Zeiterfassung mit Buchung direkt in Beancount.</div>
+          </div>
+        </header>
+        <div class="panel-body">
+          <label class="toggle-line" for="beantimeEnabled">
+            <input id="beantimeEnabled" class="switch" type="checkbox" />
+            <span class="toggle-copy">
+              <span class="toggle-title">Modul aktiv</span>
+              <span class="toggle-help">Zeigt Start/Stop fuer direkte Beancount-Zeitbuchungen.</span>
+            </span>
+          </label>
+          <div class="field">
+            <label for="beantimeFile">Pfad zur Beancount-Datei</label>
+            <input id="beantimeFile" type="text" placeholder="data/beantime/zeit.beancount" />
+          </div>
+          <div class="field">
+            <label for="beantimePersonAccount">Person-Konto (Gegenkonto)</label>
+            <select id="beantimePersonAccount"></select>
+          </div>
+          <div class="field">
+            <label for="beantimeStateFile">State-Datei (laufender Timer)</label>
+            <input id="beantimeStateFile" type="text" placeholder="data/beantime/state.json" />
+          </div>
+          <div class="field">
+            <label for="beantimeAccountPrefix">Buchbare Konten-Prefix</label>
+            <input id="beantimeAccountPrefix" type="text" placeholder="Projekte:" />
+          </div>
+        </div>
+      </section>
+
+      <section class="panel panel-collapsible">
+        <header class="panel-head">
+          <div>
+            <h2 class="panel-title">Website Monitoring (updo)</h2>
+            <div class="panel-help">Status- und Latenz-Modul fuer definierte Webseiten.</div>
+          </div>
+        </header>
+        <div class="panel-body">
+          <label class="toggle-line" for="updoEnabled">
+            <input id="updoEnabled" class="switch" type="checkbox" />
+            <span class="toggle-copy">
+              <span class="toggle-title">Modul aktiv</span>
+              <span class="toggle-help">Aktiviert das Monitoring-Modul auf der Homepage.</span>
+            </span>
+          </label>
+          <div class="field">
+            <label for="updoRefreshSec">Refresh-Intervall (Sekunden)</label>
+            <input id="updoRefreshSec" type="number" min="3" max="300" step="1" />
+          </div>
+          <div class="field">
+            <label for="updoWindowMinutes">Standard-Zeitfenster (Minuten)</label>
+            <input id="updoWindowMinutes" type="number" min="5" max="1440" step="5" />
+          </div>
+          <div class="field">
+            <label for="updoMaxPoints">Max Datenpunkte je Ziel</label>
+            <input id="updoMaxPoints" type="number" min="60" max="5000" step="10" />
+          </div>
+          <label class="toggle-line" for="updoPersistenceEnabled">
+            <input id="updoPersistenceEnabled" class="switch" type="checkbox" />
+            <span class="toggle-copy">
+              <span class="toggle-title">Persistenz aktiv</span>
+              <span class="toggle-help">Speichert Monitoring-Daten dauerhaft auf der Festplatte.</span>
+            </span>
+          </label>
+          <div class="field">
+            <label for="updoCompressCount">Kompression bei Punkten (>=)</label>
+            <input id="updoCompressCount" type="number" min="120" max="20000" step="10" />
+          </div>
+          <div class="field">
+            <label for="updoCompressSpanMinutes">Kompression bei Zeitspanne (Minuten >=)</label>
+            <input id="updoCompressSpanMinutes" type="number" min="30" max="20160" step="30" />
+          </div>
+          <div class="field">
+            <label for="updoKeepTailPoints">Live-Tail nach Kompression (Punkte)</label>
+            <input id="updoKeepTailPoints" type="number" min="10" max="5000" step="10" />
+          </div>
+          <div class="field">
+            <label for="updoSpikeStaticThresholdMs">Spike: statischer Schwellenwert (ms)</label>
+            <input id="updoSpikeStaticThresholdMs" type="number" min="100" max="120000" step="50" />
+          </div>
+          <div class="field">
+            <label for="updoSpikeMultiplierOverAvg">Spike: Multiplikator ueber Durchschnitt</label>
+            <input id="updoSpikeMultiplierOverAvg" type="number" min="1.1" max="20" step="0.1" />
+          </div>
+          <div class="field">
+            <label for="updoSpikeMinConsecutivePoints">Spike: min. aufeinanderfolgende Punkte</label>
+            <input id="updoSpikeMinConsecutivePoints" type="number" min="1" max="100" step="1" />
+          </div>
+          <div class="field">
+            <label for="updoOutageMinConsecutiveFailures">Outage: min. aufeinanderfolgende Fehler</label>
+            <input id="updoOutageMinConsecutiveFailures" type="number" min="1" max="100" step="1" />
+          </div>
+          <div class="field">
+            <label for="updoGapFactor">Gap-Faktor (Delta > refresh * Faktor)</label>
+            <input id="updoGapFactor" type="number" min="1.1" max="100" step="0.1" />
+          </div>
+          <div class="field">
+            <label for="updoTargets">Ziele (eine URL pro Zeile)</label>
+            <textarea id="updoTargets" rows="4" style="width: 100%;"></textarea>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-body">
+          <div class="actions">
+            <button id="saveBtn" class="btn btn-primary" type="button">Speichern</button>
+            <button id="reloadBtn" class="btn btn-ghost" type="button">Neu laden</button>
+          </div>
+          <div id="status" class="status"></div>
+          <div class="footnote">
+            Gespeichert wird in <code>Tools/config/settings.local.json</code>. Defaults liegen in
+            <code>Tools/config/settings.default.json</code>.
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      const titleInput = document.getElementById("titleInput");
+      const titleSizeInput = document.getElementById("titleSizeInput");
+      const searchProvider = document.getElementById("searchProvider");
+      const searchOpenInNewTab = document.getElementById("searchOpenInNewTab");
+      const themeMode = document.getElementById("themeMode");
+      const themePreset = document.getElementById("themePreset");
+      const themeShape = document.getElementById("themeShape");
+      const bookmarksEnabled = document.getElementById("bookmarksEnabled");
+      const bookmarksShowPath = document.getElementById("bookmarksShowPath");
+      const bookmarksShowType = document.getElementById("bookmarksShowType");
+      const bookmarksOpenInNewTab = document.getElementById("bookmarksOpenInNewTab");
+      const bookmarksCardMaxWidth = document.getElementById("bookmarksCardMaxWidth");
+      const clockEnabled = document.getElementById("clockEnabled");
+      const clockSeconds = document.getElementById("clockSeconds");
+      const clock12h = document.getElementById("clock12h");
+      const newProjectEnabled = document.getElementById("newProjectEnabled");
+      const newProjectOpenInNewTab = document.getElementById("newProjectOpenInNewTab");
+      const beantimeEnabled = document.getElementById("beantimeEnabled");
+      const beantimeFile = document.getElementById("beantimeFile");
+      const beantimePersonAccount = document.getElementById("beantimePersonAccount");
+      const beantimeStateFile = document.getElementById("beantimeStateFile");
+      const beantimeAccountPrefix = document.getElementById("beantimeAccountPrefix");
+      const updoEnabled = document.getElementById("updoEnabled");
+      const updoRefreshSec = document.getElementById("updoRefreshSec");
+      const updoWindowMinutes = document.getElementById("updoWindowMinutes");
+      const updoMaxPoints = document.getElementById("updoMaxPoints");
+      const updoPersistenceEnabled = document.getElementById("updoPersistenceEnabled");
+      const updoCompressCount = document.getElementById("updoCompressCount");
+      const updoCompressSpanMinutes = document.getElementById("updoCompressSpanMinutes");
+      const updoKeepTailPoints = document.getElementById("updoKeepTailPoints");
+      const updoSpikeStaticThresholdMs = document.getElementById("updoSpikeStaticThresholdMs");
+      const updoSpikeMultiplierOverAvg = document.getElementById("updoSpikeMultiplierOverAvg");
+      const updoSpikeMinConsecutivePoints = document.getElementById("updoSpikeMinConsecutivePoints");
+      const updoOutageMinConsecutiveFailures = document.getElementById("updoOutageMinConsecutiveFailures");
+      const updoGapFactor = document.getElementById("updoGapFactor");
+      const updoTargets = document.getElementById("updoTargets");
+      const saveBtn = document.getElementById("saveBtn");
+      const reloadBtn = document.getElementById("reloadBtn");
+      const statusEl = document.getElementById("status");
+      const rootEl = document.documentElement;
+      const THEME_CACHE_KEY = "homepage-theme-bootstrap-v1";
+
+      let currentSettings = null;
+
+      function makePanelCollapsible(panel, startCollapsed = false) {
+        if (!panel) return;
+        const head = panel.querySelector(".panel-head");
+        const body = panel.querySelector(".panel-body");
+        if (!head || !body) return;
+
+        const applyState = (collapsed) => {
+          panel.classList.toggle("panel-collapsed", collapsed);
+          head.setAttribute("aria-expanded", String(!collapsed));
+        };
+
+        head.setAttribute("role", "button");
+        head.tabIndex = 0;
+        const toggle = () => {
+          const collapsed = !panel.classList.contains("panel-collapsed");
+          applyState(collapsed);
+        };
+
+        head.addEventListener("click", (event) => {
+          const target = event.target;
+          if (
+            target instanceof HTMLElement &&
+            target.closest("input, select, textarea, button, a, label")
+          ) {
+            return;
+          }
+          toggle();
+        });
+        head.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            toggle();
+          }
+        });
+
+        applyState(Boolean(startCollapsed));
+      }
+
+      function setStatus(text, state) {
+        statusEl.textContent = text || "";
+        statusEl.classList.remove("ok", "err");
+        if (state === "ok") statusEl.classList.add("ok");
+        if (state === "err") statusEl.classList.add("err");
+      }
+
+      function syncThemeFieldState() {
+        const mirrorMode = themeMode.value === "mirror-obsidian";
+        themePreset.disabled = mirrorMode;
+      }
+
+      function cleanThemeValue(value, allowed, fallback) {
+        const normalized = String(value || "").trim().toLowerCase();
+        return allowed.includes(normalized) ? normalized : fallback;
+      }
+
+      function clearMirroredThemeVars() {
+        const vars = [
+          "--bg-a",
+          "--bg-b",
+          "--surface",
+          "--surface-strong",
+          "--row-bg",
+          "--input-bg",
+          "--border",
+          "--text",
+          "--text-soft",
+          "--accent",
+          "--accent-soft",
+          "--ok",
+          "--danger"
+        ];
+        for (const varName of vars) {
+          rootEl.style.removeProperty(varName);
+        }
+      }
+
+      function applyMirroredThemeVars(themeVars) {
+        const accent = String(themeVars?.accent || "").trim();
+        const bgPrimary = String(themeVars?.bgPrimary || "").trim();
+        const bgSecondary = String(themeVars?.bgSecondary || "").trim();
+        const bgMod = String(themeVars?.bgMod || "").trim();
+        const border = String(themeVars?.border || "").trim();
+        const text = String(themeVars?.text || "").trim();
+        const textSoft = String(themeVars?.textMuted || "").trim();
+        const ok = String(themeVars?.textSuccess || "").trim();
+        const danger = String(themeVars?.textError || "").trim();
+        const accentHover = String(themeVars?.accentHover || "").trim();
+
+        if (!bgPrimary || !text || !accent) {
+          return false;
+        }
+
+        rootEl.style.setProperty("--bg-a", bgSecondary || bgPrimary);
+        rootEl.style.setProperty("--bg-b", bgPrimary);
+        rootEl.style.setProperty("--surface", bgSecondary || bgPrimary);
+        rootEl.style.setProperty("--surface-strong", bgPrimary);
+        rootEl.style.setProperty("--row-bg", bgMod || bgSecondary || bgPrimary);
+        rootEl.style.setProperty("--input-bg", bgPrimary);
+        rootEl.style.setProperty("--border", border || "rgba(128, 128, 128, 0.3)");
+        rootEl.style.setProperty("--text", text);
+        rootEl.style.setProperty("--text-soft", textSoft || text);
+        rootEl.style.setProperty("--accent", accent);
+        rootEl.style.setProperty("--accent-soft", accentHover || accent);
+        rootEl.style.setProperty("--ok", ok || "#1b8e4a");
+        rootEl.style.setProperty("--danger", danger || "#a42130");
+        return true;
+      }
+
+      function currentThemeCssVarSnapshot() {
+        const names = [
+          "--bg-a",
+          "--bg-b",
+          "--surface",
+          "--surface-strong",
+          "--row-bg",
+          "--input-bg",
+          "--border",
+          "--text",
+          "--text-soft",
+          "--accent",
+          "--accent-soft",
+          "--ok",
+          "--danger"
+        ];
+        const out = {};
+        for (const name of names) {
+          const value = rootEl.style.getPropertyValue(name);
+          if (value && String(value).trim()) out[name] = String(value).trim();
+        }
+        return out;
+      }
+
+      function persistThemeBootstrapCache({ mode, preset, shape, vars }) {
+        try {
+          localStorage.setItem(
+            THEME_CACHE_KEY,
+            JSON.stringify({
+              mode,
+              preset,
+              shape,
+              vars: vars && typeof vars === "object" ? vars : null
+            })
+          );
+        } catch {
+          // noop
+        }
+      }
+
+      async function fetchObsidianThemeSnapshot() {
+        const response = await fetch("/api/obsidian/theme");
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || "Could not load Obsidian theme");
+        }
+        const payload = await response.json();
+        return payload?.theme || null;
+      }
+
+      async function applyUiTheme(themeConfig) {
+        const mode = cleanThemeValue(themeConfig?.mode, ["preset", "mirror-obsidian"], "preset");
+        const preset = cleanThemeValue(themeConfig?.preset, ["soft", "flat", "high-contrast"], "soft");
+        const shape = cleanThemeValue(themeConfig?.shape, ["rounded", "comfortable", "sharp"], "rounded");
+
+        rootEl.dataset.themePreset = preset;
+        rootEl.dataset.themeShape = shape;
+
+        clearMirroredThemeVars();
+        if (mode === "mirror-obsidian") {
+          let mirrored = false;
+          try {
+            const theme = await fetchObsidianThemeSnapshot();
+            mirrored = applyMirroredThemeVars(theme?.vars);
+          } catch {
+            mirrored = false;
+          }
+          rootEl.dataset.themeMode = mirrored ? "mirror-obsidian" : "preset";
+          persistThemeBootstrapCache({
+            mode: mirrored ? "mirror-obsidian" : "preset",
+            preset,
+            shape,
+            vars: mirrored ? currentThemeCssVarSnapshot() : null
+          });
+          return;
+        }
+        rootEl.dataset.themeMode = "preset";
+        persistThemeBootstrapCache({ mode: "preset", preset, shape, vars: null });
+      }
+
+      function applyThemePreviewFromForm() {
+        void applyUiTheme({
+          mode: String(themeMode.value || "preset"),
+          preset: String(themePreset.value || "soft"),
+          shape: String(themeShape.value || "rounded")
+        });
+      }
+
+      function parseUpdoTargetsFromTextarea(value) {
+        const lines = String(value || "")
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean);
+        const out = [];
+        const seen = new Set();
+        for (const line of lines) {
+          try {
+            const parsed = new URL(line);
+            if (parsed.protocol !== "http:" && parsed.protocol !== "https:") continue;
+            const url = parsed.toString();
+            if (seen.has(url)) continue;
+            seen.add(url);
+            out.push({
+              id: parsed.hostname.toLowerCase().replace(/[^a-z0-9-_]+/g, "-"),
+              name: parsed.hostname,
+              url
+            });
+          } catch {
+            // ignore invalid urls
+          }
+        }
+        return out;
+      }
+
+      async function loadBeantimePersonOptions(preferredValue = "") {
+        const fallback = String(preferredValue || "").trim() || "Zeit:Example";
+        try {
+          const response = await fetch("/api/beantime/meta");
+          if (!response.ok) throw new Error("meta unavailable");
+          const payload = await response.json();
+          const persons = Array.isArray(payload?.personAccounts)
+            ? payload.personAccounts.map((item) => String(item || "").trim()).filter(Boolean)
+            : [];
+          const selected = String(preferredValue || payload?.personAccount || "").trim() || fallback;
+          beantimePersonAccount.innerHTML = "";
+          const values = persons.length ? persons : [selected];
+          for (const value of values) {
+            const option = document.createElement("option");
+            option.value = value;
+            option.textContent = value;
+            beantimePersonAccount.appendChild(option);
+          }
+          if (!persons.length && !values.includes(selected)) {
+            const option = document.createElement("option");
+            option.value = selected;
+            option.textContent = selected;
+            beantimePersonAccount.appendChild(option);
+          }
+          if (values.includes(selected)) {
+            beantimePersonAccount.value = selected;
+          } else {
+            const fallbackSelected = (fallback && values.includes(fallback) ? fallback : "") || values[0] || "";
+            beantimePersonAccount.value = fallbackSelected;
+          }
+        } catch {
+          const selected = fallback;
+          beantimePersonAccount.innerHTML = "";
+          const option = document.createElement("option");
+          option.value = selected;
+          option.textContent = selected;
+          beantimePersonAccount.appendChild(option);
+          beantimePersonAccount.value = selected;
+        }
+      }
+
+      function readFormToSettings() {
+        const parsedTitleSize = Number.parseInt(String(titleSizeInput.value || ""), 10);
+        const titleSize = Number.isFinite(parsedTitleSize)
+          ? Math.max(18, Math.min(72, parsedTitleSize))
+          : 38;
+        const parsedBookmarkCardMaxWidth = Number.parseInt(String(bookmarksCardMaxWidth.value || ""), 10);
+        const cardMaxWidth = Number.isFinite(parsedBookmarkCardMaxWidth)
+          ? Math.max(205, Math.min(420, parsedBookmarkCardMaxWidth))
+          : 240;
+        const parsedUpdoRefreshSec = Number.parseInt(String(updoRefreshSec.value || ""), 10);
+        const parsedUpdoWindowMinutes = Number.parseInt(String(updoWindowMinutes.value || ""), 10);
+        const parsedUpdoMaxPoints = Number.parseInt(String(updoMaxPoints.value || ""), 10);
+        const parsedUpdoCompressCount = Number.parseInt(String(updoCompressCount.value || ""), 10);
+        const parsedUpdoCompressSpanMinutes = Number.parseInt(String(updoCompressSpanMinutes.value || ""), 10);
+        const parsedUpdoKeepTailPoints = Number.parseInt(String(updoKeepTailPoints.value || ""), 10);
+        const parsedUpdoSpikeStaticThresholdMs = Number.parseInt(
+          String(updoSpikeStaticThresholdMs.value || ""),
+          10
+        );
+        const parsedUpdoSpikeMultiplierOverAvg = Number.parseFloat(
+          String(updoSpikeMultiplierOverAvg.value || "")
+        );
+        const parsedUpdoSpikeMinConsecutivePoints = Number.parseInt(
+          String(updoSpikeMinConsecutivePoints.value || ""),
+          10
+        );
+        const parsedUpdoOutageMinConsecutiveFailures = Number.parseInt(
+          String(updoOutageMinConsecutiveFailures.value || ""),
+          10
+        );
+        const cleanBeantimeFile = String(beantimeFile.value || "").trim() || "data/beantime/zeit.beancount";
+        const cleanBeantimePersonAccount = String(beantimePersonAccount.value || "").trim() || "Zeit:Example";
+        const cleanBeantimeStateFile = String(beantimeStateFile.value || "").trim() || "data/beantime/state.json";
+        const cleanBeantimeAccountPrefix = String(beantimeAccountPrefix.value || "").trim() || "Projekte:";
+        const parsedUpdoGapFactor = Number.parseFloat(String(updoGapFactor.value || ""));
+        return {
+          schemaVersion: 1,
+          ui: {
+            title: String(titleInput.value || "").trim() || "Workspace Homepage",
+            titleSize,
+            search: {
+              provider: String(searchProvider.value || "omnisearch"),
+              openInNewTab: Boolean(searchOpenInNewTab.checked)
+            },
+            theme: {
+              mode: String(themeMode.value || "preset"),
+              preset: String(themePreset.value || "soft"),
+              shape: String(themeShape.value || "rounded")
+            }
+          },
+          modules: {
+            bookmarks: {
+              enabled: Boolean(bookmarksEnabled.checked),
+              title: "Bookmarks",
+              showPath: Boolean(bookmarksShowPath.checked),
+              showType: Boolean(bookmarksShowType.checked),
+              openInNewTab: Boolean(bookmarksOpenInNewTab.checked),
+              cardMaxWidth
+            },
+            clock: {
+              enabled: Boolean(clockEnabled.checked),
+              title: "Uhrzeit",
+              showSeconds: Boolean(clockSeconds.checked),
+              hour12: Boolean(clock12h.checked)
+            },
+            newProject: {
+              enabled: Boolean(newProjectEnabled.checked),
+              title: "Projektverwaltung",
+              openInNewTab: Boolean(newProjectOpenInNewTab.checked)
+            },
+            beantime: {
+              enabled: Boolean(beantimeEnabled.checked),
+              title: "Beantime",
+              file: cleanBeantimeFile,
+              personAccount: cleanBeantimePersonAccount,
+              stateFile: cleanBeantimeStateFile,
+              bookableAccountPrefix: cleanBeantimeAccountPrefix
+            },
+            updo: {
+              enabled: Boolean(updoEnabled.checked),
+              title: "Website Monitoring",
+              refreshSec: Number.isFinite(parsedUpdoRefreshSec)
+                ? Math.max(3, Math.min(300, parsedUpdoRefreshSec))
+                : 5,
+              windowMinutes: Number.isFinite(parsedUpdoWindowMinutes)
+                ? Math.max(5, Math.min(1440, parsedUpdoWindowMinutes))
+                : 60,
+              maxPoints: Number.isFinite(parsedUpdoMaxPoints)
+                ? Math.max(60, Math.min(5000, parsedUpdoMaxPoints))
+                : 720,
+              persistence: {
+                enabled: Boolean(updoPersistenceEnabled.checked),
+                rawFile: "data/updo/raw.jsonl",
+                longtermFile: "data/updo/longterm.jsonl",
+                incidentsFile: "data/updo/incidents.jsonl",
+                stateFile: "data/updo/state.json"
+              },
+              compression: {
+                compressCount: Number.isFinite(parsedUpdoCompressCount)
+                  ? Math.max(120, Math.min(20000, parsedUpdoCompressCount))
+                  : 720,
+                compressSpanMinutes: Number.isFinite(parsedUpdoCompressSpanMinutes)
+                  ? Math.max(30, Math.min(20160, parsedUpdoCompressSpanMinutes))
+                  : 1440,
+                keepTailPoints: Number.isFinite(parsedUpdoKeepTailPoints)
+                  ? Math.max(10, Math.min(5000, parsedUpdoKeepTailPoints))
+                  : 120
+              },
+              spikeDetection: {
+                staticThresholdMs: Number.isFinite(parsedUpdoSpikeStaticThresholdMs)
+                  ? Math.max(100, Math.min(120000, parsedUpdoSpikeStaticThresholdMs))
+                  : 1200,
+                multiplierOverAvg: Number.isFinite(parsedUpdoSpikeMultiplierOverAvg)
+                  ? Math.max(1.1, Math.min(20, parsedUpdoSpikeMultiplierOverAvg))
+                  : 2.5,
+                minConsecutivePoints: Number.isFinite(parsedUpdoSpikeMinConsecutivePoints)
+                  ? Math.max(1, Math.min(100, parsedUpdoSpikeMinConsecutivePoints))
+                  : 2
+              },
+              outageDetection: {
+                minConsecutiveFailures: Number.isFinite(parsedUpdoOutageMinConsecutiveFailures)
+                  ? Math.max(1, Math.min(100, parsedUpdoOutageMinConsecutiveFailures))
+                  : 2
+              },
+              gapDetection: {
+                gapFactor: Number.isFinite(parsedUpdoGapFactor)
+                  ? Math.max(1.1, Math.min(100, parsedUpdoGapFactor))
+                  : 3
+              },
+              targets: parseUpdoTargetsFromTextarea(updoTargets.value)
+            }
+          }
+        };
+      }
+
+      function fillForm(settings) {
+        titleInput.value = settings?.ui?.title || "";
+        titleSizeInput.value = String(settings?.ui?.titleSize ?? 38);
+        searchProvider.value = settings?.ui?.search?.provider || "omnisearch";
+        searchOpenInNewTab.checked = Boolean(settings?.ui?.search?.openInNewTab);
+        themeMode.value = settings?.ui?.theme?.mode || "preset";
+        themePreset.value = settings?.ui?.theme?.preset || "soft";
+        themeShape.value = settings?.ui?.theme?.shape || "rounded";
+        syncThemeFieldState();
+        applyThemePreviewFromForm();
+        bookmarksEnabled.checked = Boolean(settings?.modules?.bookmarks?.enabled);
+        bookmarksShowPath.checked = Boolean(settings?.modules?.bookmarks?.showPath);
+        bookmarksShowType.checked = Boolean(settings?.modules?.bookmarks?.showType);
+        bookmarksOpenInNewTab.checked = Boolean(settings?.modules?.bookmarks?.openInNewTab);
+        bookmarksCardMaxWidth.value = String(settings?.modules?.bookmarks?.cardMaxWidth ?? 240);
+        clockEnabled.checked = Boolean(settings?.modules?.clock?.enabled);
+        clockSeconds.checked = Boolean(settings?.modules?.clock?.showSeconds);
+        clock12h.checked = Boolean(settings?.modules?.clock?.hour12);
+        newProjectEnabled.checked = Boolean(settings?.modules?.newProject?.enabled);
+        newProjectOpenInNewTab.checked = Boolean(settings?.modules?.newProject?.openInNewTab);
+        beantimeEnabled.checked = Boolean(settings?.modules?.beantime?.enabled);
+        beantimeFile.value = String(settings?.modules?.beantime?.file ?? "data/beantime/zeit.beancount");
+        const initialBeantimePerson = String(settings?.modules?.beantime?.personAccount ?? "Zeit:Example").trim() || "Zeit:Example";
+        beantimePersonAccount.innerHTML = "";
+        {
+          const option = document.createElement("option");
+          option.value = initialBeantimePerson;
+          option.textContent = initialBeantimePerson;
+          beantimePersonAccount.appendChild(option);
+        }
+        beantimePersonAccount.value = initialBeantimePerson;
+        beantimeStateFile.value = String(settings?.modules?.beantime?.stateFile ?? "data/beantime/state.json");
+        beantimeAccountPrefix.value = String(settings?.modules?.beantime?.bookableAccountPrefix ?? "Projekte:");
+        updoEnabled.checked = Boolean(settings?.modules?.updo?.enabled);
+        updoRefreshSec.value = String(settings?.modules?.updo?.refreshSec ?? 5);
+        updoWindowMinutes.value = String(settings?.modules?.updo?.windowMinutes ?? 60);
+        updoMaxPoints.value = String(settings?.modules?.updo?.maxPoints ?? 720);
+        updoPersistenceEnabled.checked = Boolean(settings?.modules?.updo?.persistence?.enabled ?? true);
+        updoCompressCount.value = String(settings?.modules?.updo?.compression?.compressCount ?? 720);
+        updoCompressSpanMinutes.value = String(settings?.modules?.updo?.compression?.compressSpanMinutes ?? 1440);
+        updoKeepTailPoints.value = String(settings?.modules?.updo?.compression?.keepTailPoints ?? 120);
+        updoSpikeStaticThresholdMs.value = String(settings?.modules?.updo?.spikeDetection?.staticThresholdMs ?? 1200);
+        updoSpikeMultiplierOverAvg.value = String(
+          settings?.modules?.updo?.spikeDetection?.multiplierOverAvg ?? 2.5
+        );
+        updoSpikeMinConsecutivePoints.value = String(
+          settings?.modules?.updo?.spikeDetection?.minConsecutivePoints ?? 2
+        );
+        updoOutageMinConsecutiveFailures.value = String(
+          settings?.modules?.updo?.outageDetection?.minConsecutiveFailures ?? 2
+        );
+        updoGapFactor.value = String(settings?.modules?.updo?.gapDetection?.gapFactor ?? 3);
+        const lines = Array.isArray(settings?.modules?.updo?.targets)
+          ? settings.modules.updo.targets
+              .map((target) => String(target?.url || "").trim())
+              .filter(Boolean)
+          : [];
+        updoTargets.value = lines.join("\n");
+      }
+
+      async function loadSettings() {
+        setStatus("Lade Einstellungen...");
+        try {
+          const response = await fetch("/api/settings");
+          if (!response.ok) {
+            const text = await response.text();
+            throw new Error(text || "Fehler beim Laden");
+          }
+          const payload = await response.json();
+          currentSettings = payload.settings || null;
+          fillForm(currentSettings || {});
+          await loadBeantimePersonOptions(
+            String(currentSettings?.modules?.beantime?.personAccount ?? "Zeit:Example")
+          );
+          setStatus("Einstellungen geladen.", "ok");
+        } catch (error) {
+          setStatus(`Konnte Einstellungen nicht laden: ${error.message || error}`, "err");
+        }
+      }
+
+      async function saveSettings() {
+        const settings = readFormToSettings();
+        setStatus("Speichere Einstellungen...");
+        try {
+          const response = await fetch("/api/settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ settings })
+          });
+          if (!response.ok) {
+            const text = await response.text();
+            throw new Error(text || "Fehler beim Speichern");
+          }
+          const payload = await response.json();
+          currentSettings = payload.settings || settings;
+          fillForm(currentSettings);
+          await loadBeantimePersonOptions(
+            String(currentSettings?.modules?.beantime?.personAccount ?? "Zeit:Example")
+          );
+          setStatus("Gespeichert. Oeffne die Homepage neu, falls noetig.", "ok");
+        } catch (error) {
+          setStatus(`Speichern fehlgeschlagen: ${error.message || error}`, "err");
+        }
+      }
+
+      saveBtn.addEventListener("click", saveSettings);
+      reloadBtn.addEventListener("click", loadSettings);
+      themeMode.addEventListener("change", () => {
+        syncThemeFieldState();
+        applyThemePreviewFromForm();
+      });
+      themePreset.addEventListener("change", applyThemePreviewFromForm);
+      themeShape.addEventListener("change", applyThemePreviewFromForm);
+      document
+        .querySelectorAll(".panel-collapsible")
+        .forEach((panel) => makePanelCollapsible(panel, true));
+
+      loadSettings();
+    </script>
+  </body>
+</html>

@@ -5,6 +5,7 @@
 *.local
 secrets/
 credentials/
+config/settings.local.json
 
 # Dependencies and virtual environments
 node_modules/
@@ -24,6 +25,9 @@ coverage/
 playwright-report/
 .playwright-mcp/
 test-results/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Generated output and local runtime state
 build/
@@ -39,6 +43,12 @@ data/
 *.sqlite3
 *.db
 *.log
+Calendar/calendar.filter-state.json
+Calendar/calendar.preview.pid
+Calendar/events.generated.js
+VaultGraph/graph.generated.js
+VaultGraph/graph.generated.json
+VaultGraph/vault-graph.preview.pid
 
 # Editors and operating systems
 .idea/

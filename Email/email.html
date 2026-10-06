@@ -1,0 +1,208 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Email DB</title>
+  <script>
+    (function() {
+      var raw = null;
+      try {
+        raw = window.localStorage ? window.localStorage.getItem('email-theme-bootstrap-v1') : null;
+      } catch (error) {
+        return;
+      }
+      if (!raw) return;
+      var cached = null;
+      try {
+        cached = JSON.parse(raw);
+      } catch (error) {
+        return;
+      }
+      var vars = cached && cached.vars && typeof cached.vars === 'object' ? cached.vars : null;
+      if (!vars) return;
+      var root = document.documentElement;
+      Object.keys(vars).forEach(function(key) {
+        var value = vars[key];
+        if (String(key).indexOf('--') !== 0) return;
+        if (typeof value !== 'string' || !value.trim()) return;
+        root.style.setProperty(key, value);
+      });
+    })();
+  </script>
+  <link rel="stylesheet" href="email.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="title-row">
+        <h1>Email DB</h1>
+        <nav class="view-tabs" aria-label="Email views">
+          <button id="dashboardTab" class="tab-btn active" type="button" data-view="dashboard">Dashboard</button>
+          <button id="accountTab" class="tab-btn" type="button" data-view="account">Account</button>
+          <button id="rulesTab" class="tab-btn" type="button" data-view="rules">Rules</button>
+        </nav>
+        <p id="status">Loading...</p>
+      </div>
+      <div class="top-actions">
+        <button id="refreshBtn" type="button">Refresh</button>
+        <button id="applyRulesBtn" type="button">Apply Rules</button>
+        <button id="exportBtn" type="button">Export</button>
+      </div>
+    </header>
+
+    <section id="dashboardView" class="view-panel dashboard-view">
+      <section class="dashboard-actions">
+        <button id="fetchNewAllBtn" type="button">Fetch New All</button>
+        <button id="countAllBtn" type="button">Count All</button>
+        <label>Recent <input id="recentLimitInput" type="number" min="5" max="200" value="30"></label>
+        <span id="dashboardStatus" class="server-count"></span>
+      </section>
+      <section id="dashboardStats" class="stat-strip"></section>
+      <section class="dashboard-grid">
+        <section class="dashboard-card">
+          <div class="dashboard-card-head">
+            <h2>Accounts</h2>
+            <div class="card-tabs" aria-label="Dashboard account panel">
+              <button id="dashboardAccountsTab" class="mini-tab active" type="button">Accounts</button>
+              <button id="dashboardMailTab" class="mini-tab" type="button">Mail</button>
+            </div>
+          </div>
+          <div id="dashboardAccountsPanel">
+            <div id="dashboardAccounts" class="account-table"></div>
+          </div>
+          <div id="dashboardMailPanel" class="dashboard-mail-panel hidden">
+            <div id="dashboardMessageActions" class="message-actions hidden">
+              <button data-state="included" type="button">Include</button>
+              <button data-state="candidate" type="button">Candidate</button>
+              <button data-state="excluded" type="button">Exclude</button>
+              <button data-sender-rule="include" type="button">Include Sender</button>
+              <button data-sender-rule="exclude" type="button">Exclude Sender</button>
+              <input id="dashboardTagInput" type="text" placeholder="tag" list="tagSuggestions">
+              <button id="dashboardTagBtn" type="button">Tag</button>
+            </div>
+            <article id="dashboardMessageDetail" class="message-detail empty">Select a recent mail.</article>
+          </div>
+        </section>
+        <section class="dashboard-card">
+          <h2>Recent Mail</h2>
+          <div id="dashboardRecent" class="recent-list"></div>
+        </section>
+      </section>
+    </section>
+
+    <section id="rulesView" class="view-panel rules-view hidden">
+      <section class="rules-toolbar">
+        <input id="rulesSearch" type="search" placeholder="Search rules">
+        <input id="rulesTagFilter" type="search" placeholder="tag" list="tagSuggestions">
+        <select id="rulesScopeFilter">
+          <option value="">all scopes</option>
+          <option value="global">global</option>
+          <option value="account">account/local</option>
+          <option value="current">current account</option>
+        </select>
+        <select id="rulesActionFilter">
+          <option value="">all actions</option>
+          <option value="include">include</option>
+          <option value="exclude">exclude</option>
+          <option value="tag">tag</option>
+        </select>
+        <span id="rulesCount" class="server-count"></span>
+      </section>
+      <div id="rulesTable" class="rules-table"></div>
+    </section>
+
+    <section id="accountView" class="view-panel hidden">
+      <section class="controls">
+        <label>Account <select id="accountSelect"></select></label>
+        <label class="compact-toggle"><input id="compactToggle" type="checkbox"> Compact</label>
+        <label>Since <input id="sinceInput" type="date"></label>
+        <label>Before <input id="beforeInput" type="date"></label>
+        <label>Limit <input id="fetchLimitInput" type="number" min="1" max="10000" value="500"></label>
+        <button id="countBtn" type="button">Count</button>
+        <button id="fetchNewBtn" type="button">Fetch New</button>
+        <button id="fetchBtn" type="button">Fetch All/Range</button>
+        <button id="oauthBtn" type="button" class="hidden">OAuth Login</button>
+        <span id="serverCount" class="server-count"></span>
+        <span id="stats" class="stats"></span>
+      </section>
+      <section id="oauthPanel" class="oauth-panel hidden"></section>
+
+      <main class="layout">
+        <aside class="left">
+          <section class="filter-row">
+            <input id="searchInput" type="search" placeholder="Search sender, subject, body">
+            <select id="stateFilter">
+              <option value="">all</option>
+              <option value="candidate">candidate</option>
+              <option value="included">included</option>
+              <option value="excluded">excluded</option>
+            </select>
+            <input id="tagFilter" type="search" placeholder="tag">
+            <select id="groupFilter">
+              <option value="">no group</option>
+              <option value="sender">group: sender</option>
+              <option value="state">group: state</option>
+              <option value="tag">group: tag</option>
+              <option value="mailbox">group: mailbox</option>
+              <option value="date">group: date</option>
+            </select>
+            <select id="groupSort">
+              <option value="name">sort: name</option>
+              <option value="size">sort: size</option>
+            </select>
+          </section>
+          <div id="messageList" class="message-list"></div>
+        </aside>
+
+        <section class="detail">
+          <div id="messageActions" class="message-actions hidden">
+            <button data-state="included" type="button">Include</button>
+            <button data-state="candidate" type="button">Candidate</button>
+            <button data-state="excluded" type="button">Exclude</button>
+            <button data-sender-rule="include" type="button">Include Sender</button>
+            <button data-sender-rule="exclude" type="button">Exclude Sender</button>
+            <input id="tagInput" type="text" placeholder="tag" list="tagSuggestions">
+            <button id="tagBtn" type="button">Tag</button>
+          </div>
+          <article id="messageDetail" class="message-detail empty">Select a message.</article>
+        </section>
+
+        <aside class="rules">
+          <h2>Rules</h2>
+          <div class="rule-form">
+            <input id="ruleName" type="text" placeholder="name">
+            <select id="ruleScope">
+              <option value="account">current account</option>
+              <option value="global">global</option>
+            </select>
+            <select id="ruleField">
+              <option value="sender_email">sender email</option>
+              <option value="sender_domain">sender domain</option>
+              <option value="subject">subject</option>
+              <option value="body">body</option>
+              <option value="account_id">account</option>
+            </select>
+            <select id="ruleOperator">
+              <option value="contains">contains</option>
+              <option value="equals">equals</option>
+              <option value="regex">regex</option>
+            </select>
+            <input id="rulePattern" type="text" placeholder="pattern">
+            <select id="ruleAction">
+              <option value="exclude">exclude</option>
+              <option value="include">include</option>
+              <option value="tag">tag</option>
+            </select>
+            <input id="ruleTag" type="text" placeholder="tag optional" list="tagSuggestions">
+            <button id="saveRuleBtn" type="button">Save Rule</button>
+          </div>
+          <div id="ruleList" class="rule-list"></div>
+        </aside>
+      </main>
+    </section>
+    <datalist id="tagSuggestions"></datalist>
+  </div>
+  <script src="email.app.js"></script>
+</body>
+</html>

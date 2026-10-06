@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "ui": {
+    "title": "Workspace Homepage",
+    "titleSize": 38,
+    "search": {
+      "provider": "omnisearch",
+      "openInNewTab": false
+    },
+    "theme": {
+      "mode": "preset",
+      "preset": "soft",
+      "shape": "rounded"
+    }
+  },
+  "modules": {
+    "bookmarks": {
+      "enabled": true,
+      "title": "Bookmarks",
+      "showPath": false,
+      "showType": false,
+      "openInNewTab": false,
+      "cardMaxWidth": 240
+    },
+    "clock": {
+      "enabled": true,
+      "title": "Uhrzeit",
+      "showSeconds": true,
+      "hour12": false
+    },
+    "newProject": {
+      "enabled": true,
+      "title": "Projektverwaltung",
+      "openInNewTab": true
+    },
+    "beantime": {
+      "enabled": true,
+      "title": "Beantime",
+      "file": "data/beantime/zeit.beancount",
+      "personAccount": "Zeit:Example",
+      "stateFile": "data/beantime/state.json",
+      "bookableAccountPrefix": "Projekte:"
+    },
+    "vaultGraph": {
+      "enabled": true,
+      "title": "VaultGraph",
+      "url": "http://127.0.0.1:4175/vault-graph.html"
+    },
+    "email": {
+      "enabled": true,
+      "title": "Email",
+      "url": "http://127.0.0.1:4176/email.html"
+    },
+    "updo": {
+      "enabled": true,
+      "title": "Website Monitoring",
+      "refreshSec": 5,
+      "windowMinutes": 60,
+      "maxPoints": 720,
+      "persistence": {
+        "enabled": true,
+        "rawFile": "data/updo/raw.jsonl",
+        "longtermFile": "data/updo/longterm.jsonl",
+        "incidentsFile": "data/updo/incidents.jsonl",
+        "stateFile": "data/updo/state.json"
+      },
+      "compression": {
+        "compressCount": 720,
+        "compressSpanMinutes": 1440,
+        "keepTailPoints": 120
+      },
+      "spikeDetection": {
+        "staticThresholdMs": 1200,
+        "multiplierOverAvg": 2.5,
+        "minConsecutivePoints": 2
+      },
+      "outageDetection": {
+        "minConsecutiveFailures": 2
+      },
+      "gapDetection": {
+        "gapFactor": 3
+      },
+      "targets": [
+        {
+          "id": "www",
+          "name": "www.nica.network",
+          "url": "https://www.nica.network"
+        },
+        {
+          "id": "cloud",
+          "name": "cloud.nica.network",
+          "url": "https://cloud.nica.network"
+        },
+        {
+          "id": "campus",
+          "name": "campus.nica.network",
+          "url": "https://campus.nica.network"
+        }
+      ]
+    }
+  }
+}

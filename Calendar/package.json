@@ -1,0 +1,15 @@
+{
+  "name": "obsidian-fullcalendar-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:events": "node ./build-events.mjs",
+    "preview": "npm run stop:preview && npm run build:events && node ./serve.mjs",
+    "stop:preview": "node ./stop-preview.mjs",
+    "restart:preview": "npm run stop:preview && npm run preview",
+    "check:smoke": "node --check ./build-events.mjs && node --check ./serve.mjs && node ./build-events.mjs && node ./smoke-check.mjs"
+  },
+  "dependencies": {
+    "ssh2-sftp-client": "^12.1.1"
+  }
+}
