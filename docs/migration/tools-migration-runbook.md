@@ -1,6 +1,6 @@
 # Former Tools migration runbook
 
-**Status**: Gates 0 through 3 complete
+**Status**: Gates 0 through 4 complete for the credential-free shadow scope
 
 **Availability objective**: Marc retains a working daily toolset throughout the
 migration. Individual capability cutovers may use a controlled maintenance
@@ -159,6 +159,11 @@ Production is unaffected.
 - Reproducible lint, smoke, and failure-path checks pass.
 
 ## Gate 4 - shadow verification
+
+**Completion**: Complete for local-vault, isolated-state, and synthetic-write
+workflows. See [Gate 4 shadow verification](gate-4-shadow-verification.md).
+Credential-dependent Google Calendar, Nextcloud CalDAV, and IMAP verification
+remains a Gate 5 prerequisite and was not enabled during the shadow run.
 
 Run read-only and isolated capabilities in this order:
 
