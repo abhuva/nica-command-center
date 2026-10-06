@@ -16,8 +16,10 @@
   --email-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
 }
 * { box-sizing: border-box; }
+html, body { height: 100%; }
 body {
   margin: 0;
+  overflow: hidden;
   background: linear-gradient(160deg, var(--email-bg-a), var(--email-bg-b));
   color: var(--email-text);
   font: 13px/1.45 "IBM Plex Sans", "Segoe UI", sans-serif;
@@ -36,7 +38,7 @@ button:hover { border-color: var(--email-accent); }
 h1, h2, p { margin: 0; }
 h1 { font-size: 16px; font-weight: 650; }
 h2 { font-size: 12px; color: var(--email-muted); text-transform: uppercase; letter-spacing: .08em; }
-.app { min-height: 100vh; display: flex; flex-direction: column; }
+.app { height: 100vh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .topbar, .controls {
   display: flex;
   align-items: center;
@@ -47,7 +49,7 @@ h2 { font-size: 12px; color: var(--email-muted); text-transform: uppercase; lett
   box-shadow: var(--email-shadow);
 }
 .controls { box-shadow: none; }
-.topbar { justify-content: space-between; }
+.topbar { justify-content: space-between; flex: 0 0 auto; }
 .topbar p, .stats, .server-count { color: var(--email-muted); font-size: 12px; }
 .top-actions, .controls { flex-wrap: wrap; }
 .controls label { display: inline-flex; align-items: center; gap: 5px; color: var(--email-muted); }
@@ -70,10 +72,45 @@ h2 { font-size: 12px; color: var(--email-muted); text-transform: uppercase; lett
   flex: 1;
 }
 .left, .detail, .rules { min-height: 0; overflow: auto; }
+.left {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 .left, .rules { border-right: 1px solid var(--email-line); background: var(--email-panel); }
 .rules { border-right: 0; border-left: 1px solid var(--email-line); padding: 10px; }
-.filter-row { display: grid; grid-template-columns: 1fr 104px 90px; gap: 6px; padding: 8px; border-bottom: 1px solid var(--email-line); }
-.message-list { display: flex; flex-direction: column; }
+.filter-row { display: grid; grid-template-columns: 1fr 104px 90px 120px 104px; gap: 6px; padding: 8px; border-bottom: 1px solid var(--email-line); flex: 0 0 auto; }
+.message-list { display: flex; flex: 1; min-height: 0; overflow: auto; flex-direction: column; }
+.message-group {
+  border-bottom: 1px solid var(--email-line);
+}
+.message-group-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--email-line);
+  background: var(--email-panel-strong);
+  color: var(--email-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.message-group-head span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.message-group-head strong {
+  color: var(--email-text);
+  font-weight: 650;
+}
 .message-row {
   display: grid;
   grid-template-columns: 82px 1fr 74px;
@@ -119,6 +156,13 @@ h2 { font-size: 12px; color: var(--email-muted); text-transform: uppercase; lett
   padding-inline: 7px;
 }
 .hidden { display: none; }
+.view-panel.hidden { display: none; }
+#accountView:not(.hidden) {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
 .message-detail.empty { color: var(--email-muted); }
 .message-detail h2 { color: var(--email-text); font-size: 18px; text-transform: none; letter-spacing: 0; margin-bottom: 6px; }
 .message-detail pre {
@@ -161,6 +205,7 @@ h2 { font-size: 12px; color: var(--email-muted); text-transform: uppercase; lett
   color: var(--email-accent);
 }
 .view-panel {
+  flex: 1;
   min-height: 0;
 }
 .dashboard-view {
@@ -190,11 +235,11 @@ h2 { font-size: 12px; color: var(--email-muted); text-transform: uppercase; lett
 }
 .rules-row {
   display: grid;
-  grid-template-columns: 42px minmax(180px, 1.2fr) minmax(140px, .9fr) 86px 110px minmax(240px, 1.4fr) 88px 70px;
-  gap: 8px;
+  grid-template-columns: 34px 54px minmax(150px, 1.05fr) minmax(210px, 1fr) 84px 110px minmax(330px, 1.65fr) 78px 66px;
+  gap: 6px;
   align-items: center;
   border-bottom: 1px solid var(--email-line);
-  padding: 6px 8px;
+  padding: 4px 6px;
 }
 .rules-row:last-child {
   border-bottom: 0;
@@ -206,15 +251,39 @@ h2 { font-size: 12px; color: var(--email-muted); text-transform: uppercase; lett
   height: auto;
   margin: 0;
 }
+.rules-row input,
+.rules-row select {
+  min-width: 0;
+  width: 100%;
+  height: 24px;
+  padding: 2px 6px;
+}
 .rules-row button {
   height: 24px;
   padding-inline: 7px;
 }
-.rules-row em {
-  display: block;
+.rule-scope-cell,
+.rule-match-cell {
+  display: grid;
+  gap: 4px;
+  align-items: center;
+}
+.rule-scope-cell {
+  grid-template-columns: 72px minmax(120px, 1fr);
+}
+.rule-match-cell {
+  grid-template-columns: 116px 86px minmax(140px, 1fr);
+}
+.rule-cell-input {
+  background: var(--email-input-bg);
+}
+.rule-title-input {
+  font-weight: 600;
+}
+.rule-hit-count {
   color: var(--email-muted);
-  font-style: normal;
-  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 .rules-row-head {
   position: sticky;
@@ -228,6 +297,24 @@ h2 { font-size: 12px; color: var(--email-muted); text-transform: uppercase; lett
 }
 .rules-row-head:hover {
   background: var(--email-panel-strong);
+}
+.rule-sort-btn {
+  width: auto;
+  max-width: 100%;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-transform: inherit;
+  letter-spacing: inherit;
+}
+.rule-sort-btn:hover,
+.rule-sort-btn.active {
+  color: var(--email-accent);
+  border: 0;
 }
 .rule-title {
   min-width: 0;
@@ -294,10 +381,47 @@ h2 { font-size: 12px; color: var(--email-muted); text-transform: uppercase; lett
   min-height: 0;
   overflow: hidden;
 }
-.dashboard-card h2 {
+.dashboard-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
   padding: 8px 10px;
   border-bottom: 1px solid var(--email-line);
   background: var(--email-panel-strong);
+}
+.dashboard-card > h2 {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--email-line);
+  background: var(--email-panel-strong);
+}
+.dashboard-card-head h2 {
+  padding: 0;
+  border-bottom: 0;
+  background: transparent;
+}
+.card-tabs {
+  display: inline-flex;
+  gap: 4px;
+}
+.mini-tab {
+  height: 22px;
+  padding: 1px 7px;
+  background: transparent;
+  font-size: 12px;
+}
+.mini-tab.active {
+  border-color: var(--email-accent);
+  background: var(--email-panel-hover);
+  color: var(--email-accent);
+}
+.dashboard-mail-panel {
+  max-height: calc(100vh - 220px);
+  overflow: auto;
+  padding: 10px;
+}
+.dashboard-mail-panel .message-actions {
+  margin-bottom: 8px;
 }
 .account-table,
 .recent-list {
@@ -314,10 +438,18 @@ h2 { font-size: 12px; color: var(--email-muted); text-transform: uppercase; lett
   cursor: pointer;
 }
 .account-row {
-  grid-template-columns: minmax(150px, 1.5fr) 70px 70px 80px 90px;
+  grid-template-columns: minmax(150px, 1.5fr) 64px 64px 44px 44px 44px 74px 86px;
 }
 .recent-row {
-  grid-template-columns: 82px minmax(120px, .7fr) minmax(180px, 1.4fr) 74px;
+  grid-template-columns: 82px minmax(110px, .65fr) minmax(170px, 1.35fr) minmax(90px, .55fr) 74px;
+}
+.recent-tags {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--email-accent);
+  font-size: 12px;
 }
 .account-row:hover,
 .recent-row:hover {
@@ -342,7 +474,9 @@ h2 { font-size: 12px; color: var(--email-muted); text-transform: uppercase; lett
 }
 @media (max-width: 980px) {
   .dashboard-grid { grid-template-columns: 1fr; }
-  .account-row { grid-template-columns: minmax(130px, 1fr) 62px 62px 70px 80px; }
-  .recent-row { grid-template-columns: 76px minmax(90px, .7fr) minmax(140px, 1.2fr) 70px; }
-  .rules-row { grid-template-columns: 34px minmax(150px, 1.2fr) 96px 70px 90px minmax(160px, 1fr) 78px 62px; }
+  .account-row { grid-template-columns: minmax(130px, 1fr) 56px 56px 38px 38px 38px 64px 78px; }
+  .recent-row { grid-template-columns: 76px minmax(80px, .6fr) minmax(120px, 1.1fr) minmax(70px, .5fr) 70px; }
+  .rules-row { grid-template-columns: 30px 48px minmax(130px, 1fr) 180px 74px 88px minmax(260px, 1.35fr) 68px 62px; }
+  .rule-scope-cell { grid-template-columns: 66px minmax(110px, 1fr); }
+  .rule-match-cell { grid-template-columns: 100px 76px minmax(120px, 1fr); }
 }

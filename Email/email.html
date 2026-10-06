@@ -61,8 +61,28 @@
       <section id="dashboardStats" class="stat-strip"></section>
       <section class="dashboard-grid">
         <section class="dashboard-card">
-          <h2>Accounts</h2>
-          <div id="dashboardAccounts" class="account-table"></div>
+          <div class="dashboard-card-head">
+            <h2>Accounts</h2>
+            <div class="card-tabs" aria-label="Dashboard account panel">
+              <button id="dashboardAccountsTab" class="mini-tab active" type="button">Accounts</button>
+              <button id="dashboardMailTab" class="mini-tab" type="button">Mail</button>
+            </div>
+          </div>
+          <div id="dashboardAccountsPanel">
+            <div id="dashboardAccounts" class="account-table"></div>
+          </div>
+          <div id="dashboardMailPanel" class="dashboard-mail-panel hidden">
+            <div id="dashboardMessageActions" class="message-actions hidden">
+              <button data-state="included" type="button">Include</button>
+              <button data-state="candidate" type="button">Candidate</button>
+              <button data-state="excluded" type="button">Exclude</button>
+              <button data-sender-rule="include" type="button">Include Sender</button>
+              <button data-sender-rule="exclude" type="button">Exclude Sender</button>
+              <input id="dashboardTagInput" type="text" placeholder="tag" list="tagSuggestions">
+              <button id="dashboardTagBtn" type="button">Tag</button>
+            </div>
+            <article id="dashboardMessageDetail" class="message-detail empty">Select a recent mail.</article>
+          </div>
         </section>
         <section class="dashboard-card">
           <h2>Recent Mail</h2>
@@ -119,6 +139,18 @@
               <option value="excluded">excluded</option>
             </select>
             <input id="tagFilter" type="search" placeholder="tag">
+            <select id="groupFilter">
+              <option value="">no group</option>
+              <option value="sender">group: sender</option>
+              <option value="state">group: state</option>
+              <option value="tag">group: tag</option>
+              <option value="mailbox">group: mailbox</option>
+              <option value="date">group: date</option>
+            </select>
+            <select id="groupSort">
+              <option value="name">sort: name</option>
+              <option value="size">sort: size</option>
+            </select>
           </section>
           <div id="messageList" class="message-list"></div>
         </aside>

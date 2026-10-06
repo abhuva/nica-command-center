@@ -285,7 +285,9 @@ class EmailTool:
                 """
                 SELECT a.id, a.email, a.provider, a.enabled, a.last_sync_at, a.last_error,
                        COUNT(m.id) AS message_count,
+                       SUM(CASE WHEN m.include_state='candidate' THEN 1 ELSE 0 END) AS candidate_count,
                        SUM(CASE WHEN m.include_state='included' THEN 1 ELSE 0 END) AS included_count,
+                       SUM(CASE WHEN m.include_state='excluded' THEN 1 ELSE 0 END) AS excluded_count,
                        SUM(CASE WHEN m.exported_path IS NOT NULL THEN 1 ELSE 0 END) AS exported_count
                 FROM accounts a
                 LEFT JOIN messages m ON m.account_id = a.id
@@ -464,7 +466,18 @@ class EmailTool:
 
     def list_rules(self) -> list[dict[str, Any]]:
         with self.connect() as conn:
-            rows = conn.execute("SELECT * FROM rules ORDER BY enabled DESC, updated_at DESC, name").fetchall()
+            rows = conn.execute(
+                """
+                SELECT r.*, COALESCE(hit_counts.hit_count, 0) AS hit_count
+                FROM rules r
+                LEFT JOIN (
+                  SELECT rule_id, COUNT(*) AS hit_count
+                  FROM rule_matches
+                  GROUP BY rule_id
+                ) hit_counts ON hit_counts.rule_id = r.id
+                ORDER BY r.enabled DESC, r.updated_at DESC, r.name
+                """
+            ).fetchall()
             return [dict(row) for row in rows]
 
     def list_tags(self) -> list[dict[str, Any]]:

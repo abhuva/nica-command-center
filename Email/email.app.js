@@ -5,6 +5,7 @@
   selectedId: null,
   activeView: "dashboard",
   dashboard: null,
+  ruleSort: { key: "", dir: "" },
 };
 
 const THEME_CACHE_KEY = "email-theme-bootstrap-v1";
@@ -25,6 +26,14 @@ const els = {
   dashboardStatus: document.querySelector("#dashboardStatus"),
   dashboardStats: document.querySelector("#dashboardStats"),
   dashboardAccounts: document.querySelector("#dashboardAccounts"),
+  dashboardAccountsTab: document.querySelector("#dashboardAccountsTab"),
+  dashboardMailTab: document.querySelector("#dashboardMailTab"),
+  dashboardAccountsPanel: document.querySelector("#dashboardAccountsPanel"),
+  dashboardMailPanel: document.querySelector("#dashboardMailPanel"),
+  dashboardMessageActions: document.querySelector("#dashboardMessageActions"),
+  dashboardMessageDetail: document.querySelector("#dashboardMessageDetail"),
+  dashboardTagInput: document.querySelector("#dashboardTagInput"),
+  dashboardTagBtn: document.querySelector("#dashboardTagBtn"),
   dashboardRecent: document.querySelector("#dashboardRecent"),
   stats: document.querySelector("#stats"),
   accountSelect: document.querySelector("#accountSelect"),
@@ -44,6 +53,8 @@ const els = {
   searchInput: document.querySelector("#searchInput"),
   stateFilter: document.querySelector("#stateFilter"),
   tagFilter: document.querySelector("#tagFilter"),
+  groupFilter: document.querySelector("#groupFilter"),
+  groupSort: document.querySelector("#groupSort"),
   messageList: document.querySelector("#messageList"),
   messageDetail: document.querySelector("#messageDetail"),
   messageActions: document.querySelector("#messageActions"),
@@ -294,13 +305,16 @@ const renderDashboardAccounts = (accounts) => {
   }
   els.dashboardAccounts.innerHTML = `
     <div class="account-row account-row-head">
-      <span>account</span><span>auth</span><span>local</span><span>server</span><span>last sync</span>
+      <span>account</span><span>auth</span><span>local</span><span title="included">inc</span><span title="excluded">ex</span><span title="candidate">can</span><span>server</span><span>last sync</span>
     </div>
     ${accounts.map((account) => `
       <div class="account-row ${account.enabled ? "" : "muted-row"}" data-account-open="${escapeHtml(account.id)}">
         <span>${escapeHtml(account.id)}</span>
         <span>${escapeHtml(account.auth_method || "password")}</span>
         <span>${fmtNumber(account.message_count)}</span>
+        <span title="included">${fmtNumber(account.included_count)}</span>
+        <span title="excluded">${fmtNumber(account.excluded_count)}</span>
+        <span title="candidate">${fmtNumber(account.candidate_count)}</span>
         <span>${fmtNumber(account.server_total)}</span>
         <span>${escapeHtml(shortDate(account.sync_last_at || account.last_sync_at) || "-")}</span>
       </div>
@@ -317,6 +331,7 @@ const renderDashboardRecent = (messages) => {
       <span class="message-date">${escapeHtml(shortDate(msg.sent_at || msg.fetched_at))}</span>
       <span class="message-from">${escapeHtml(msg.account_id)}</span>
       <span class="message-subject">${escapeHtml(msg.subject || "(no subject)")}</span>
+      <span class="recent-tags" title="${escapeHtml(messageTags(msg).join(", "))}">${escapeHtml(messageTags(msg).map((tag) => `#${tag}`).join(" "))}</span>
       <span class="message-state ${escapeHtml(msg.include_state)}">${escapeHtml(msg.include_state)}</span>
     </div>
   `).join("");
@@ -327,6 +342,14 @@ const renderDashboard = (dashboard) => {
   renderDashboardStats(dashboard);
   renderDashboardAccounts(dashboard.accounts || []);
   renderDashboardRecent(dashboard.recent || []);
+};
+
+const setDashboardAccountPanel = (panel) => {
+  const showMail = panel === "mail";
+  els.dashboardAccountsPanel.classList.toggle("hidden", showMail);
+  els.dashboardMailPanel.classList.toggle("hidden", !showMail);
+  els.dashboardAccountsTab.classList.toggle("active", !showMail);
+  els.dashboardMailTab.classList.toggle("active", showMail);
 };
 
 const loadDashboard = async () => {
@@ -349,25 +372,23 @@ const renderServerCount = (payload) => {
   els.serverCount.textContent = detail || `server ${payload.total || 0}, filter ${payload.matched || 0}, new ${payload.newAvailable ?? "-"}, local ${payload.localStored ?? payload.stored ?? 0}`;
 };
 
-const renderMessages = () => {
-  if (!state.messages.length) {
-    els.messageList.innerHTML = `<div class="message-row"><span></span><span class="message-subject">No messages</span><span></span></div>`;
-    return;
-  }
-  const compact = els.compactToggle.checked;
-  els.messageList.innerHTML = state.messages.map((msg) => {
-    const tags = msg.tags ? String(msg.tags).split(",").filter(Boolean).join(" #") : "";
-    const sender = msg.sender_email || msg.sender_name || "";
-    if (compact) {
-      return `
-        <div class="message-row compact ${msg.id === state.selectedId ? "active" : ""}" data-id="${escapeHtml(msg.id)}">
-          <div class="message-date">${escapeHtml(shortDate(msg.sent_at || msg.fetched_at))}</div>
-          <span class="sender-pill" title="${escapeHtml(sender)}">${escapeHtml(shorten(sender, 18))}</span>
-          <div class="message-subject" title="${escapeHtml(msg.subject || "(no subject)")}">${escapeHtml(shorten(msg.subject || "(no subject)", 68))}</div>
-          <div class="message-state ${escapeHtml(msg.include_state)}">${escapeHtml(msg.include_state)}</div>
-        </div>`;
-    }
+const messageSender = (msg) => msg.sender_email || msg.sender_name || "";
+
+const messageTags = (msg) => String(msg.tags || "").split(",").map((tag) => tag.trim()).filter(Boolean);
+
+const renderMessageRow = (msg, compact) => {
+  const tags = messageTags(msg).join(" #");
+  const sender = messageSender(msg);
+  if (compact) {
     return `
+      <div class="message-row compact ${msg.id === state.selectedId ? "active" : ""}" data-id="${escapeHtml(msg.id)}">
+        <div class="message-date">${escapeHtml(shortDate(msg.sent_at || msg.fetched_at))}</div>
+        <span class="sender-pill" title="${escapeHtml(sender)}">${escapeHtml(shorten(sender, 18))}</span>
+        <div class="message-subject" title="${escapeHtml(msg.subject || "(no subject)")}">${escapeHtml(shorten(msg.subject || "(no subject)", 68))}</div>
+        <div class="message-state ${escapeHtml(msg.include_state)}">${escapeHtml(msg.include_state)}</div>
+      </div>`;
+  }
+  return `
       <div class="message-row ${msg.id === state.selectedId ? "active" : ""}" data-id="${escapeHtml(msg.id)}">
         <div class="message-date">${escapeHtml(shortDate(msg.sent_at || msg.fetched_at))}</div>
         <div>
@@ -377,7 +398,53 @@ const renderMessages = () => {
         </div>
         <div class="message-state ${escapeHtml(msg.include_state)}">${escapeHtml(msg.include_state)}</div>
       </div>`;
-  }).join("");
+};
+
+const messageGroupLabel = (msg, groupBy) => {
+  if (groupBy === "sender") return messageSender(msg) || "(unknown sender)";
+  if (groupBy === "state") return msg.include_state || "(no state)";
+  if (groupBy === "mailbox") return msg.mailbox || "(no mailbox)";
+  if (groupBy === "date") return shortDate(msg.sent_at || msg.fetched_at) || "(no date)";
+  if (groupBy === "tag") return messageTags(msg)[0] || "(untagged)";
+  return "";
+};
+
+const groupedMessages = (messages, groupBy) => {
+  const groups = new Map();
+  for (const msg of messages) {
+    const label = messageGroupLabel(msg, groupBy);
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label).push(msg);
+  }
+  const entries = [...groups.entries()];
+  if (els.groupSort.value === "size") {
+    return entries.sort(([leftLabel, leftMessages], [rightLabel, rightMessages]) => (
+      rightMessages.length - leftMessages.length || leftLabel.localeCompare(rightLabel, undefined, { sensitivity: "base" })
+    ));
+  }
+  return entries.sort(([leftLabel], [rightLabel]) => leftLabel.localeCompare(rightLabel, undefined, { sensitivity: "base" }));
+};
+
+const renderMessages = () => {
+  if (!state.messages.length) {
+    els.messageList.innerHTML = `<div class="message-row"><span></span><span class="message-subject">No messages</span><span></span></div>`;
+    return;
+  }
+  const compact = els.compactToggle.checked;
+  const groupBy = els.groupFilter.value;
+  if (!groupBy) {
+    els.messageList.innerHTML = state.messages.map((msg) => renderMessageRow(msg, compact)).join("");
+    return;
+  }
+  els.messageList.innerHTML = groupedMessages(state.messages, groupBy).map(([label, messages]) => `
+    <section class="message-group">
+      <div class="message-group-head">
+        <span title="${escapeHtml(label)}">${escapeHtml(shorten(label, 64))}</span>
+        <strong>${fmtNumber(messages.length)}</strong>
+      </div>
+      ${messages.map((msg) => renderMessageRow(msg, compact)).join("")}
+    </section>
+  `).join("");
 };
 
 const renderRules = () => {
@@ -390,6 +457,34 @@ const renderRules = () => {
       <button data-rule-delete="${escapeHtml(rule.id)}" type="button">Delete</button>
     </div>
   `).join("") : `<div class="meta">No rules.</div>`;
+};
+
+const accountOptionHtml = (selectedId) => state.accounts.map((account) => (
+  `<option value="${escapeHtml(account.id)}" ${account.id === selectedId ? "selected" : ""}>${escapeHtml(account.id)}</option>`
+)).join("");
+
+const rulePayload = (rule, patch = {}) => {
+  const scope = patch.scope ?? rule.scope ?? "global";
+  const accountId = scope === "account" ? (patch.accountId ?? rule.account_id ?? els.accountSelect.value ?? state.accounts[0]?.id ?? "") : "";
+  return {
+    id: rule.id,
+    name: patch.name ?? rule.name,
+    enabled: patch.enabled ?? Boolean(rule.enabled),
+    scope,
+    accountId,
+    field: patch.field ?? rule.field,
+    operator: patch.operator ?? rule.operator,
+    pattern: patch.pattern ?? rule.pattern,
+    action: patch.action ?? rule.action,
+    tag: patch.tag ?? rule.tag ?? "",
+  };
+};
+
+const saveRulePatch = async (ruleId, patch) => {
+  const rule = state.rules.find((item) => String(item.id) === String(ruleId));
+  if (!rule) return;
+  await post("/api/rules", rulePayload(rule, patch));
+  await loadRulesView();
 };
 
 const ruleMatchesFilters = (rule) => {
@@ -416,8 +511,39 @@ const ruleMatchesFilters = (rule) => {
   return true;
 };
 
+const ruleSortValue = (rule, key) => {
+  if (key === "enabled") return Number(rule.enabled || 0);
+  if (key === "hit_count") return Number(rule.hit_count || 0);
+  if (key === "name") return String(rule.name || "").toLowerCase();
+  if (key === "scope") return `${String(rule.scope || "global").toLowerCase()} ${String(rule.account_id || "").toLowerCase()}`;
+  if (key === "action") return String(rule.action || "").toLowerCase();
+  if (key === "tag") return String(rule.tag || "").toLowerCase();
+  if (key === "match") return `${String(rule.field || "").toLowerCase()} ${String(rule.operator || "").toLowerCase()} ${String(rule.pattern || "").toLowerCase()}`;
+  if (key === "updated_at") return String(rule.updated_at || rule.created_at || "");
+  return "";
+};
+
+const sortRules = (rules) => {
+  if (!state.ruleSort.key || !state.ruleSort.dir) return rules;
+  const direction = state.ruleSort.dir === "asc" ? 1 : -1;
+  return [...rules].sort((left, right) => {
+    const leftValue = ruleSortValue(left, state.ruleSort.key);
+    const rightValue = ruleSortValue(right, state.ruleSort.key);
+    if (typeof leftValue === "number" || typeof rightValue === "number") {
+      return (Number(leftValue) - Number(rightValue)) * direction;
+    }
+    return String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true, sensitivity: "base" }) * direction;
+  });
+};
+
+const sortLabel = (key, label) => {
+  const active = state.ruleSort.key === key;
+  const marker = active ? (state.ruleSort.dir === "asc" ? " ↑" : " ↓") : "";
+  return `<button class="rule-sort-btn ${active ? "active" : ""}" data-rule-sort="${escapeHtml(key)}" type="button">${escapeHtml(label)}${marker}</button>`;
+};
+
 const renderRulesTable = () => {
-  const rules = state.rules.filter(ruleMatchesFilters);
+  const rules = sortRules(state.rules.filter(ruleMatchesFilters));
   els.rulesCount.textContent = `${fmtNumber(rules.length)} / ${fmtNumber(state.rules.length)} rules`;
   if (!rules.length) {
     els.rulesTable.innerHTML = `<div class="meta empty-table">No rules match the current filters.</div>`;
@@ -425,16 +551,53 @@ const renderRulesTable = () => {
   }
   els.rulesTable.innerHTML = `
     <div class="rules-row rules-row-head">
-      <span>on</span><span>title</span><span>scope</span><span>action</span><span>tag</span><span>match</span><span>updated</span><span></span>
+      <span>${sortLabel("enabled", "on")}</span>
+      <span title="matched mails">${sortLabel("hit_count", "hits")}</span>
+      <span>${sortLabel("name", "title")}</span>
+      <span>${sortLabel("scope", "scope")}</span>
+      <span>${sortLabel("action", "action")}</span>
+      <span>${sortLabel("tag", "tag")}</span>
+      <span>${sortLabel("match", "match")}</span>
+      <span>${sortLabel("updated_at", "updated")}</span>
+      <span></span>
     </div>
     ${rules.map((rule) => `
       <div class="rules-row">
         <span><input data-rule-toggle="${escapeHtml(rule.id)}" type="checkbox" ${rule.enabled ? "checked" : ""} aria-label="Toggle rule"></span>
-        <span class="rule-title" title="${escapeHtml(rule.name)}">${escapeHtml(rule.name || `rule ${rule.id}`)}</span>
-        <span>${escapeHtml(rule.scope || "global")}${rule.account_id ? ` <em>${escapeHtml(rule.account_id)}</em>` : ""}</span>
-        <span class="rule-action ${escapeHtml(rule.action || "")}">${escapeHtml(rule.action || "-")}</span>
-        <span>${rule.tag ? `#${escapeHtml(rule.tag)}` : "-"}</span>
-        <span title="${escapeHtml(rule.pattern)}">${escapeHtml(rule.field)} ${escapeHtml(rule.operator)} ${escapeHtml(shorten(rule.pattern, 52))}</span>
+        <span class="rule-hit-count" title="${escapeHtml(fmtNumber(rule.hit_count))} matched mails">${fmtNumber(rule.hit_count)}</span>
+        <span><input class="rule-cell-input rule-title-input" data-rule-edit="${escapeHtml(rule.id)}" data-rule-field="name" type="text" value="${escapeHtml(rule.name || `rule ${rule.id}`)}" title="${escapeHtml(rule.name || "")}"></span>
+        <span class="rule-scope-cell">
+          <select data-rule-edit="${escapeHtml(rule.id)}" data-rule-field="scope">
+            <option value="global" ${(rule.scope || "global") === "global" ? "selected" : ""}>global</option>
+            <option value="account" ${rule.scope === "account" ? "selected" : ""}>local</option>
+          </select>
+          <select data-rule-edit="${escapeHtml(rule.id)}" data-rule-field="accountId" ${rule.scope === "account" ? "" : "disabled"}>
+            ${accountOptionHtml(rule.account_id)}
+          </select>
+        </span>
+        <span>
+          <select class="rule-action ${escapeHtml(rule.action || "")}" data-rule-edit="${escapeHtml(rule.id)}" data-rule-field="action">
+            <option value="include" ${rule.action === "include" ? "selected" : ""}>include</option>
+            <option value="exclude" ${rule.action === "exclude" ? "selected" : ""}>exclude</option>
+            <option value="tag" ${rule.action === "tag" ? "selected" : ""}>tag</option>
+          </select>
+        </span>
+        <span><input class="rule-cell-input" data-rule-edit="${escapeHtml(rule.id)}" data-rule-field="tag" type="text" value="${escapeHtml(rule.tag || "")}" placeholder="-" list="tagSuggestions"></span>
+        <span class="rule-match-cell" title="${escapeHtml(rule.pattern)}">
+          <select data-rule-edit="${escapeHtml(rule.id)}" data-rule-field="field">
+            <option value="sender_email" ${rule.field === "sender_email" ? "selected" : ""}>sender email</option>
+            <option value="sender_domain" ${rule.field === "sender_domain" ? "selected" : ""}>sender domain</option>
+            <option value="subject" ${rule.field === "subject" ? "selected" : ""}>subject</option>
+            <option value="body" ${rule.field === "body" ? "selected" : ""}>body</option>
+            <option value="account_id" ${rule.field === "account_id" ? "selected" : ""}>account</option>
+          </select>
+          <select data-rule-edit="${escapeHtml(rule.id)}" data-rule-field="operator">
+            <option value="contains" ${rule.operator === "contains" ? "selected" : ""}>contains</option>
+            <option value="equals" ${rule.operator === "equals" ? "selected" : ""}>equals</option>
+            <option value="regex" ${rule.operator === "regex" ? "selected" : ""}>regex</option>
+          </select>
+          <input class="rule-cell-input" data-rule-edit="${escapeHtml(rule.id)}" data-rule-field="pattern" type="text" value="${escapeHtml(rule.pattern || "")}">
+        </span>
         <span>${escapeHtml(shortDate(rule.updated_at || rule.created_at) || "-")}</span>
         <span><button data-rule-table-delete="${escapeHtml(rule.id)}" type="button">Delete</button></span>
       </div>
@@ -476,15 +639,10 @@ const loadMessages = async () => {
   renderMessages();
 };
 
-const selectMessage = async (id) => {
-  state.selectedId = id;
-  renderMessages();
-  const payload = await api(`/api/messages/${encodeURIComponent(id)}`);
-  const msg = payload.message;
-  if (msg?.account_id) els.accountSelect.value = msg.account_id;
-  els.messageActions.classList.remove("hidden");
-  els.messageDetail.classList.remove("empty");
-  els.messageDetail.innerHTML = `
+const renderMessageDetail = (msg, actionsEl, detailEl) => {
+  actionsEl.classList.remove("hidden");
+  detailEl.classList.remove("empty");
+  detailEl.innerHTML = `
     <h2>${escapeHtml(msg.subject || "(no subject)")}</h2>
     <div class="meta">${escapeHtml(msg.sender_name || "")} &lt;${escapeHtml(msg.sender_email || "")}&gt;</div>
     <div class="meta">${escapeHtml(msg.sent_at || "")} | ${escapeHtml(msg.account_id)} / ${escapeHtml(msg.mailbox)}</div>
@@ -492,7 +650,21 @@ const selectMessage = async (id) => {
     <pre>${escapeHtml(msg.body_markdown || msg.body_text || "")}</pre>`;
 };
 
-const createSenderRuleForSelected = async (action) => {
+const selectMessage = async (id, target = "account") => {
+  state.selectedId = id;
+  if (target === "account") renderMessages();
+  const payload = await api(`/api/messages/${encodeURIComponent(id)}`);
+  const msg = payload.message;
+  if (target === "dashboard") {
+    setDashboardAccountPanel("mail");
+    renderMessageDetail(msg, els.dashboardMessageActions, els.dashboardMessageDetail);
+    return;
+  }
+  if (msg?.account_id) els.accountSelect.value = msg.account_id;
+  renderMessageDetail(msg, els.messageActions, els.messageDetail);
+};
+
+const createSenderRuleForSelected = async (action, target = "account") => {
   if (!state.selectedId) return;
   const payload = await api(`/api/messages/${encodeURIComponent(state.selectedId)}`);
   const msg = payload.message;
@@ -513,8 +685,12 @@ const createSenderRuleForSelected = async (action) => {
   const applied = await post("/api/rules/apply");
   setStatus(`${action === "include" ? "Included" : "Excluded"} sender ${sender}; matched ${applied.matches}`);
   await loadState();
-  await loadMessages();
-  await selectMessage(state.selectedId);
+  if (target === "dashboard") {
+    await loadDashboard();
+  } else {
+    await loadMessages();
+  }
+  await selectMessage(state.selectedId, target);
 };
 
 const refresh = async () => {
@@ -534,6 +710,8 @@ els.refreshBtn.addEventListener("click", () => refresh().catch((error) => setSta
 els.dashboardTab.addEventListener("click", () => setActiveView("dashboard"));
 els.accountTab.addEventListener("click", () => setActiveView("account"));
 els.rulesTab.addEventListener("click", () => setActiveView("rules"));
+els.dashboardAccountsTab.addEventListener("click", () => setDashboardAccountPanel("accounts"));
+els.dashboardMailTab.addEventListener("click", () => setDashboardAccountPanel("mail"));
 els.rulesSearch.addEventListener("input", renderRulesTable);
 els.rulesTagFilter.addEventListener("input", renderRulesTable);
 els.rulesScopeFilter.addEventListener("change", renderRulesTable);
@@ -542,6 +720,8 @@ els.recentLimitInput.addEventListener("change", () => loadDashboard().catch((err
 els.searchInput.addEventListener("input", () => loadMessages().catch((error) => setStatus(error.message)));
 els.stateFilter.addEventListener("change", () => loadMessages().catch((error) => setStatus(error.message)));
 els.tagFilter.addEventListener("input", () => loadMessages().catch((error) => setStatus(error.message)));
+els.groupFilter.addEventListener("change", renderMessages);
+els.groupSort.addEventListener("change", renderMessages);
 els.accountSelect.addEventListener("change", () => {
   renderOAuthControl();
   els.serverCount.textContent = "";
@@ -565,8 +745,7 @@ els.dashboardAccounts.addEventListener("click", (event) => {
 els.dashboardRecent.addEventListener("click", (event) => {
   const row = event.target.closest("[data-recent-id]");
   if (!row) return;
-  setActiveView("account");
-  selectMessage(row.dataset.recentId).catch((error) => setStatus(error.message));
+  selectMessage(row.dataset.recentId, "dashboard").catch((error) => setStatus(error.message));
 });
 
 els.messageList.addEventListener("click", (event) => {
@@ -711,29 +890,47 @@ els.ruleList.addEventListener("click", async (event) => {
 
 els.rulesTable.addEventListener("change", async (event) => {
   const checkbox = event.target.closest("[data-rule-toggle]");
-  if (!checkbox) return;
-  const rule = state.rules.find((item) => String(item.id) === String(checkbox.dataset.ruleToggle));
-  if (!rule) return;
-  await post("/api/rules", {
-    id: rule.id,
-    name: rule.name,
-    enabled: checkbox.checked,
-    scope: rule.scope,
-    accountId: rule.account_id || "",
-    field: rule.field,
-    operator: rule.operator,
-    pattern: rule.pattern,
-    action: rule.action,
-    tag: rule.tag || "",
-  });
-  await loadRulesView();
+  if (checkbox) {
+    await saveRulePatch(checkbox.dataset.ruleToggle, { enabled: checkbox.checked });
+    return;
+  }
+  const field = event.target.closest("[data-rule-edit]");
+  if (!field) return;
+  if (field.tagName === "INPUT") return;
+  await saveRulePatch(field.dataset.ruleEdit, { [field.dataset.ruleField]: field.value });
 });
 
 els.rulesTable.addEventListener("click", async (event) => {
+  const sortButton = event.target.closest("[data-rule-sort]");
+  if (sortButton) {
+    const key = sortButton.dataset.ruleSort;
+    if (state.ruleSort.key !== key) {
+      state.ruleSort = { key, dir: "asc" };
+    } else if (state.ruleSort.dir === "asc") {
+      state.ruleSort = { key, dir: "desc" };
+    } else {
+      state.ruleSort = { key: "", dir: "" };
+    }
+    renderRulesTable();
+    return;
+  }
   const button = event.target.closest("[data-rule-table-delete]");
   if (!button) return;
   await post("/api/rules/delete", { id: button.dataset.ruleTableDelete });
   await refresh();
+});
+
+els.rulesTable.addEventListener("focusout", async (event) => {
+  const field = event.target.closest("input[data-rule-edit]");
+  if (!field) return;
+  await saveRulePatch(field.dataset.ruleEdit, { [field.dataset.ruleField]: field.value });
+});
+
+els.rulesTable.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  const field = event.target.closest("input[data-rule-edit]");
+  if (!field) return;
+  field.blur();
 });
 
 els.messageActions.addEventListener("click", async (event) => {
@@ -749,12 +946,33 @@ els.messageActions.addEventListener("click", async (event) => {
   await loadMessages();
 });
 
+els.dashboardMessageActions.addEventListener("click", async (event) => {
+  const senderRuleButton = event.target.closest("[data-sender-rule]");
+  if (senderRuleButton) {
+    await createSenderRuleForSelected(senderRuleButton.dataset.senderRule, "dashboard");
+    return;
+  }
+  const button = event.target.closest("[data-state]");
+  if (!button || !state.selectedId) return;
+  await post("/api/messages/tag", { messageId: state.selectedId, state: button.dataset.state });
+  await loadDashboard();
+  await selectMessage(state.selectedId, "dashboard");
+});
+
 els.tagBtn.addEventListener("click", async () => {
   if (!state.selectedId || !els.tagInput.value.trim()) return;
   await post("/api/messages/tag", { messageId: state.selectedId, tag: els.tagInput.value.trim() });
   els.tagInput.value = "";
   await selectMessage(state.selectedId);
   await loadMessages();
+});
+
+els.dashboardTagBtn.addEventListener("click", async () => {
+  if (!state.selectedId || !els.dashboardTagInput.value.trim()) return;
+  await post("/api/messages/tag", { messageId: state.selectedId, tag: els.dashboardTagInput.value.trim() });
+  els.dashboardTagInput.value = "";
+  await loadDashboard();
+  await selectMessage(state.selectedId, "dashboard");
 });
 
 loadCompactMode();
