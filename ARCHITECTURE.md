@@ -200,6 +200,11 @@ speculative abstraction.
 
 ## Migration approach
 
+The operational working plan for migrating the former vault `Tools` checkout
+without interrupting daily use is maintained in
+[docs/migration/](docs/migration/README.md). It supplements this architecture;
+accepted boundary decisions remain in ADRs.
+
 ### Phase 1: Inventory and classification
 
 - [ ] List every known repository, script, service, homepage module, and
