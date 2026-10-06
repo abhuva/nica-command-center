@@ -1,6 +1,6 @@
 # Former Tools repository migration
 
-**Status**: Gates 0 through 2 complete; Gate 3 not started
+**Status**: Gates 0 through 3 complete; Gate 4 not started
 
 **Production source**: the `Tools` checkout inside the configured NICA vault
 
@@ -15,6 +15,7 @@ passed its acceptance checks and has a tested rollback path.
 - [Production baseline snapshot](production-baseline.md)
 - [Gate 1 preservation record](gate-1-preservation.md)
 - [Gate 2 sanitized-history import record](gate-2-sanitized-import.md)
+- [Gate 3 candidate runtime record](gate-3-candidate-runtime.md)
 
 These documents are operational plans. Accepted, long-lived architecture
 decisions remain in `docs/adr/`.
@@ -26,7 +27,7 @@ decisions remain in `docs/adr/`.
 | 0 | Record baseline, boundaries, acceptance checks, and rollback rules | Complete |
 | 1 | Preserve source work and create recoverable backups | Complete |
 | 2 | Import sanitized history into an isolated candidate branch | Complete |
-| 3 | Remove vault-location assumptions and isolate candidate state | Not started |
+| 3 | Remove vault-location assumptions and isolate candidate state | Complete |
 | 4 | Shadow-test capabilities without production writes | Not started |
 | 5 | Cut over one capability at a time | Not started |
 | 6 | Switch the stable launcher | Not started |

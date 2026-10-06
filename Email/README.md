@@ -1,5 +1,10 @@
 ﻿# Email Tool
 
+> Migration candidate: set absolute `NICA_VAULT_ROOT` and `NICA_STATE_ROOT`
+> values before serving. The database, config, OAuth tokens, and PID file live
+> below `NICA_STATE_ROOT\email`. All POST actions default to disabled unless
+> `NICA_WRITE_ENABLED=true`.
+
 Database-first email bridge for the Obsidian vault.
 
 The tool fetches email into a local SQLite database, applies local rules/tags, and exports only selected messages into the vault's `8. Emails/` folder. IMAP flags are not used as processing state.

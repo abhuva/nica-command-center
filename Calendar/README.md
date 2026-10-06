@@ -1,5 +1,10 @@
 # Calendar (Agent Guide)
 
+> Migration candidate: set absolute `NICA_VAULT_ROOT` and `NICA_STATE_ROOT`
+> values before running. Generated events, filter state, OAuth tokens, exports,
+> and PID files are stored below `NICA_STATE_ROOT\calendar`. Actions default to
+> disabled unless `NICA_WRITE_ENABLED=true`.
+
 Updated: 2026-04-08
 Scope: `Tools/Calendar`
 

@@ -1,6 +1,6 @@
 # Former Tools migration runbook
 
-**Status**: Gate 0 draft
+**Status**: Gates 0 through 3 complete
 
 **Availability objective**: Marc retains a working daily toolset throughout the
 migration. Individual capability cutovers may use a controlled maintenance
@@ -135,18 +135,21 @@ Production is unaffected.
 
 ## Gate 3 - candidate isolation and portability
 
+**Completion**: Complete. See
+[Gate 3 candidate runtime record](gate-3-candidate-runtime.md).
+
 ### Actions
 
-- Introduce explicit vault-root configuration; reject missing or invalid roots.
-- Add a separate runtime-state root for databases, generated output, logs, PIDs,
+- [x] Introduce explicit vault-root configuration; reject missing or invalid roots.
+- [x] Add a separate runtime-state root for databases, generated output, logs, PIDs,
   monitoring samples, and timer state.
-- Make all candidate service ports configurable.
-- Commit safe configuration templates with empty secret values.
-- Add a read-only migration profile with mutating modules disabled.
-- Use synthetic fixtures for automated tests.
-- Add health/doctor output that identifies the authoritative source and whether
+- [x] Make all candidate service ports configurable.
+- [x] Commit safe configuration templates with empty secret values.
+- [x] Add a read-only migration profile with mutating modules disabled.
+- [x] Use synthetic fixtures for automated tests.
+- [x] Add health/doctor output that identifies the authoritative source and whether
   writes are enabled.
-- Create a candidate launcher without modifying the production launcher.
+- [x] Create a candidate launcher without modifying the production launcher.
 
 ### Exit criteria
 
@@ -246,7 +249,8 @@ A capability is accepted only when:
 
 ## Decisions deferred to later gates
 
-1. Choose the final local runtime-state and secret-storage locations before
-   Gate 3 exits.
+1. Choose the final secret-storage mechanism before any live credential moves;
+   local runtime state currently defaults to `%LOCALAPPDATA%` through the
+   candidate launcher.
 2. Define the observation-period start and final retirement approval before
    Gate 7.

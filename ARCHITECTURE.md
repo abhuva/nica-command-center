@@ -221,9 +221,9 @@ accepted boundary decisions remain in ADRs.
 - [x] Create the repository outside the synchronized vault.
 - [x] Add the initial architecture overview, agent rules, and ADR directory.
 - [ ] Decide the repository's private remote and backup arrangement.
-- [ ] Define configuration for locating the vault without committing a
+- [x] Define configuration for locating the vault without committing a
   machine-specific path.
-- [ ] Define security, privacy, logging, and test-fixture rules before importing
+- [x] Define security, privacy, logging, and test-fixture rules before importing
   live integrations.
 - [ ] Add a capability registry containing metadata, not copied implementations.
 

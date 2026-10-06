@@ -2,6 +2,23 @@
 
 Lokaler Preview-Server fuer eine modulare Obsidian-Homepage.
 
+## Migration candidate
+
+This checkout is the isolated migration candidate, not the current production
+installation. It requires explicit `NICA_VAULT_ROOT` and `NICA_STATE_ROOT`
+values, uses separate candidate ports, and rejects action endpoints unless
+`NICA_WRITE_ENABLED=true` is deliberately set. Preview the startup plan with:
+
+```powershell
+.\scripts\start-candidate.ps1 -VaultRoot "C:\path\to\vault"
+```
+
+Add `-Apply` only after reviewing the plan. See
+[`docs/migration/gate-3-candidate-runtime.md`](docs/migration/gate-3-candidate-runtime.md)
+for checks and shutdown instructions. The older `Tools/...` commands below
+describe the still-running production layout and are retained as migration
+reference until capability cutover.
+
 ## Ziele
 
 - Homepage in Obsidian Webviewer ueber lokalen Server.
@@ -219,4 +236,3 @@ UI-Optionen liegen unter `ui` in den Settings:
 3. In `Tools/config/settings.default.json` Modul-Konfiguration aufnehmen.
 4. Optional in `Tools/settings.html` UI-Toggles/Felder ergaenzen.
 5. Falls Backend noetig: Endpoint in `Tools/serve.mjs` ergaenzen.
-

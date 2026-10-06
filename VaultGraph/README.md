@@ -1,5 +1,10 @@
 # VaultGraph
 
+> Migration candidate: set absolute `NICA_VAULT_ROOT` and `NICA_STATE_ROOT`
+> values before running. Generated graph files and the PID file live below
+> `NICA_STATE_ROOT\vaultgraph`; manual rebuild is disabled unless
+> `NICA_WRITE_ENABLED=true`.
+
 Local Obsidian/Webviewer tool for visualizing the vault folder hierarchy with Apache ECharts.
 
 ## Purpose
