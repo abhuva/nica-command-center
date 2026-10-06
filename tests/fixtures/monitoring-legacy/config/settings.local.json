@@ -1,6 +1,33 @@
 {
   "schemaVersion": 1,
+  "ui": {
+    "title": "Synthetic Command Centre",
+    "titleSize": 34,
+    "search": {
+      "provider": "omnisearch",
+      "openInNewTab": false
+    },
+    "theme": {
+      "mode": "preset",
+      "preset": "soft",
+      "shape": "rounded"
+    }
+  },
   "modules": {
+    "bookmarks": {
+      "enabled": true,
+      "title": "Synthetic Bookmarks",
+      "showPath": true,
+      "showType": true,
+      "openInNewTab": false,
+      "cardMaxWidth": 260
+    },
+    "clock": {
+      "enabled": true,
+      "title": "Synthetic Clock",
+      "showSeconds": true,
+      "hour12": false
+    },
     "updo": {
       "enabled": true,
       "title": "Synthetic Website Monitoring",

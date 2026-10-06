@@ -40,6 +40,7 @@ if ($Port -lt 1 -or $Port -gt 65535) { throw "Port must be between 1 and 65535."
 
 $componentState = Join-Path $resolvedState "homepage"
 $settingsPath = Join-Path $componentState "config\settings.local.json"
+$profilePath = Join-Path $componentState "config\runtime-profile.json"
 $manifestPath = Join-Path $componentState "monitoring-process.json"
 
 function Resolve-ContainedPath {
@@ -218,6 +219,15 @@ function Initialize-MonitoringState {
 }
 
 $destinationReady = Test-Path -LiteralPath $settingsPath -PathType Leaf
+$runtimeProfile = "monitoring-only"
+if (Test-Path -LiteralPath $profilePath -PathType Leaf) {
+  try {
+    $profileData = Get-Content -LiteralPath $profilePath -Raw | ConvertFrom-Json
+    $runtimeProfile = [string]$profileData.profile
+  } catch {
+    $runtimeProfile = "invalid"
+  }
+}
 $planTargetCount = 0
 $legacyStateFileCount = 0
 if ($InitializeFromLegacy) {
@@ -241,6 +251,7 @@ $plan = [ordered]@{
   legacyStateFiles = $legacyStateFileCount
   initializeFromLegacy = [bool]$InitializeFromLegacy
   destinationReady = $destinationReady
+  runtimeProfile = $runtimeProfile
   vaultWrites = $false
   remoteWrites = $false
   unrelatedHomepageModules = $false
@@ -256,6 +267,12 @@ $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Sil
 if ($listener) { throw "Port $Port is already in use; no process was stopped." }
 if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
   throw "A monitoring process manifest already exists; use stop-monitoring.ps1 first."
+}
+if ($runtimeProfile -eq "homepage-shell") {
+  throw "The Homepage shell profile is active; use start-homepage.ps1 instead."
+}
+if ($runtimeProfile -eq "invalid") {
+  throw "The Homepage runtime profile is invalid."
 }
 if ($InitializeFromLegacy) { Initialize-MonitoringState }
 if (-not (Test-Path -LiteralPath $settingsPath -PathType Leaf)) {

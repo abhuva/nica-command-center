@@ -25,6 +25,41 @@ require `NICA_OBSIDIAN_ACTIONS_ENABLED=true`. Filesystem-only project creation,
 Calendar fixture fallback, monitoring, and local state workflows do not need
 Obsidian actions enabled.
 
+### Gate 5 Homepage shell launcher
+
+The migrated read-only shell combines Bookmarks, Clock, and the accepted
+website monitor on port `4274`. Preview the first profile change before
+applying it:
+
+```powershell
+.\scripts\start-homepage.ps1 -VaultRoot "C:\path\to\vault" -ObsidianVaultName "vault-name" -PrepareShellProfile
+.\scripts\start-homepage.ps1 -VaultRoot "C:\path\to\vault" -ObsidianVaultName "vault-name" -PrepareShellProfile -Apply
+```
+
+Later starts omit `-PrepareShellProfile`. Open the shell in Obsidian with:
+
+```powershell
+obsidian web url="http://127.0.0.1:4274/home.html?module=bookmarks"
+```
+
+Stop only the migrated shell while retaining its local settings and monitoring
+history:
+
+```powershell
+.\scripts\stop-homepage.ps1
+```
+
+To restore the monitoring-only profile, stop the shell and run:
+
+```powershell
+.\scripts\restore-monitoring-profile.ps1
+.\scripts\restore-monitoring-profile.ps1 -Apply
+.\scripts\start-monitoring.ps1 -VaultRoot "C:\path\to\vault" -Apply
+```
+
+The legacy Homepage remains available on port `4174`. Use it for New Project
+and Beantime until those capabilities complete their own cutovers.
+
 ### Gate 5 monitoring launcher
 
 Website monitoring can run independently from the Homepage cutover. Preview

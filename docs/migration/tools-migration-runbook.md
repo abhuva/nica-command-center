@@ -200,8 +200,11 @@ For every capability, record:
 existing daily URL with a rehearsed legacy rollback, and Marc confirmed the
 normal Obsidian workflow on 2026-10-06. Monitoring is also accepted with a warm
 legacy rollback; Marc confirmed the normal monitoring workflow on 2026-10-07.
-See [Gate 5 VaultGraph cutover](gate-5-vaultgraph-cutover.md) and [Gate 5
-monitoring cutover](gate-5-monitoring-cutover.md).
+The Homepage shell has passed technical cutover and rollback verification on
+port `4274`; normal-workflow acceptance is pending. See [Gate 5 VaultGraph
+cutover](gate-5-vaultgraph-cutover.md), [Gate 5 monitoring
+cutover](gate-5-monitoring-cutover.md), and [Gate 5 Homepage shell
+cutover](gate-5-homepage-shell-cutover.md).
 
 Use the following sequence for each capability:
 

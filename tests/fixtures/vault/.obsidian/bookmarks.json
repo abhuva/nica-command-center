@@ -1,3 +1,20 @@
 {
-  "items": []
+  "items": [
+    {
+      "type": "group",
+      "title": "Synthetic operations",
+      "items": [
+        {
+          "type": "file",
+          "path": "6. Obsidian/Inbox/example-event.md",
+          "title": "Synthetic event"
+        },
+        {
+          "type": "url",
+          "url": "https://example.invalid/status",
+          "title": "Synthetic external status"
+        }
+      ]
+    }
+  ]
 }
