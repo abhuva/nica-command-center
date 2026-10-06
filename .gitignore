@@ -1,0 +1,47 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.local
+secrets/
+credentials/
+
+# Dependencies and virtual environments
+node_modules/
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# JavaScript and test tooling
+.npm/
+coverage/
+playwright-report/
+test-results/
+
+# Generated output and local runtime state
+build/
+dist/
+site/
+artifacts/
+.cache/
+tmp/
+logs/
+state/
+data/
+*.sqlite
+*.sqlite3
+*.db
+*.log
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
