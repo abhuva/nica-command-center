@@ -64,20 +64,6 @@ function resolveObsidianBin() {
 }
 
 /**
- * Detects vault-targeting errors returned by Obsidian CLI.
- * @param {unknown} error - Error from `execFileSync`.
- * @returns {boolean} `true` when error indicates invalid/missing vault targeting.
- */
-function isVaultTargetingError(error) {
-  const text = String(error?.stderr || error?.stdout || error?.message || "").toLowerCase();
-  return (
-    text.includes("vault") ||
-    text.includes("unable to find the vault") ||
-    text.includes("does not exist")
-  );
-}
-
-/**
  * Checks whether a filename is a markdown file.
  * @param {string} filePath - File path or filename.
  * @returns {boolean} `true` when file ends with `.md`.
@@ -790,32 +776,22 @@ function toCalendarEvent(filePath) {
  * @returns {Array<Record<string, unknown>>} Base query row list.
  */
 function queryBaseRows() {
-  const run = (useVault) => {
-    const args = ["base:query"];
-    if (useVault && OBSIDIAN_VAULT_NAME) {
-      args.push(`vault=${OBSIDIAN_VAULT_NAME}`);
-    }
-    args.push(`path=${BASE_PATH}`, `view=${BASE_VIEW}`, "format=json");
-    const raw = execFileSync(OBSIDIAN_BIN, args, {
-      cwd: VAULT_ROOT,
-      encoding: "utf8",
-      stdio: "pipe"
-    });
-    return JSON.parse(raw);
-  };
-
   if (!OBSIDIAN_VAULT_NAME) {
-    return run(false);
+    throw new Error("OBSIDIAN_VAULT_NAME is required for Obsidian Base queries");
   }
-
-  try {
-    return run(true);
-  } catch (error) {
-    if (!isVaultTargetingError(error)) {
-      throw error;
-    }
-    return run(false);
-  }
+  const args = [
+    "base:query",
+    `vault=${OBSIDIAN_VAULT_NAME}`,
+    `path=${BASE_PATH}`,
+    `view=${BASE_VIEW}`,
+    "format=json"
+  ];
+  const raw = execFileSync(OBSIDIAN_BIN, args, {
+    cwd: VAULT_ROOT,
+    encoding: "utf8",
+    stdio: "pipe"
+  });
+  return JSON.parse(raw);
 }
 
 /**

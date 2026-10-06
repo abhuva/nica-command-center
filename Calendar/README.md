@@ -3,7 +3,8 @@
 > Migration candidate: set absolute `NICA_VAULT_ROOT` and `NICA_STATE_ROOT`
 > values before running. Generated events, filter state, OAuth tokens, exports,
 > and PID files are stored below `NICA_STATE_ROOT\calendar`. Actions default to
-> disabled unless `NICA_WRITE_ENABLED=true`.
+> disabled unless `NICA_WRITE_ENABLED=true`. Obsidian CLI access also requires
+> an explicit `OBSIDIAN_VAULT_NAME`; it never falls back to the active vault.
 
 Updated: 2026-04-08
 Scope: `Tools/Calendar`
@@ -74,7 +75,9 @@ Important vars:
 
 - `CALENDAR_HOST` (default `127.0.0.1`)
 - `CALENDAR_PORT` (default `4173`)
-- `OBSIDIAN_VAULT_NAME`
+- `OBSIDIAN_VAULT_NAME` (required for Base queries and all Obsidian CLI access)
+- `NICA_OBSIDIAN_ACTIONS_ENABLED` (`true` only when UI actions may target the
+  explicitly named vault)
 - `OBSIDIAN_BASE_PATH` (default `6. Obsidian/Live/Kalender.base`)
 - `OBSIDIAN_BASE_VIEW` (default `Tabelle`)
 - `CALENDAR_INBOX_PATH` (default `6. Obsidian/Inbox`)
@@ -220,6 +223,8 @@ Base query failure:
 
 - Default behavior: build fails.
 - To permit fallback scan: set `ALLOW_MARKDOWN_FALLBACK=true`.
+- The fallback scans only `NICA_VAULT_ROOT`; it does not query the active
+  Obsidian vault. Runtime rebuild follows the same fallback rule as startup.
 
 No Google events:
 

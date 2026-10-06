@@ -30,6 +30,11 @@ const DEFAULT_BASE_PATH = process.env.OBSIDIAN_BASE_PATH || "6. Obsidian/Live/Ka
 const DEFAULT_BASE_VIEW = process.env.OBSIDIAN_BASE_VIEW || "Tabelle";
 const KALENDER_MAP_BASE_PATH = "6. Obsidian/Live/Kalender.base";
 const OBSIDIAN_VAULT_NAME = String(process.env.OBSIDIAN_VAULT_NAME || "").trim();
+const OBSIDIAN_ACTIONS_ENABLED =
+  String(process.env.NICA_OBSIDIAN_ACTIONS_ENABLED || "").trim().toLowerCase() === "true";
+const ALLOW_MARKDOWN_FALLBACK = ["true", "yes", "1", "on"].includes(
+  String(process.env.ALLOW_MARKDOWN_FALLBACK || "").trim().toLowerCase()
+);
 const OBSIDIAN_BIN = resolveObsidianBin();
 const GOOGLE_CALENDAR_API_KEY = String(process.env.GOOGLE_CALENDAR_API_KEY || "").trim();
 const GOOGLE_CALENDAR_IDS = String(process.env.GOOGLE_CALENDAR_IDS || "")
@@ -954,43 +959,43 @@ function withVaultArgs(args) {
 }
 
 /**
- * Detects CLI errors caused by invalid or missing vault targeting.
- * @param {unknown} error - Error thrown by Obsidian CLI execution.
- * @returns {boolean} `true` when the error indicates vault lookup problems.
- */
-function isVaultTargetingError(error) {
-  const text = String(error?.stderr || error?.stdout || error?.message || "").toLowerCase();
-  return (
-    text.includes("vault") ||
-    text.includes("unable to find the vault") ||
-    text.includes("does not exist")
-  );
-}
-
-/**
- * Executes Obsidian CLI and retries without vault targeting on vault lookup errors.
+ * Executes a read-only Obsidian CLI command against an explicitly named vault.
  * @param {string[]} args - CLI arguments.
  * @param {object} [options={}] - `execFileSync` options.
  * @returns {string} CLI stdout as UTF-8 text.
  */
 function runObsidian(args, options = {}) {
+  if (!OBSIDIAN_VAULT_NAME) {
+    throw new Error("OBSIDIAN_VAULT_NAME is required for Obsidian CLI access");
+  }
   const execOptions = {
     cwd: VAULT_ROOT,
     encoding: "utf8",
     stdio: "pipe",
     ...options
   };
+  return execFileSync(OBSIDIAN_BIN, withVaultArgs(args), execOptions);
+}
+
+/**
+ * Executes a UI action only against an explicitly named Obsidian vault.
+ * @param {string[]} args - Obsidian CLI arguments.
+ * @param {object} [options={}] - Execution options.
+ * @returns {string} CLI stdout as UTF-8 text.
+ */
+function runObsidianAction(args, options = {}) {
+  if (!OBSIDIAN_ACTIONS_ENABLED) {
+    throw new Error("Obsidian actions are disabled; set NICA_OBSIDIAN_ACTIONS_ENABLED=true intentionally");
+  }
   if (!OBSIDIAN_VAULT_NAME) {
-    return execFileSync(OBSIDIAN_BIN, args, execOptions);
+    throw new Error("OBSIDIAN_VAULT_NAME is required when Obsidian actions are enabled");
   }
-  try {
-    return execFileSync(OBSIDIAN_BIN, withVaultArgs(args), execOptions);
-  } catch (error) {
-    if (!isVaultTargetingError(error)) {
-      throw error;
-    }
-    return execFileSync(OBSIDIAN_BIN, args, execOptions);
-  }
+  return execFileSync(OBSIDIAN_BIN, withVaultArgs(args), {
+    cwd: VAULT_ROOT,
+    encoding: "utf8",
+    stdio: "pipe",
+    ...options
+  });
 }
 
 /**
@@ -1005,7 +1010,7 @@ function openMarkdownInObsidianNewTab(sourcePath) {
   }
 
   const vaultRelativePath = path.relative(VAULT_ROOT, markdownPath).replace(/\\/g, "/");
-  runObsidian(["open", `path=${vaultRelativePath}`, "newtab"]);
+  runObsidianAction(["open", `path=${vaultRelativePath}`, "newtab"]);
   return vaultRelativePath;
 }
 
@@ -1028,7 +1033,7 @@ function openKalenderBaseMapInObsidianNewTab(coordinates = null) {
       : null;
   const zoom = 14;
 
-  runObsidian(["tab:open", "view=bases", `file=${basePath}`], {
+  runObsidianAction(["tab:open", "view=bases", `file=${basePath}`], {
     timeout: 10000
   });
 
@@ -1086,7 +1091,7 @@ if (coords) {
 JSON.stringify({ basePath, view: "Map", centered: Boolean(coords) });
 `.trim();
 
-  const raw = runObsidian(["eval", `code=${script}`], {
+  const raw = runObsidianAction(["eval", `code=${script}`], {
     timeout: 10000
   });
   const clean = String(raw || "").replace(/^=>\s*/, "").trim();
@@ -1107,7 +1112,10 @@ JSON.stringify({ basePath, view: "Map", centered: Boolean(coords) });
  */
 function rebuildEventsFile(baseFilter) {
   const filter = sanitizeBaseFilter(baseFilter.path, baseFilter.view, baseFilter.title);
-  if (!isValidBasePath(filter.path) || !basePathExists(filter.path)) {
+  if (!isValidBasePath(filter.path)) {
+    throw new Error(`Invalid Base path: ${filter.path}`);
+  }
+  if (!basePathExists(filter.path) && !ALLOW_MARKDOWN_FALLBACK) {
     throw new Error(`Base file not found: ${filter.path}`);
   }
   execFileSync(process.execPath, [path.join(ROOT, "build-events.mjs")], {

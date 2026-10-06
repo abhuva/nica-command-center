@@ -19,6 +19,12 @@ for checks and shutdown instructions. The older `Tools/...` commands below
 describe the still-running production layout and are retained as migration
 reference until capability cutover.
 
+Obsidian CLI reads require an explicit `OBSIDIAN_VAULT_NAME`; they never fall
+back to whichever vault happens to be active. Obsidian UI actions additionally
+require `NICA_OBSIDIAN_ACTIONS_ENABLED=true`. Filesystem-only project creation,
+Calendar fixture fallback, monitoring, and local state workflows do not need
+Obsidian actions enabled.
+
 ## Ziele
 
 - Homepage in Obsidian Webviewer ueber lokalen Server.

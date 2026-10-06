@@ -1,6 +1,6 @@
 # Calendar Task Tracker
 
-Updated: 2026-04-08
+Updated: 2026-10-06
 Scope: `Tools/Calendar`
 
 ## Status Summary
@@ -30,6 +30,10 @@ Validation baseline:
 - Fixed recurring background event behavior.
 - Reworked frontmatter read/write logic for safer structured updates.
 - Made Base fallback explicit (`ALLOW_MARKDOWN_FALLBACK=true` required).
+- Made runtime rebuild honor that same explicit fallback and removed active-vault
+  CLI fallback; Obsidian access now requires `OBSIDIAN_VAULT_NAME`.
+- Gated note/map UI actions behind `NICA_OBSIDIAN_ACTIONS_ENABLED=true` in
+  addition to the named-vault requirement.
 - Switched preview lifecycle to PID-based stop/start.
 - Added smoke checks (`smoke-check.mjs`, `npm run check:smoke`).
 - Split frontend monolith:

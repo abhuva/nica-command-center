@@ -20,6 +20,8 @@ const ROOT = __dirname;
 const VAULT_ROOT = requireVaultRoot();
 const STATE_DIR = requireComponentStateDir("homepage");
 const OBSIDIAN_VAULT_NAME = String(process.env.OBSIDIAN_VAULT_NAME || "").trim();
+const OBSIDIAN_ACTIONS_ENABLED =
+  String(process.env.NICA_OBSIDIAN_ACTIONS_ENABLED || "").trim().toLowerCase() === "true";
 const OBSIDIAN_BIN = resolveObsidianBin();
 
 const BOOKMARKS_FILE = path.join(VAULT_ROOT, ".obsidian", "bookmarks.json");
@@ -227,43 +229,43 @@ function withVaultArgs(args) {
 }
 
 /**
- * Detects CLI errors caused by invalid or missing vault targeting.
- * @param {unknown} error - Error thrown by Obsidian CLI execution.
- * @returns {boolean} `true` when the error indicates vault lookup problems.
- */
-function isVaultTargetingError(error) {
-  const text = String(error?.stderr || error?.stdout || error?.message || "").toLowerCase();
-  return (
-    text.includes("vault") ||
-    text.includes("unable to find the vault") ||
-    text.includes("does not exist")
-  );
-}
-
-/**
- * Executes the Obsidian CLI and retries without explicit vault targeting on vault lookup errors.
+ * Executes a read-only Obsidian CLI command against an explicitly named vault.
  * @param {string[]} args - CLI arguments passed to Obsidian.
  * @param {object} options - `execFileSync` options.
  * @returns {string} CLI stdout as UTF-8 text.
  */
 function runObsidian(args, options = {}) {
+  if (!OBSIDIAN_VAULT_NAME) {
+    throw new Error("OBSIDIAN_VAULT_NAME is required for Obsidian CLI access");
+  }
   const execOptions = {
     cwd: VAULT_ROOT,
     encoding: "utf8",
     stdio: "pipe",
     ...options
   };
+  return execFileSync(OBSIDIAN_BIN, withVaultArgs(args), execOptions);
+}
+
+/**
+ * Executes a consequential Obsidian action only against an explicitly named vault.
+ * @param {string[]} args - Obsidian CLI arguments.
+ * @param {object} [options={}] - `execFileSync` options.
+ * @returns {string} CLI stdout as UTF-8 text.
+ */
+function runObsidianAction(args, options = {}) {
+  if (!OBSIDIAN_ACTIONS_ENABLED) {
+    throw new Error("Obsidian actions are disabled; set NICA_OBSIDIAN_ACTIONS_ENABLED=true intentionally");
+  }
   if (!OBSIDIAN_VAULT_NAME) {
-    return execFileSync(OBSIDIAN_BIN, args, execOptions);
+    throw new Error("OBSIDIAN_VAULT_NAME is required when Obsidian actions are enabled");
   }
-  try {
-    return execFileSync(OBSIDIAN_BIN, withVaultArgs(args), execOptions);
-  } catch (error) {
-    if (!isVaultTargetingError(error)) {
-      throw error;
-    }
-    return execFileSync(OBSIDIAN_BIN, args, execOptions);
-  }
+  return execFileSync(OBSIDIAN_BIN, withVaultArgs(args), {
+    cwd: VAULT_ROOT,
+    encoding: "utf8",
+    stdio: "pipe",
+    ...options
+  });
 }
 
 /**
@@ -683,7 +685,7 @@ function startBeantimeFavaServer(config) {
  * @returns {void}
  */
 function openBeantimeFavaWebviewer() {
-  runObsidian(["web", `url=${getBeantimeFavaUrl()}`, "newtab"]);
+  runObsidianAction(["web", `url=${getBeantimeFavaUrl()}`, "newtab"]);
 }
 
 /**
@@ -2636,7 +2638,7 @@ plugin.openBookmark(item, openTarget);
 "ok";
 `.trim();
 
-  runObsidian(["eval", `code=${js}`]);
+  runObsidianAction(["eval", `code=${js}`]);
 
   return {
     ok: true,
@@ -2739,7 +2741,7 @@ if (provider === "obsidian-search" && openInNewTab) {
 }
 `.trim();
 
-  const raw = runObsidian(["eval", `code=${js}`]);
+  const raw = runObsidianAction(["eval", `code=${js}`]);
   const clean = String(raw || "").replace(/^=>\s*/, "").trim();
   const parsed = JSON.parse(clean);
   return {
@@ -2936,7 +2938,7 @@ for (const part of parts) {
 })();
 "ok";
 `.trim();
-  runObsidian(["eval", `code=${js}`]);
+  runObsidianAction(["eval", `code=${js}`]);
 }
 
 /**
@@ -2972,7 +2974,7 @@ JSON.stringify({ ok: true, createdPath });
 })();
 `.trim();
 
-  const raw = runObsidian(["eval", `code=${js}`]);
+  const raw = runObsidianAction(["eval", `code=${js}`]);
   const normalized = String(raw || "").trim();
   if (/^Error:/i.test(normalized)) {
     throw new Error(normalized);
@@ -2999,7 +3001,7 @@ JSON.stringify({ ok: true, createdPath });
  * @returns {void}
  */
 function openProjectFile(projectFileRel, openInNewTab = false) {
-  runObsidian(["open", `path=${projectFileRel}`, openInNewTab ? "newtab" : ""].filter(Boolean));
+  runObsidianAction(["open", `path=${projectFileRel}`, openInNewTab ? "newtab" : ""].filter(Boolean));
 }
 
 /**
@@ -3008,6 +3010,9 @@ function openProjectFile(projectFileRel, openInNewTab = false) {
  * @returns {object} Creation result with paths and applied frontmatter fields.
  */
 function createProject(payload) {
+  if (OBSIDIAN_ACTIONS_ENABLED && !OBSIDIAN_VAULT_NAME) {
+    throw new Error("OBSIDIAN_VAULT_NAME is required when Obsidian actions are enabled");
+  }
   if (!fs.existsSync(PROJECTS_ROOT) || !fs.statSync(PROJECTS_ROOT).isDirectory()) {
     throw new Error("Projektverwaltung-Ordner wurde nicht gefunden");
   }
@@ -3031,13 +3036,16 @@ function createProject(payload) {
   if (fs.existsSync(projectFileAbs)) throw new Error("Projektdatei existiert bereits");
 
   fs.mkdirSync(projectFolderAbs, { recursive: false });
-  ensureVaultFolderExists(projectFolderRel);
-  const created = createProjectNoteFromTemplate({
-    projectFolderRel,
-    projectFileRel,
-    projectName: naming.folderName,
-    templateRelPath: template.relPath
-  });
+  let created = { createdPath: projectFileRel };
+  if (OBSIDIAN_ACTIONS_ENABLED) {
+    ensureVaultFolderExists(projectFolderRel);
+    created = createProjectNoteFromTemplate({
+      projectFolderRel,
+      projectFileRel,
+      projectName: naming.folderName,
+      templateRelPath: template.relPath
+    });
+  }
 
   let targetFileAbs = projectFileAbs;
   let targetFileRel = projectFileRel;
@@ -3070,7 +3078,9 @@ function createProject(payload) {
   });
   fs.writeFileSync(targetFileAbs, next, "utf8");
 
-  openProjectFile(targetFileRel, toBool(payload?.openInNewTab, true));
+  if (OBSIDIAN_ACTIONS_ENABLED) {
+    openProjectFile(targetFileRel, toBool(payload?.openInNewTab, true));
+  }
   return {
     ok: true,
     folderName: naming.folderName,

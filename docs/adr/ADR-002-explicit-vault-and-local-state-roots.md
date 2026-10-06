@@ -43,6 +43,14 @@ operation-specific plan/apply contracts.
 Health responses identify the component, runtime mode, authoritative vault,
 and local-state directory without exposing credentials.
 
+Obsidian CLI integration must also name its vault explicitly through
+`OBSIDIAN_VAULT_NAME`. We decided that CLI reads must fail instead of retrying
+against the currently active Obsidian vault. Consequential Obsidian UI actions
+require both the named vault and the separate
+`NICA_OBSIDIAN_ACTIONS_ENABLED=true` opt-in. Filesystem workflows may remain
+available without that action opt-in when `NICA_WRITE_ENABLED=true` has been
+set intentionally.
+
 ## Alternatives considered
 
 ### Preserve relative `../..` discovery
@@ -70,6 +78,13 @@ Ports isolate processes, not data. Both instances could still change the same
 vault or external services. This was rejected in favor of a default-deny write
 interlock and later workflow-specific plan/apply controls.
 
+### Fall back to the active Obsidian vault
+
+This preserved legacy convenience when vault targeting failed, but it made a
+synthetic or alternate-root candidate capable of reading or acting on an
+unrelated open vault. It was rejected in favor of explicit vault targeting and
+filesystem-only fallback behavior.
+
 ## Consequences
 
 - (+) The candidate can run beside production without sharing mutable state.
@@ -78,10 +93,14 @@ interlock and later workflow-specific plan/apply controls.
 - (+) Runtime state is clearly non-authoritative and can be backed up or rebuilt
   according to the owning tool's needs.
 - (+) Health checks make authority and write capability visible.
+- (+) A synthetic candidate cannot silently cross over to the active Obsidian
+  vault through CLI fallback.
 - (-) Every workstation needs explicit vault and state configuration.
 - (-) Existing launch and stop commands need the new environment or candidate
   scripts.
 - (-) Read-only mode temporarily disables some useful UI actions until their
   apply behavior is verified.
+- (-) Obsidian-derived theme, Base, and metadata features require the configured
+  vault name even when `NICA_VAULT_ROOT` is already set.
 - (=) Secrets remain an unresolved deployment concern and must stay in an
   untracked state/secret mechanism in the meantime.
