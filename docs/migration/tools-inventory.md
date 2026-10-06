@@ -188,4 +188,5 @@ These gaps must be resolved through explicit configuration such as
 - Current process/port baseline immediately before shadow testing
 - Manual daily workflows and expected outputs for acceptance testing
 - Decision on candidate and final runtime-state directories
-- Decision on the destination private remote and backup arrangement
+- Additional backup arrangement beyond the selected private GitHub remote, if
+  one becomes necessary later

@@ -42,6 +42,7 @@ data/
 # Editors and operating systems
 .idea/
 .vscode/
+.obsidian/
 .DS_Store
 Thumbs.db
 Desktop.ini

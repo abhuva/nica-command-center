@@ -59,10 +59,11 @@ interfaces. Beantime remains disabled until its Fava port is configurable.
   organisational material, and obsolete artifacts.
 - [x] Define production/candidate boundaries and the single-writer rule.
 - [x] Define per-capability cutover and rollback structure.
-- [ ] Confirm whether sanitized history or a clean snapshot will be imported.
-- [ ] Decide how to handle untracked destination Obsidian files.
-- [ ] Record the destination private remote/backup decision.
-- [ ] Review this runbook with Marc and accept Gate 0.
+- [x] Select a sanitized-history import rather than a clean snapshot.
+- [x] Track the intentional architecture Canvas and ignore `.obsidian/`.
+- [x] Select a private `abhuva/nica-command-center` GitHub remote; no additional
+  backup is required during Gate 0.
+- [x] Review this runbook with Marc and accept Gate 0.
 
 ### Exit criteria
 
@@ -229,13 +230,17 @@ A capability is accepted only when:
 - [ ] rollback completes within the agreed five-minute window;
 - [ ] Marc confirms the normal workflow is usable.
 
-## Open decisions
+## Decisions recorded at Gate 0
 
-1. Preserve sanitized source history or import only a clean current snapshot.
-   Sanitized history is recommended because the source has a small, useful
-   history, but raw history is unsafe.
-2. Choose the destination private remote and its backup policy.
-3. Choose the final local runtime-state and secret-storage locations.
-4. Decide whether the destination's untracked `.obsidian/` and Canvas file are
-   intentional or should remain excluded.
-5. Define the observation-period start and final retirement approval.
+1. Preserve the useful source history through a sanitized import; do not import
+   raw history.
+2. Use a private `abhuva/nica-command-center` GitHub repository as the current
+   remote copy. No second backup mechanism is required yet.
+3. Track `Architecture Overview.canvas` and ignore local `.obsidian/` state.
+
+## Decisions deferred to later gates
+
+1. Choose the final local runtime-state and secret-storage locations before
+   Gate 3 exits.
+2. Define the observation-period start and final retirement approval before
+   Gate 7.

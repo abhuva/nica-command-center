@@ -1,6 +1,6 @@
 # Former Tools repository migration
 
-**Status**: Gate 0 - baseline and planning
+**Status**: Gate 0 complete; Gate 1 not started
 
 **Production source**: the `Tools` checkout inside the configured NICA vault
 
@@ -21,7 +21,7 @@ decisions remain in `docs/adr/`.
 
 | Gate | Purpose | Status |
 | --- | --- | --- |
-| 0 | Record baseline, boundaries, acceptance checks, and rollback rules | In progress |
+| 0 | Record baseline, boundaries, acceptance checks, and rollback rules | Complete |
 | 1 | Preserve source work and create recoverable backups | Not started |
 | 2 | Import sanitized history into an isolated candidate branch | Not started |
 | 3 | Remove vault-location assumptions and isolate candidate state | Not started |
@@ -32,3 +32,11 @@ decisions remain in `docs/adr/`.
 
 Gate 0 changes documentation only. It must not change the source checkout,
 vault launchers, live configuration, credentials, or runtime state.
+
+## Gate 0 decisions
+
+- Preserve useful source history through a sanitized-history import.
+- Track `Architecture Overview.canvas` as repository documentation.
+- Keep local Obsidian configuration under `.obsidian/` ignored.
+- Use a private `abhuva/nica-command-center` GitHub repository as the current
+  remote copy. No additional backup system is planned during Gate 0.
