@@ -201,8 +201,10 @@ const post = (path, payload = {}) => {
 const setStatus = (text) => { els.status.textContent = text; };
 const fmtNumber = (value) => Number(value || 0).toLocaleString("de-DE");
 let progressTimer = null;
+let exportPlanRequestVersion = 0;
 
 const clearExportPlan = () => {
+  exportPlanRequestVersion += 1;
   state.exportPlanToken = "";
   els.exportSummary.textContent = "";
   els.exportApplyBtn.disabled = true;
@@ -995,11 +997,13 @@ els.applyRulesBtn.addEventListener("click", async () => {
 
 els.exportBtn.addEventListener("click", async () => {
   clearExportPlan();
+  const requestVersion = exportPlanRequestVersion;
   setStatus("Planning vault export...");
   const payload = await post("/api/export/plan", {
     state: els.stateFilter.value || "included",
     accountId: els.accountSelect.value,
   });
+  if (requestVersion !== exportPlanRequestVersion) return;
   els.exportSummary.textContent = `Export preview: ${fmtNumber(payload.total)} total · ${fmtNumber(payload.create)} new · ${fmtNumber(payload.unchanged)} unchanged · ${fmtNumber(payload.legacyExisting)} existing archive · ${fmtNumber(payload.conflicts)} conflicts`;
   els.exportPanel.classList.remove("hidden");
   state.exportPlanToken = payload.planToken || "";
@@ -1022,7 +1026,14 @@ els.exportApplyBtn.addEventListener("click", async () => {
   state.exportPlanToken = "";
   els.exportApplyBtn.disabled = true;
   setStatus("Applying vault export...");
-  const payload = await post("/api/export/apply", { planToken });
+  let payload;
+  try {
+    payload = await post("/api/export/apply", { planToken });
+  } catch (error) {
+    clearExportPlan();
+    setStatus(error instanceof Error ? error.message : String(error));
+    return;
+  }
   clearExportPlan();
   await refresh();
   setStatus(`Exported ${payload.exported} markdown files · ${payload.created} new · ${payload.unchanged} unchanged · ${payload.legacyExisting} existing archive`);
