@@ -26,7 +26,14 @@ if ($proc) {
   }
 
   $children = @(Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq $manifest.pid })
-  $unexpectedChildren = @($children | Where-Object { $_.Name -notin @("updo.exe", "updo", "conhost.exe") })
+  $favaChildren = @($children | Where-Object { ([string]$_.CommandLine) -match '(?i)fava' })
+  $favaChildIds = @($favaChildren | ForEach-Object { $_.ProcessId })
+  $unexpectedChildren = @(
+    $children | Where-Object {
+      $_.Name -notin @("updo.exe", "updo", "conhost.exe") -and
+      $_.ProcessId -notin $favaChildIds
+    }
+  )
   if ($unexpectedChildren.Count) {
     throw "Homepage server has an unexpected child process; no process was stopped."
   }
@@ -39,12 +46,22 @@ if ($proc) {
       Stop-Process -Id $child.ProcessId -ErrorAction SilentlyContinue
       Wait-Process -Id $child.ProcessId -Timeout 5 -ErrorAction SilentlyContinue
     }
+    foreach ($child in $favaChildren) {
+      Stop-Process -Id $child.ProcessId -ErrorAction SilentlyContinue
+      Wait-Process -Id $child.ProcessId -Timeout 5 -ErrorAction SilentlyContinue
+    }
   }
 }
 
 $listener = Get-NetTCPConnection -LocalPort ([int]$manifest.port) -State Listen -ErrorAction SilentlyContinue
 if ($listener) {
   throw "Homepage port $($manifest.port) is still occupied; the manifest was retained."
+}
+if ($null -ne $manifest.beantimeFavaPort) {
+  $favaListener = Get-NetTCPConnection -LocalPort ([int]$manifest.beantimeFavaPort) -State Listen -ErrorAction SilentlyContinue
+  if ($favaListener) {
+    throw "Beantime Fava port $($manifest.beantimeFavaPort) is still occupied; the manifest was retained."
+  }
 }
 
 Remove-Item -LiteralPath $manifestPath -Force -ErrorAction SilentlyContinue

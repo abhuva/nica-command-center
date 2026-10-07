@@ -16,6 +16,7 @@
     "check:email-oauth-shadow": "python ./tests/email_oauth_shadow_smoke.py",
     "check:email-export-shadow": "python ./tests/email_export_shadow_smoke.py",
     "check:beantime-shadow": "node ./tests/beantime-shadow-smoke.mjs",
+    "check:beantime-live-profile": "powershell -NoProfile -ExecutionPolicy Bypass -File ./tests/homepage-beantime-profile-smoke.ps1",
     "lint": "eslint .",
     "lint:jsdoc": "eslint \"**/*.{js,mjs}\""
   },

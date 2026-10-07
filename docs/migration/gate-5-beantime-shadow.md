@@ -1,6 +1,6 @@
 # Gate 5 Beantime synthetic shadow
 
-**Status**: Accepted synthetic shadow; live-ledger cutover not started
+**Status**: Accepted synthetic shadow; live tool cutover recorded separately
 
 **Date**: 2026-10-07
 
@@ -102,6 +102,6 @@ Marc confirmed the synthetic start, stop, append, and managed-Fava workflow on
 unchanged until a separately approved live-ledger transfer and Beantime cutover
 have their own rollback plan.
 
-No production ledger path or content belongs in this record. A live cutover is
-a later, separately approved operation and must prove that legacy and migrated
-Beantime cannot write the same ledger concurrently.
+No production ledger path or content belongs in this record. The later tool
+cutover retains the ledger in Nextcloud and is recorded in [Gate 5 Beantime tool
+cutover](gate-5-beantime-tool-cutover.md).

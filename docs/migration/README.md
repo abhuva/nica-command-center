@@ -29,6 +29,7 @@ passed its acceptance checks and has a tested rollback path.
 - [Gate 5 Email bounded-OAuth shadow record](gate-5-email-oauth-shadow.md)
 - [Gate 5 Email bounded-export shadow record](gate-5-email-export-shadow.md)
 - [Gate 5 Beantime synthetic-shadow record](gate-5-beantime-shadow.md)
+- [Gate 5 Beantime tool-cutover record](gate-5-beantime-tool-cutover.md)
 
 These documents are operational plans. Accepted, long-lived architecture
 decisions remain in `docs/adr/`.
@@ -42,7 +43,7 @@ decisions remain in `docs/adr/`.
 | 2 | Import sanitized history into an isolated candidate branch | Complete |
 | 3 | Remove vault-location assumptions and isolate candidate state | Complete |
 | 4 | Shadow-test capabilities without production writes | Complete; external credentials deferred |
-| 5 | Cut over one capability at a time | In progress; twelve capabilities accepted, including the isolated Beantime shadow; the 515-note Email batch and Beantime live-ledger cutover remain separately gated |
+| 5 | Cut over one capability at a time | In progress; twelve capabilities accepted; Beantime tool cutover is technically complete with its ledger retained in Nextcloud and awaits normal-workflow confirmation; the 515-note Email batch remains separately gated |
 | 6 | Switch the stable launcher | Not started |
 | 7 | Observe, rehearse rollback, and retire the old checkout | Not started |
 
