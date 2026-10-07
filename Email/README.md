@@ -12,7 +12,7 @@ The tool fetches email into a local SQLite database, applies local rules/tags, a
 ## Start
 
 ```powershell
-npm.cmd --prefix .\Tools\Email run preview
+npm.cmd --prefix .\Email run preview
 ```
 
 Open:
@@ -23,7 +23,9 @@ http://127.0.0.1:4176/email.html
 
 ## Local Config
 
-Create `Tools/Email/config.local.json` from `config.example.json`. This file is gitignored.
+For the legacy tool, create `Email/config.local.json` from
+`config.example.json`. Migrated runtime configuration belongs below
+`NICA_STATE_ROOT\email`, not in this repository.
 
 Secrets are read from `Tools/Email/.env.local`, `Tools/Email/.env`, or the process environment.
 
@@ -46,5 +48,36 @@ Use `ssl: true` for implicit TLS on port 993. Use `ssl: false` plus `starttls: t
 ## Validation
 
 ```powershell
-npm.cmd --prefix .\Tools\Email run check:smoke
+npm.cmd --prefix .\Email run check:smoke
+npm run check:email-read-shadow
 ```
+
+## Gate 5 read-only shadow
+
+The migrated shadow runs on port `4276` from a consistent SQLite backup. The
+backup API reads the live WAL-backed database as one transactionally consistent
+snapshot; `.db-wal` and `.db-shm` files are never copied separately.
+
+Preview the authority and snapshot action without changing any process or file:
+
+```powershell
+.\scripts\start-email-read.ps1 -VaultRoot "C:\path\to\vault" -RefreshSnapshot
+```
+
+After reviewing the plan, create or refresh the isolated snapshot and start the
+shadow:
+
+```powershell
+.\scripts\start-email-read.ps1 -VaultRoot "C:\path\to\vault" -RefreshSnapshot -Apply
+```
+
+Stop only the shadow while retaining its local snapshot:
+
+```powershell
+.\scripts\stop-email-read.ps1
+```
+
+No Email configuration, password environment file, or OAuth token is copied.
+The shadow starts with `NICA_WRITE_ENABLED=false`; all POST routes return HTTP
+403, and the UI disables fetch, count, OAuth, classification, rule, tag, and
+export controls. Legacy Email `4176` remains the production workflow.

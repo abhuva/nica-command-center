@@ -221,6 +221,14 @@ Obsidian-action, and publishing routes remain disabled. Legacy Calendar `4173`
 remains the warm fallback. See [Gate 5 Calendar vault-event creation
 cutover](gate-5-calendar-vault-write-cutover.md).
 
+Email reads are accepted on the `4276` read-only shadow after consistent
+snapshot verification, API and browser checks, aggregate count comparison,
+stop/restart rehearsal, and Marc's normal workflow confirmation on 2026-10-07.
+All fetch, OAuth, classification, rule, tag, export, and other write operations
+remain disabled there. Legacy Email `4176` remains production for writes and
+the warm fallback for reads. See [Gate 5 Email read-only shadow
+record](gate-5-email-read-shadow.md).
+
 Use the following sequence for each capability:
 
 1. Confirm production is healthy.

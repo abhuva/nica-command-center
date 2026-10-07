@@ -141,10 +141,10 @@ credentials are intentionally not copied. Refresh, publishing, OAuth changes,
 event creation, and event editing remain disabled. The legacy Calendar stays
 available on port `4173` as warm rollback.
 
-### Gate 5 Calendar vault-event candidate
+### Gate 5 Calendar vault-event creation
 
-The next candidate reuses the accepted Calendar read profile and enables only
-confirmed Markdown event-note creation. Preview the runtime authority first:
+The accepted Calendar runtime reuses the read profile and enables only
+confirmed Markdown event-note creation. Preview the runtime authority with:
 
 ```powershell
 .\scripts\start-calendar-vault-write.ps1 -VaultRoot "C:\path\to\vault" -ObsidianVaultName "vault-name"
@@ -160,6 +160,20 @@ For a controlled cutover, stop the migrated reader and start the narrow writer:
 Google, CalDAV, OAuth, event editing, rebuild, Obsidian actions, and publishing
 remain disabled. Roll back by stopping the process and starting
 `start-calendar-read.ps1` again. Legacy Calendar `4173` remains the fallback.
+
+### Gate 5 Email read-only shadow
+
+Email migration starts with a consistent snapshot of the live WAL-backed
+SQLite database. The candidate runs on `4276` without copying mail credentials
+or OAuth tokens, and every POST action remains disabled:
+
+```powershell
+.\scripts\start-email-read.ps1 -VaultRoot "C:\path\to\vault" -RefreshSnapshot
+.\scripts\start-email-read.ps1 -VaultRoot "C:\path\to\vault" -RefreshSnapshot -Apply
+```
+
+Legacy Email `4176` remains the production workflow. Stop only the shadow with
+`.\scripts\stop-email-read.ps1`.
 
 ## Ziele
 

@@ -6,6 +6,8 @@
   activeView: "dashboard",
   dashboard: null,
   ruleSort: { key: "", dir: "" },
+  runtimeMode: "unknown",
+  writesEnabled: false,
 };
 
 const THEME_CACHE_KEY = "email-theme-bootstrap-v1";
@@ -13,6 +15,7 @@ const COMPACT_CACHE_KEY = "email-account-compact-v1";
 const rootEl = document.documentElement;
 
 const els = {
+  runtimeBadge: document.querySelector("#runtimeBadge"),
   status: document.querySelector("#status"),
   dashboardTab: document.querySelector("#dashboardTab"),
   accountTab: document.querySelector("#accountTab"),
@@ -90,7 +93,56 @@ const api = async (path, options = {}) => {
   return payload;
 };
 
-const post = (path, payload = {}) => api(path, { method: "POST", body: JSON.stringify(payload) });
+const WRITE_CONTROL_SELECTOR = [
+  "#applyRulesBtn",
+  "#exportBtn",
+  "#fetchNewAllBtn",
+  "#countAllBtn",
+  "#countBtn",
+  "#fetchNewBtn",
+  "#fetchBtn",
+  "#oauthBtn",
+  "#dashboardTagBtn",
+  "#tagBtn",
+  "#saveRuleBtn",
+  "#ruleName",
+  "#ruleScope",
+  "#ruleField",
+  "#ruleOperator",
+  "#rulePattern",
+  "#ruleAction",
+  "#ruleTag",
+  "[data-state]",
+  "[data-sender-rule]",
+  "[data-rule-delete]",
+  "[data-rule-table-delete]",
+  "[data-rule-toggle]",
+  "[data-rule-edit]",
+].join(",");
+
+const applyRuntimeMode = () => {
+  const readOnly = !state.writesEnabled;
+  document.body.dataset.writesEnabled = String(state.writesEnabled);
+  if (els.runtimeBadge) {
+    els.runtimeBadge.textContent = readOnly ? "Migration candidate · read-only" : "Migration candidate";
+  }
+  document.querySelectorAll(WRITE_CONTROL_SELECTOR).forEach((control) => {
+    if (readOnly && !control.disabled) {
+      control.dataset.readOnlyDisabled = "true";
+      control.disabled = true;
+      control.title = "Disabled in read-only migration shadow";
+    } else if (!readOnly && control.dataset.readOnlyDisabled === "true") {
+      control.disabled = false;
+      delete control.dataset.readOnlyDisabled;
+      control.removeAttribute("title");
+    }
+  });
+};
+
+const post = (path, payload = {}) => {
+  if (!state.writesEnabled) return Promise.reject(new Error("Action disabled in read-only migration shadow"));
+  return api(path, { method: "POST", body: JSON.stringify(payload) });
+};
 const setStatus = (text) => { els.status.textContent = text; };
 const fmtNumber = (value) => Number(value || 0).toLocaleString("de-DE");
 let progressTimer = null;
@@ -267,6 +319,7 @@ const setActiveView = (view) => {
 const renderOAuthControl = () => {
   const account = selectedAccount();
   els.oauthBtn.classList.toggle("hidden", account?.auth_method !== "oauth");
+  applyRuntimeMode();
 };
 
 const renderAccounts = () => {
@@ -457,6 +510,7 @@ const renderRules = () => {
       <button data-rule-delete="${escapeHtml(rule.id)}" type="button">Delete</button>
     </div>
   `).join("") : `<div class="meta">No rules.</div>`;
+  applyRuntimeMode();
 };
 
 const accountOptionHtml = (selectedId) => state.accounts.map((account) => (
@@ -547,6 +601,7 @@ const renderRulesTable = () => {
   els.rulesCount.textContent = `${fmtNumber(rules.length)} / ${fmtNumber(state.rules.length)} rules`;
   if (!rules.length) {
     els.rulesTable.innerHTML = `<div class="meta empty-table">No rules match the current filters.</div>`;
+    applyRuntimeMode();
     return;
   }
   els.rulesTable.innerHTML = `
@@ -602,6 +657,7 @@ const renderRulesTable = () => {
         <span><button data-rule-table-delete="${escapeHtml(rule.id)}" type="button">Delete</button></span>
       </div>
     `).join("")}`;
+  applyRuntimeMode();
 };
 
 const loadRulesView = async () => {
@@ -648,6 +704,7 @@ const renderMessageDetail = (msg, actionsEl, detailEl) => {
     <div class="meta">${escapeHtml(msg.sent_at || "")} | ${escapeHtml(msg.account_id)} / ${escapeHtml(msg.mailbox)}</div>
     <div class="meta">state: ${escapeHtml(msg.include_state)} | tags: ${escapeHtml((msg.tags || []).map((tag) => tag.tag).join(", "))}</div>
     <pre>${escapeHtml(msg.body_markdown || msg.body_text || "")}</pre>`;
+  applyRuntimeMode();
 };
 
 const selectMessage = async (id, target = "account") => {
@@ -703,7 +760,15 @@ const refresh = async () => {
   } else {
     await loadMessages();
   }
-  setStatus("Ready");
+  applyRuntimeMode();
+  setStatus(state.writesEnabled ? "Ready" : "Ready · read-only shadow");
+};
+
+const loadRuntimeMode = async () => {
+  const runtime = await api("/api/ping");
+  state.runtimeMode = String(runtime.mode || "unknown");
+  state.writesEnabled = runtime.writesEnabled === true;
+  applyRuntimeMode();
 };
 
 els.refreshBtn.addEventListener("click", () => refresh().catch((error) => setStatus(error.message)));
@@ -976,4 +1041,8 @@ els.dashboardTagBtn.addEventListener("click", async () => {
 });
 
 loadCompactMode();
-applyEmailTheme().finally(() => refresh().catch((error) => setStatus(error.message)));
+applyEmailTheme().finally(() => {
+  loadRuntimeMode()
+    .then(refresh)
+    .catch((error) => setStatus(error.message));
+});
