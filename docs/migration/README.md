@@ -42,7 +42,7 @@ decisions remain in `docs/adr/`.
 | 2 | Import sanitized history into an isolated candidate branch | Complete |
 | 3 | Remove vault-location assumptions and isolate candidate state | Complete |
 | 4 | Shadow-test capabilities without production writes | Complete; external credentials deferred |
-| 5 | Cut over one capability at a time | In progress; eleven capabilities accepted; the 515-note Email batch remains separately gated; Beantime synthetic shadow is technically verified and awaiting user confirmation |
+| 5 | Cut over one capability at a time | In progress; twelve capabilities accepted, including the isolated Beantime shadow; the 515-note Email batch and Beantime live-ledger cutover remain separately gated |
 | 6 | Switch the stable launcher | Not started |
 | 7 | Observe, rehearse rollback, and retire the old checkout | Not started |
 

@@ -1,6 +1,6 @@
 # Gate 5 Beantime synthetic shadow
 
-**Status**: Technical verification complete; Marc's workflow confirmation pending
+**Status**: Accepted synthetic shadow; live-ledger cutover not started
 
 **Date**: 2026-10-07
 
@@ -95,11 +95,12 @@ The tracked template now declares those roots, passes `bean-check`, and loads in
 Fava without errors. The earlier synthetic test ledger was retained locally as a
 recovery copy; no production file was involved.
 
-## Acceptance still required
+## Acceptance
 
-- Obtain Marc's synthetic-workflow confirmation.
-- Keep the legacy workflow unchanged until a separately approved live-ledger
-  transfer and Beantime cutover have their own rollback plan.
+Marc confirmed the synthetic start, stop, append, and managed-Fava workflow on
+2026-10-07. This accepts the isolated shadow only. The legacy workflow remains
+unchanged until a separately approved live-ledger transfer and Beantime cutover
+have their own rollback plan.
 
 No production ledger path or content belongs in this record. A live cutover is
 a later, separately approved operation and must prove that legacy and migrated

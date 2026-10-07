@@ -273,13 +273,13 @@ conflicting notes and has not been applied; it requires separate approval.
 Legacy Email `4176` remains the warm fallback. See [Gate 5 Email bounded-export
 shadow record](gate-5-email-export-shadow.md).
 
-The Beantime synthetic shadow is technically verified with separate read,
+The Beantime synthetic shadow is accepted with separate read,
 timer-state, ledger-append, and managed-Fava capabilities. It provisions only an
 isolated synthetic ledger and leaves the accepted Homepage, legacy Homepage, and
 all production finance services unchanged. Automated checks, Playwright MCP,
-Fava ledger validation, and stop/restart passed on 2026-10-07; Marc's workflow
-confirmation is still required before this slice is accepted. See [Gate 5
-Beantime synthetic shadow record](gate-5-beantime-shadow.md).
+Fava ledger validation, and stop/restart passed, and Marc confirmed the workflow
+on 2026-10-07. This does not authorize live-ledger access or cutover. See [Gate
+5 Beantime synthetic shadow record](gate-5-beantime-shadow.md).
 
 Use the following sequence for each capability:
 
