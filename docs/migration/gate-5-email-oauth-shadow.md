@@ -1,6 +1,6 @@
 # Gate 5: Email bounded-OAuth shadow
 
-**Status:** synthetic and browser verification complete; live activation not started
+**Status:** live bounded-OAuth profile active; normal-workflow confirmation pending
 
 **Date:** 2026-10-07
 
@@ -96,16 +96,29 @@ classification profile.
   missing immutable token backup, kept Export disabled, and selected free
   loopback port `8080`. Both candidate `4276` and legacy `4176` were healthy;
   the plan changed no file or process.
+- Activation stopped only migrated Email `4276`, created one immutable recovery
+  copy for the configured OAuth token, and started the bounded-OAuth profile.
+  Health reported the exact planned capabilities and `vault.export` remained
+  false; a direct Export request returned HTTP 403. Legacy `4176` remained
+  healthy.
+- Rollback to bounded classification removed `oauth.manage` while retaining
+  Count/Fetch and classification. OAuth was then restored without refreshing
+  candidate state or replacing the token recovery copy.
+- Live Playwright MCP verification found the OAuth account and enabled OAuth,
+  Count, Fetch, and classification controls while Export remained disabled.
+  All observed API calls returned HTTP 200, the console had no warnings or
+  errors, and the 375-by-812 viewport had no horizontal overflow. The OAuth
+  authorization link was not opened during this read-only browser check.
 
 ## Live acceptance checklist
 
 - [x] Review a live plan showing the retained candidate profile, one or more
   configured OAuth accounts, the intended callback port, and missing-versus-
   retained token backups.
-- [ ] Confirm migrated `4276` and legacy `4176` are healthy before activation.
-- [ ] Create the immutable token recovery copy and activate the OAuth profile.
-- [ ] Confirm exact health capabilities and that Export remains blocked.
+- [x] Confirm migrated `4276` and legacy `4176` are healthy before activation.
+- [x] Create the immutable token recovery copy and activate the OAuth profile.
+- [x] Confirm exact health capabilities and that Export remains blocked.
 - [ ] Complete one normal OAuth reauthorization and then Count/Fetch for that
   account.
-- [ ] Rehearse rollback to bounded classification.
+- [x] Rehearse rollback to bounded classification.
 - [ ] Marc confirms the normal OAuth-dependent Email workflow is usable.
