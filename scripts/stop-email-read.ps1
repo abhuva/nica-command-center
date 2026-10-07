@@ -14,7 +14,7 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
 }
 
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-if ($manifest.repository -ne $repoRoot -or $manifest.component -notin @("email-read-shadow", "email-fetch-shadow", "email-classification-shadow", "email-oauth-shadow")) {
+if ($manifest.repository -ne $repoRoot -or $manifest.component -notin @("email-read-shadow", "email-fetch-shadow", "email-classification-shadow", "email-oauth-shadow", "email-export-shadow")) {
   throw "Email process manifest belongs to a different repository or component."
 }
 

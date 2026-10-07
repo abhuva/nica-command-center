@@ -162,3 +162,34 @@ them during normal restarts; tokenless accounts remain available for first-time
 login. Vault export remains disabled. Roll back by
 stopping the process and starting `start-email-classification-shadow.ps1` with
 `-Apply` and no profile or database refresh.
+
+## Gate 5 bounded-export shadow
+
+The export profile retains Count/Fetch, classification, and OAuth and adds only
+`vault.export`. Preview the runtime transition without changing files or
+processes:
+
+```powershell
+.\scripts\start-email-export-shadow.ps1 -VaultRoot "C:\path\to\vault"
+```
+
+After review, stop only migrated `4276` and activate it:
+
+```powershell
+.\scripts\stop-email-read.ps1
+.\scripts\start-email-export-shadow.ps1 -VaultRoot "C:\path\to\vault" -Apply
+```
+
+Runtime activation does not export automatically. **Preview Export** is
+read-only and returns aggregate create, unchanged, and conflict counts. A
+separate **Apply Export** action uses a one-use five-minute plan, revalidates
+the database and filesystem, never rewrites matching files, and refuses
+differing targets. Roll back without refreshing accepted state:
+
+```powershell
+.\scripts\stop-email-read.ps1
+.\scripts\start-email-oauth-shadow.ps1 -VaultRoot "C:\path\to\vault" -Apply
+```
+
+Validate this slice with `npm.cmd run check:email-export-shadow` from the
+repository root. Live activation remains pending.
