@@ -92,7 +92,38 @@ function Test-ManifestProcess {
       [string]$manifest.stateRoot -ne $resolvedState -or
       [int]$manifest.port -ne $ExpectedPort
     ) { return $false }
-    return $null -ne (Get-CimInstance Win32_Process -Filter "ProcessId = $($manifest.pid)" -ErrorAction SilentlyContinue)
+    $manifestPid = [int]$manifest.pid
+    $process = Get-CimInstance Win32_Process -Filter "ProcessId = $manifestPid" -ErrorAction SilentlyContinue
+    if ($null -eq $process) { return $false }
+
+    $isFinance = [string]$manifest.component -like "finance-*"
+    $favaPattern = '(?i)(?:^|[\\/"\s])fava(?:\.exe)?(?=["\s]|$)'
+    $portPattern = '--port(?:=|\s+)' + [regex]::Escape([string]$ExpectedPort) + '(?=["\s]|$)'
+    if ($isFinance -and (
+      [string]$process.CommandLine -notmatch $favaPattern -or
+      [string]$process.CommandLine -notmatch $portPattern
+    )) { return $false }
+
+    $listeners = @(Get-NetTCPConnection -LocalPort $ExpectedPort -State Listen -ErrorAction SilentlyContinue)
+    if ($listeners.Count -eq 0) { return $false }
+    if ($manifestPid -in @($listeners | ForEach-Object { [int]$_.OwningProcess })) {
+      return $true
+    }
+
+    # Windows Python entry-point wrappers retain the manifest PID while their
+    # direct python child owns Fava's socket. Accept only that verified shape.
+    if ($isFinance) {
+      foreach ($listener in $listeners) {
+        $owner = Get-CimInstance Win32_Process -Filter "ProcessId = $($listener.OwningProcess)" -ErrorAction SilentlyContinue
+        if (
+          $null -ne $owner -and
+          [int]$owner.ParentProcessId -eq $manifestPid -and
+          [string]$owner.CommandLine -match $favaPattern -and
+          [string]$owner.CommandLine -match $portPattern
+        ) { return $true }
+      }
+    }
+    return $false
   } catch {
     return $false
   }

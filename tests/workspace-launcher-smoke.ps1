@@ -79,9 +79,45 @@ option "operating_currency" "EUR"
     throw "Plan-only finance startup wrote a process manifest."
   }
   & $startFinance -FinanceId nica -VaultRoot $vault -LedgerRelativePath $nicaRelative -StateRoot $state -Port $financePort -Apply | Out-Null
-  $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$financePort/" -TimeoutSec 3
-  if ([int]$response.StatusCode -ne 200) { throw "Synthetic finance service was not healthy." }
-  & $stopFinance -FinanceId nica -StateRoot $state | Out-Null
+  $financeManifestPath = Join-Path $state "finance\nica\finance-process.json"
+  try {
+    $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$financePort/" -TimeoutSec 3
+    if ([int]$response.StatusCode -ne 200) { throw "Synthetic finance service was not healthy." }
+    $launcherPath = Join-Path $repoRoot "scripts\start-workspace.ps1"
+    $parseErrors = $null
+    $launcherAst = [System.Management.Automation.Language.Parser]::ParseFile(
+      $launcherPath,
+      [ref]$null,
+      [ref]$parseErrors
+    )
+    if ($parseErrors.Count -gt 0) { throw "Workspace launcher could not be parsed for process validation." }
+    $manifestFunction = $launcherAst.Find({
+      param($node)
+      $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq "Test-ManifestProcess"
+    }, $true)
+    if ($null -eq $manifestFunction) { throw "Workspace manifest validator was not found." }
+    Invoke-Expression $manifestFunction.Extent.Text
+    $resolvedVault = (Resolve-Path -LiteralPath $vault).Path
+    $resolvedState = [System.IO.Path]::GetFullPath($state)
+    if (-not (Test-ManifestProcess $financeManifestPath @("finance-nica") $financePort)) {
+      throw "Workspace launcher rejected its synthetic Fava process and listener."
+    }
+    $financeManifest = Get-Content -LiteralPath $financeManifestPath -Raw | ConvertFrom-Json
+    $originalFinancePid = [int]$financeManifest.pid
+    try {
+      $financeManifest.pid = $PID
+      $financeManifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $financeManifestPath -Encoding utf8
+      if (Test-ManifestProcess $financeManifestPath @("finance-nica") $financePort) {
+        throw "Workspace launcher accepted a non-Fava manifest PID."
+      }
+    } finally {
+      $financeManifest.pid = $originalFinancePid
+      $financeManifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $financeManifestPath -Encoding utf8
+    }
+  } finally {
+    & $stopFinance -FinanceId nica -StateRoot $state | Out-Null
+  }
   if (Get-NetTCPConnection -LocalPort $financePort -State Listen -ErrorAction SilentlyContinue) {
     throw "Synthetic finance service remained on its port after stop."
   }

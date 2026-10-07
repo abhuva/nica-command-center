@@ -379,7 +379,9 @@ obsidian web url="http://127.0.0.1:4174/settings.html"
 
 - `GET /api/ping`: Health-Check.
 - `GET /api/settings`: Effektive Settings (Default + Local Merge).
-- `POST /api/settings`: Speichert Settings nach `Tools/config/settings.local.json`.
+- `POST /api/settings`: Speichert lokale Settings; erfordert `application/json`
+  (Parameter und Gross-/Kleinschreibung werden ignoriert) sowie den exakten
+  Homepage-`Origin`.
 - `GET /api/bookmarks`: Liest `.obsidian/bookmarks.json` fuer Bookmark-Modul.
 - `POST /api/bookmarks/open`: Oeffnet Bookmark in Obsidian ueber Bookmark-Plugin-API.
 - `GET /api/obsidian/theme`: Liefert einen Theme-Snapshot aus Obsidian (fuer `mirror-obsidian`).

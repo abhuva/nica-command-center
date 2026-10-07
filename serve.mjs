@@ -3568,6 +3568,18 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "POST" && pathname === "/api/settings") {
+    const contentType = String(req.headers["content-type"] || "")
+      .split(";", 1)[0]
+      .trim()
+      .toLowerCase();
+    if (contentType !== "application/json") {
+      sendJson(res, 415, { ok: false, message: "Content-Type must be application/json" });
+      return;
+    }
+    if (String(req.headers.origin || "").trim() !== `http://${HOST}:${PORT}`) {
+      sendJson(res, 403, { ok: false, message: "Origin is not allowed" });
+      return;
+    }
     readRequestBody(req)
       .then((rawBody) => {
         let payload;

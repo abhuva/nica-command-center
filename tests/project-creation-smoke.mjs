@@ -51,7 +51,13 @@ async function request(port, method, pathname, body = null, extraHeaders = {}) {
         method,
         path: pathname,
         headers: {
-          ...(encoded ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(encoded) } : {}),
+          ...(encoded
+            ? {
+                "Content-Type": "application/json",
+                "Content-Length": Buffer.byteLength(encoded),
+                Origin: `http://127.0.0.1:${port}`
+              }
+            : {}),
           ...extraHeaders
         }
       },
@@ -274,6 +280,24 @@ try {
     assert.equal(health.json?.mode, "limited-write");
     assert.equal(health.json?.writeCapabilities?.settingsManage, true);
     assert.equal(health.json?.writeCapabilities?.projectCreate, false);
+    const wrongContentType = await request(
+      settingsServer.port,
+      "POST",
+      "/api/settings",
+      { settings: { startup: { openHomepage: false } } },
+      { "Content-Type": "text/plain" }
+    );
+    assert.equal(wrongContentType.status, 415, "settings writes must require JSON content type");
+    const wrongOrigin = await request(
+      settingsServer.port,
+      "POST",
+      "/api/settings",
+      { settings: { startup: { openHomepage: false } } },
+      { Origin: "http://example.invalid" }
+    );
+    assert.equal(wrongOrigin.status, 403, "settings writes must require the Homepage origin");
+    const unchanged = await request(settingsServer.port, "GET", "/api/settings");
+    assert.equal(unchanged.json?.settings?.startup?.openHomepage, true);
     const saved = await request(settingsServer.port, "POST", "/api/settings", {
       settings: {
         startup: {
@@ -290,7 +314,7 @@ try {
         },
         modules: { updo: { enabled: false } }
       }
-    });
+    }, { "Content-Type": "Application/JSON; Charset=UTF-8" });
     assert.equal(saved.status, 200);
     assert.equal(saved.json?.settings?.schemaVersion, 2);
     assert.equal(saved.json?.settings?.startup?.services?.email, true);
