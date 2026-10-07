@@ -1,8 +1,8 @@
 # NICA command-centre architecture
 
-**Status**: Capability cutovers accepted; aggregate launcher implementation in Gate 6
+**Status**: Capability cutovers and aggregate launcher accepted; Gate 7 observation in progress
 
-**Date**: 2026-10-07
+**Date**: 2026-10-08
 
 ## Purpose
 

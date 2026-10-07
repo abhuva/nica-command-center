@@ -1,12 +1,12 @@
 # Former Tools repository migration
 
-**Status**: Gates 0 through 4 complete; Gates 5 and 6 are in progress
+**Status**: Gates 0 through 6 complete; Gate 7 observation is in progress
 
-**Production source**: the `Tools` checkout inside the configured NICA vault
+**Former production source**: the `Tools` checkout inside the configured NICA vault
 
-The migration must preserve Marc's daily working environment. The existing
-vault checkout remains the production installation until each capability has
-passed its acceptance checks and has a tested rollback path.
+The repository-owned workspace is now the accepted daily installation. The
+vault-local checkout remains recoverable through Gate 7 as the retirement
+fallback.
 
 ## Working documents
 
@@ -45,9 +45,9 @@ decisions remain in `docs/adr/`.
 | 2 | Import sanitized history into an isolated candidate branch | Complete |
 | 3 | Remove vault-location assumptions and isolate candidate state | Complete |
 | 4 | Shadow-test capabilities without production writes | Complete; external credentials deferred |
-| 5 | Cut over one capability at a time | In progress; thirteen capabilities accepted, including Beantime using its unchanged Nextcloud ledger; Email database migration and the previously previewed 515-note export batch are not migration requirements |
-| 6 | Switch the stable launcher | In progress; Email stable runtime accepted on `4276`; aggregate launcher is live and awaits normal-workflow confirmation |
-| 7 | Observe, rehearse rollback, and retire the old checkout | Not started |
+| 5 | Cut over one capability at a time | Complete; thirteen capabilities accepted; Beantime remains authoritative in Nextcloud at its vault-owned path, while Email database migration and the previously previewed 515-note export batch are not migration requirements |
+| 6 | Switch the stable launcher | Complete; Email stable runtime and the aggregate one-button workspace are accepted |
+| 7 | Observe, rehearse rollback, and retire the old checkout | In progress; new workspace accepted, old checkout retained as fallback |
 
 Gate 0 changes documentation only. It must not change the source checkout,
 vault launchers, live configuration, credentials, or runtime state.

@@ -1,6 +1,6 @@
 # Gate 6: Aggregate workspace launcher
 
-**Status**: Live cutover active; normal-workflow confirmation pending
+**Status**: Accepted
 
 **Date**: 2026-10-08
 
@@ -143,9 +143,8 @@ Live cutover verification on 2026-10-08 established:
   startup default enabled, no horizontal overflow, and no console warning or
   error.
 
-Still required for acceptance:
-
-- an ordinary one-button shutdown check;
-- confirmation that disabling a selected service takes effect on the following
-  startup without affecting module visibility;
-- Marc's confirmation that the normal one-button workspace is usable.
+Marc tested the normal workspace and its linked tools after the launcher and
+bookmark-address corrections and confirmed on 2026-10-08 that they work. Gate
+6 is accepted. Live use now enters Gate 7 observation; the old checkout and
+retained Beantime source remain available for recovery until explicit
+retirement approval.

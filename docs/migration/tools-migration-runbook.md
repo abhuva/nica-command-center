@@ -1,6 +1,6 @@
 # Former Tools migration runbook
 
-**Status**: Gates 0 through 4 complete; Gate 5 is in progress
+**Status**: Gates 0 through 6 complete; Gate 7 observation is in progress
 
 **Availability objective**: Marc retains a working daily toolset throughout the
 migration. Individual capability cutovers may use a controlled maintenance
@@ -317,14 +317,13 @@ state, supports a fresh database without a legacy snapshot, points its optional
 theme integration at Homepage `4274`, and retains the bounded capability set.
 Aggregate database counts survived the launcher switch, all regression and
 browser checks passed, and Marc confirmed the normal interface. See [Gate 6
-Email stable runtime](gate-6-email-stable-runtime.md). Gate 6 remains open for
-the aggregate command-centre launcher. The repository-owned aggregate launcher
-is live with hidden independent services, machine-local configuration,
-Homepage startup toggles, synthetic startup/stop verification, and a rehearsed
-reversible Beantime ledger relocation. The first aggregate start and live
-Playwright MCP settings check passed on 2026-10-08. Normal one-button startup,
-shutdown, selected-service behavior, and Marc's workflow confirmation remain
-before acceptance. See [Gate 6 aggregate workspace launcher](gate-6-aggregate-workspace-launcher.md).
+Email stable runtime](gate-6-email-stable-runtime.md). The repository-owned
+aggregate launcher is accepted with hidden independent services, machine-local
+configuration, Homepage startup toggles, synthetic startup/stop verification,
+and a rehearsed reversible Beantime ledger relocation. The first aggregate start and live
+Playwright MCP settings check passed on 2026-10-08. Marc then tested the normal
+workspace and its linked tools, and confirmed that they work. See [Gate 6
+aggregate workspace launcher](gate-6-aggregate-workspace-launcher.md).
 
 - Keep the legacy launcher available under an explicit name.
 - Change the stable entry point only after every included capability has passed
