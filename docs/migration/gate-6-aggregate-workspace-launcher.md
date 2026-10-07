@@ -125,6 +125,10 @@ Live cutover verification on 2026-10-08 established:
   profile rollback, and reactivation, with no active timer and no booking;
 - aggregate startup reported every selected service healthy, starting Homepage
   and both finance services while retaining Calendar, Email, and VaultGraph;
+- a repeated aggregate start retained every healthy process and opened both
+  Homepage and Calendar in Obsidian; the launcher now records each view result
+  and falls back to the tested Web Viewer API when the CLI `web` command is not
+  registered yet;
 - all six HTTP services responded successfully and the aggregate status was
   `ok`;
 - the live Homepage reported limited-write mode with `settings.manage` enabled
@@ -135,7 +139,7 @@ Live cutover verification on 2026-10-08 established:
 
 Still required for acceptance:
 
-- an ordinary repeated one-button start and shutdown check;
+- an ordinary one-button shutdown check;
 - confirmation that disabling a selected service takes effect on the following
   startup without affecting module visibility;
 - Marc's confirmation that the normal one-button workspace is usable.

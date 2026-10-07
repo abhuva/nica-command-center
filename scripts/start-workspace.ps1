@@ -123,6 +123,31 @@ function Test-HttpHealth {
   }
 }
 
+function Open-ObsidianWebView {
+  param(
+    [Parameter(Mandatory = $true)][string]$ApplicationPath,
+    [Parameter(Mandatory = $true)][string]$VaultName,
+    [Parameter(Mandatory = $true)][string]$Url
+  )
+  $webOutput = @(& $ApplicationPath web ("vault=" + $VaultName) ("url=" + $Url) newtab 2>&1)
+  $webText = $webOutput -join [Environment]::NewLine
+  if ($LASTEXITCODE -eq 0 -and $webText -notmatch 'No commands matching') {
+    return "web"
+  }
+
+  $safeUrl = $Url.Replace("\", "\\").Replace("'", "\'")
+  $evalCode = "(async()=>{const leaf=app.workspace.getLeaf('tab');await leaf.setViewState({type:'webviewer',state:{url:'$safeUrl',navigate:true},active:true});return leaf.id})()"
+  for ($attempt = 0; $attempt -lt 20; $attempt += 1) {
+    $evalOutput = @(& $ApplicationPath eval ("vault=" + $VaultName) ("code=" + $evalCode) 2>&1)
+    $evalText = $evalOutput -join [Environment]::NewLine
+    if ($LASTEXITCODE -eq 0 -and $evalText -notmatch '(?m)^Error:') {
+      return "eval"
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  throw "Obsidian could not open $Url in its Web Viewer: $evalText"
+}
+
 function Invoke-ReconcileService {
   param(
     [Parameter(Mandatory = $true)][string]$Name,
@@ -207,18 +232,22 @@ $obsidian = Get-Command obsidian -ErrorAction SilentlyContinue
 if ($obsidian) {
   if ($open.homepage -and (Test-ApiHealth ([int]$profile.ports.homepage) "homepage" (Join-Path $resolvedState "homepage"))) {
     try {
-      & $obsidian.Source web ("vault=" + [string]$profile.obsidianVaultName) ("url=http://127.0.0.1:" + [int]$profile.ports.homepage + "/home.html") | Out-Null
+      $method = Open-ObsidianWebView -ApplicationPath $obsidian.Source -VaultName ([string]$profile.obsidianVaultName) -Url ("http://127.0.0.1:" + [int]$profile.ports.homepage + "/home.html")
+      $results.Add([ordered]@{ service = "homepage-view"; desired = "open"; outcome = "opened"; method = $method })
     } catch {
       $results.Add([ordered]@{ service = "homepage-view"; desired = "open"; outcome = "failed"; error = $_.Exception.Message })
     }
   }
   if ($open.calendar -and $desired.calendar -and (Test-ApiHealth ([int]$profile.ports.calendar) "calendar" (Join-Path $resolvedState "calendar"))) {
     try {
-      & $obsidian.Source web ("vault=" + [string]$profile.obsidianVaultName) ("url=http://127.0.0.1:" + [int]$profile.ports.calendar + "/cal.html") | Out-Null
+      $method = Open-ObsidianWebView -ApplicationPath $obsidian.Source -VaultName ([string]$profile.obsidianVaultName) -Url ("http://127.0.0.1:" + [int]$profile.ports.calendar + "/cal.html")
+      $results.Add([ordered]@{ service = "calendar-view"; desired = "open"; outcome = "opened"; method = $method })
     } catch {
       $results.Add([ordered]@{ service = "calendar-view"; desired = "open"; outcome = "failed"; error = $_.Exception.Message })
     }
   }
+} elseif ($open.homepage -or ($open.calendar -and $desired.calendar)) {
+  $results.Add([ordered]@{ service = "obsidian-views"; desired = "open"; outcome = "failed"; error = "Obsidian CLI was not found on PATH." })
 }
 
 $failed = @($results | Where-Object { $_.outcome -eq "failed" })
