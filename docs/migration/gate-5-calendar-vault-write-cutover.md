@@ -1,6 +1,6 @@
 # Gate 5: Calendar vault-event creation cutover
 
-**Status:** technical cutover complete; awaiting normal-workflow acceptance
+**Status:** accepted
 
 **Date:** 2026-10-07
 
@@ -90,6 +90,8 @@ legacy `4173` or vault content:
 - The live rollback rehearsal restored `read-only` mode, disabled planning with
   HTTP 403, and preserved legacy availability. The narrow writer was then
   restored and passed its final health and capability checks.
+- Marc created a needed event through the live Calendar and confirmed the
+  normal preview-and-create workflow succeeded.
 
 ## Acceptance checklist
 
@@ -100,4 +102,4 @@ legacy `4173` or vault content:
 - [x] Browser-level responsive and console checks pass with Playwright MCP.
 - [x] Preview the live runtime authority and capability set without restarting.
 - [x] Apply the narrow profile during a controlled cutover.
-- [ ] Marc creates one needed event and confirms the normal workflow.
+- [x] Marc creates one needed event and confirms the normal workflow.
