@@ -779,8 +779,8 @@ function queryBaseRows() {
     throw new Error("OBSIDIAN_VAULT_NAME is required for Obsidian Base queries");
   }
   const args = [
-    "base:query",
     `vault=${OBSIDIAN_VAULT_NAME}`,
+    "base:query",
     `path=${BASE_PATH}`,
     `view=${BASE_VIEW}`,
     "format=json"
