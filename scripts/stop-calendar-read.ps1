@@ -14,9 +14,10 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
 }
 
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-if ($manifest.repository -ne $repoRoot -or $manifest.component -ne "calendar-read") {
+if ($manifest.repository -ne $repoRoot -or $manifest.component -notin @("calendar-read", "calendar-vault-write")) {
   throw "Calendar process manifest belongs to a different repository or component."
 }
+$processLabel = if ($manifest.component -eq "calendar-vault-write") { "Calendar vault writer" } else { "Calendar reader" }
 
 $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $($manifest.pid)" -ErrorAction SilentlyContinue
 if ($proc) {
@@ -25,7 +26,7 @@ if ($proc) {
   if ($commandLine.ToLowerInvariant().IndexOf($expectedServer, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
     throw "PID $($manifest.pid) does not match this repository's Calendar server."
   }
-  if ($PSCmdlet.ShouldProcess("PID $($manifest.pid) (Calendar reader)", "Stop cutover process")) {
+  if ($PSCmdlet.ShouldProcess("PID $($manifest.pid) ($processLabel)", "Stop cutover process")) {
     Stop-Process -Id $manifest.pid
     Wait-Process -Id $manifest.pid -Timeout 5 -ErrorAction SilentlyContinue
   }
@@ -38,4 +39,4 @@ if ($listener) {
 
 Remove-Item -LiteralPath $manifestPath -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $pidPath -Force -ErrorAction SilentlyContinue
-Write-Host "Calendar reader is stopped; configuration and local derived state were retained."
+Write-Host "$processLabel is stopped; configuration and local derived state were retained."

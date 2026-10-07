@@ -3,13 +3,15 @@
 > Migration candidate: set absolute `NICA_VAULT_ROOT` and `NICA_STATE_ROOT`
 > values before running. Generated events, filter state, OAuth tokens, exports,
 > and PID files are stored below `NICA_STATE_ROOT\calendar`. Actions default to
-> disabled unless `NICA_WRITE_ENABLED=true`. Obsidian CLI access also requires
+> disabled. `NICA_CALENDAR_VAULT_CREATE_ENABLED=true` enables only confirmed
+> Markdown event creation; `NICA_WRITE_ENABLED=true` remains the unrestricted
+> legacy switch. Obsidian CLI access also requires
 > an explicit `OBSIDIAN_VAULT_NAME`; it never falls back to the active vault.
 > `NICA_CALENDAR_ENV_FILE` may identify an absolute external configuration file;
 > when set, repository-local `.env.local` is not loaded.
 
-Updated: 2026-04-08
-Scope: `Tools/Calendar`
+Updated: 2026-10-07
+Scope: `Calendar/`
 
 ## What This Tool Does
 
@@ -34,16 +36,16 @@ From repository root:
 
 ```powershell
 # Build local event bundle
-npm.cmd --prefix .\Tools\Calendar run build:events
+npm.cmd --prefix .\Calendar run build:events
 
 # Start preview (auto-stops prior preview process first)
-npm.cmd --prefix .\Tools\Calendar run preview
+npm.cmd --prefix .\Calendar run preview
 
 # Stop preview
-npm.cmd --prefix .\Tools\Calendar run stop:preview
+npm.cmd --prefix .\Calendar run stop:preview
 
 # Smoke validation (syntax + build + generated-event checks)
-npm.cmd --prefix .\Tools\Calendar run check:smoke
+npm.cmd --prefix .\Calendar run check:smoke
 ```
 
 Open in browser/webviewer:
@@ -55,9 +57,9 @@ Open in browser/webviewer:
 Use this at the beginning of a new session:
 
 1. Stop old preview process:
-   - `npm.cmd --prefix .\Tools\Calendar run stop:preview`
+   - `npm.cmd --prefix .\Calendar run stop:preview`
 2. Start fresh preview:
-   - `npm.cmd --prefix .\Tools\Calendar run preview`
+   - `npm.cmd --prefix .\Calendar run preview`
 3. Verify API health:
    - open `http://127.0.0.1:4173/api/ping` and expect `{"ok":true}`
 4. Open calendar:
@@ -90,12 +92,15 @@ Important vars:
 - `OBSIDIAN_BASE_PATH` (default `6. Obsidian/Live/Kalender.base`)
 - `OBSIDIAN_BASE_VIEW` (default `Tabelle`)
 - `CALENDAR_INBOX_PATH` (default `6. Obsidian/Inbox`)
+- `NICA_CALENDAR_VAULT_CREATE_ENABLED` (`true` enables only plan/apply creation
+  of Markdown event notes; all other mutations remain disabled)
 - `ALLOW_MARKDOWN_FALLBACK` (`true` to allow full vault markdown scan fallback)
 - `GOOGLE_CALENDAR_API_KEY` / `GOOGLE_CALENDAR_IDS` (optional Google read via API key)
 - `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` (optional Google OAuth, required for write)
 - `GOOGLE_OAUTH_REDIRECT_URI` (default `http://127.0.0.1:4173/api/google-oauth/callback`)
 - `GOOGLE_OAUTH_SCOPES` (default includes `calendar.readonly` + `calendar.events`)
-- `GOOGLE_OAUTH_TOKEN_FILE` (default `Tools/Calendar/google-oauth-token.json`)
+- `GOOGLE_OAUTH_TOKEN_FILE` (default `google-oauth-token.json` below the
+  configured Calendar state directory)
 - `GOOGLE_CREATE_CALENDAR_ID` (optional default target calendar for new Google events)
 - `NEXTCLOUD_CALDAV_BASE_URL` (example `https://cloud.example.org`)
 - `NEXTCLOUD_CALDAV_USERNAME` (Nextcloud user)
@@ -156,6 +161,7 @@ Read:
 
 Write:
 
+- `POST /api/events/create/plan`
 - `POST /api/events/update-dates`
 - `POST /api/google-oauth/disconnect`
 - `POST /api/google-calendar/events/create`
@@ -176,7 +182,12 @@ Write-route protections:
 - host/origin checks
 - `X-Calendar-Token` required (from `GET /api/session`)
 - all POST routes and OAuth start/callback return `403 NICA_READ_ONLY` while
-  `NICA_WRITE_ENABLED` is false
+  `NICA_WRITE_ENABLED` is false, except the two Markdown creation routes when
+  `NICA_CALENDAR_VAULT_CREATE_ENABLED=true`
+- Markdown creation requires a non-mutating server plan followed by a separate
+  apply carrying the unchanged plan identifier
+- the narrow creation profile leaves editing, dragging, resizing, Google,
+  CalDAV, OAuth, rebuild, Obsidian actions, and publishing routes disabled
 - read-only UI disables refresh, publishing, OAuth controls, create controls,
   selection, dragging, and resizing while retaining source toggles and event
   previews
@@ -229,8 +240,8 @@ Write-route protections:
 Port in use:
 
 ```powershell
-npm.cmd --prefix .\Tools\Calendar run stop:preview
-npm.cmd --prefix .\Tools\Calendar run preview
+npm.cmd --prefix .\Calendar run stop:preview
+npm.cmd --prefix .\Calendar run preview
 ```
 
 Base query failure:
@@ -265,3 +276,13 @@ Nextcloud calendar too noisy:
 ## Current Manual Follow-up
 
 Rotate/revoke previously exposed Google API key and replace with a new key in local `.env.local` only.
+
+The Gate 5 vault-event candidate reuses the accepted external read profile:
+
+```powershell
+.\scripts\start-calendar-vault-write.ps1 -VaultRoot "C:\path\to\vault" -ObsidianVaultName "vault-name"
+.\scripts\stop-calendar-read.ps1
+.\scripts\start-calendar-vault-write.ps1 -VaultRoot "C:\path\to\vault" -ObsidianVaultName "vault-name" -Apply
+```
+
+Rollback stops the same process and restarts `start-calendar-read.ps1`.

@@ -9,6 +9,7 @@
     "doctor": "node ./scripts/doctor.mjs",
     "check:runtime": "node ./tests/runtime-config-smoke.mjs",
     "check:project-creation": "node ./tests/project-creation-smoke.mjs",
+    "check:calendar-vault-creation": "node ./tests/calendar-vault-creation-smoke.mjs",
     "lint": "eslint .",
     "lint:jsdoc": "eslint \"**/*.{js,mjs}\""
   },

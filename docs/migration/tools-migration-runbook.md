@@ -214,6 +214,13 @@ limited to `project.create`, and legacy Homepage `4174` remains the warm
 fallback. See [Gate 5 project creation
 cutover](gate-5-project-creation-cutover.md).
 
+Calendar vault-event creation is the next narrow write candidate. Its technical
+implementation and synthetic verification are complete with all Google,
+CalDAV, OAuth, edit, rebuild, Obsidian-action, and publishing routes still
+disabled. Live `4273` remains read-only until the controlled apply and normal
+workflow confirmation. See [Gate 5 Calendar vault-event creation
+cutover](gate-5-calendar-vault-write-cutover.md).
+
 Use the following sequence for each capability:
 
 1. Confirm production is healthy.

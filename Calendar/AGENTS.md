@@ -1,12 +1,12 @@
 # Calendar Agent Rules
 
-Scope: `Tools/Calendar`
-Updated: 2026-04-08
+Scope: `Calendar/`
+Updated: 2026-10-07
 
 ## Start Checklist
 
 1. Read `README.md`.
-2. Run `npm.cmd --prefix .\Tools\Calendar run check:smoke`.
+2. Run `npm.cmd --prefix .\Calendar run check:smoke`.
 3. If smoke fails, fix that first.
 
 ## Source of Truth
@@ -17,8 +17,8 @@ Updated: 2026-04-08
 
 ## Operational Rules
 
-- Start preview with `npm.cmd --prefix .\Tools\Calendar run preview`.
-- Stop preview with `npm.cmd --prefix .\Tools\Calendar run stop:preview`.
+- Start preview with `npm.cmd --prefix .\Calendar run preview`.
+- Stop preview with `npm.cmd --prefix .\Calendar run stop:preview`.
 - Do not kill processes by port manually unless stop script fails.
 - Treat `events.generated.js` as generated output; rebuild instead of manual edits.
 

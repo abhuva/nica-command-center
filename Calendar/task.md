@@ -1,7 +1,7 @@
 # Calendar Task Tracker
 
-Updated: 2026-10-06
-Scope: `Tools/Calendar`
+Updated: 2026-10-07
+Scope: `Calendar/`
 
 ## Status Summary
 
@@ -12,9 +12,11 @@ Scope: `Tools/Calendar`
 
 Validation baseline:
 
-- `npm.cmd --prefix .\Tools\Calendar run check:smoke` passes
+- `npm.cmd --prefix .\Calendar run check:smoke` passes
 - Gate 5 Calendar reads are accepted from an external local-state credential
   profile
+- Vault-event creation has an isolated plan/apply candidate; live cutover is
+  not yet started
 
 ## Open Items
 
@@ -22,6 +24,7 @@ Validation baseline:
 - [x] Manual: confirm the migrated read-only Calendar workflow on port `4273`.
 - [ ] Policy decision: strict localhost security posture vs trusted-local-only assumptions.
 - [ ] Policy decision: recurring all-day drag/edit behavior (locked vs editable).
+- [ ] Gate 5: confirm one normal vault-event creation after controlled cutover.
 
 ## Implemented Changes (Concise)
 
@@ -89,5 +92,5 @@ Validation baseline:
 When starting work:
 
 1. Read `README.md` for entry points and command flow.
-2. Run `npm.cmd --prefix .\Tools\Calendar run check:smoke`.
+2. Run `npm.cmd --prefix .\Calendar run check:smoke`.
 3. If changing parsing/persistence/runtime API behavior, update `README.md` and this file.

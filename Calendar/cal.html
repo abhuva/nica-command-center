@@ -2,6 +2,7 @@
 <html lang='en'>
   <head>
     <meta charset='utf-8' />
+    <link rel='icon' href='data:,' />
     <meta name='viewport' content='width=device-width, initial-scale=1' />
     <script src='https://cdn.jsdelivr.net/npm/rrule@2.8.1/dist/es5/rrule.min.js'></script>
     <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.20/index.global.min.js'></script>
@@ -99,15 +100,17 @@
     <div id='create-event-modal' class='event-modal' aria-hidden='true'>
       <div class='event-modal__card' role='dialog' aria-modal='true' aria-label='Create event'>
         <h3 class='event-modal__title'>Create event</h3>
-        <input id='create-event-title' class='event-modal__input' type='text' placeholder='Event title' />
+        <input id='create-event-title' class='event-modal__input' type='text' placeholder='Event title' aria-label='Event title' />
         <div id='create-event-tabs' class='event-modal__tabs' role='tablist' aria-label='Create target'>
           <button id='create-event-tab-md' class='event-modal__tab is-active' type='button' role='tab' aria-selected='true' aria-controls='create-event-panel-md'>md</button>
           <button id='create-event-tab-google' class='event-modal__tab' type='button' role='tab' aria-selected='false' aria-controls='create-event-panel-google'>google</button>
           <button id='create-event-tab-nextcloud' class='event-modal__tab' type='button' role='tab' aria-selected='false' aria-controls='create-event-panel-nextcloud'>nextcloud</button>
         </div>
         <div id='create-event-panel-md' class='event-modal__panel is-active' role='tabpanel' aria-labelledby='create-event-tab-md'>
+          <p id='create-event-md-plan' class='event-modal__hint' aria-live='polite'>Preview the exact note path before creating it.</p>
           <div class='event-modal__panel-actions'>
-            <button id='create-event-confirm-md' class='event-modal__btn event-modal__btn--primary' type='button'>Create event</button>
+            <button id='create-event-plan-md' class='event-modal__btn event-modal__btn--primary' type='button'>Preview event</button>
+            <button id='create-event-confirm-md' class='event-modal__btn event-modal__btn--primary' type='button' disabled>Create event</button>
           </div>
         </div>
         <div id='create-event-panel-google' class='event-modal__panel' role='tabpanel' aria-labelledby='create-event-tab-google' hidden>

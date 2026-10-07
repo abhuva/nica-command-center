@@ -22,6 +22,7 @@ passed its acceptance checks and has a tested rollback path.
 - [Gate 5 Homepage shell cutover record](gate-5-homepage-shell-cutover.md)
 - [Gate 5 Calendar read cutover record](gate-5-calendar-read-cutover.md)
 - [Gate 5 project creation cutover record](gate-5-project-creation-cutover.md)
+- [Gate 5 Calendar vault-event creation record](gate-5-calendar-vault-write-cutover.md)
 
 These documents are operational plans. Accepted, long-lived architecture
 decisions remain in `docs/adr/`.
