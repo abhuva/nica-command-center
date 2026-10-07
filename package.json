@@ -10,6 +10,7 @@
     "check:runtime": "node ./tests/runtime-config-smoke.mjs",
     "check:project-creation": "node ./tests/project-creation-smoke.mjs",
     "check:calendar-vault-creation": "node ./tests/calendar-vault-creation-smoke.mjs",
+    "check:email-read-shadow": "python ./tests/email_snapshot_smoke.py",
     "lint": "eslint .",
     "lint:jsdoc": "eslint \"**/*.{js,mjs}\""
   },
