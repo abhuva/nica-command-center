@@ -51,6 +51,29 @@ MIME_TYPES = {
     ".jpeg": "image/jpeg",
     ".ico": "image/x-icon",
 }
+EMAIL_WRITE_CAPABILITIES = frozenset({
+    "mail.count",
+    "mail.fetch",
+    "message.tag",
+    "oauth.manage",
+    "rules.apply",
+    "rules.manage",
+    "vault.export",
+})
+POST_ROUTE_CAPABILITIES = {
+    "/api/count": "mail.count",
+    "/api/count-all": "mail.count",
+    "/api/fetch": "mail.fetch",
+    "/api/fetch-new": "mail.fetch",
+    "/api/fetch-new-all": "mail.fetch",
+    "/api/export": "vault.export",
+    "/api/rules": "rules.manage",
+    "/api/rules/delete": "rules.manage",
+    "/api/rules/apply": "rules.apply",
+    "/api/messages/tag": "message.tag",
+    "/api/oauth/start": "oauth.manage",
+    "/api/oauth/poll": "oauth.manage",
+}
 
 
 class HtmlToText(HTMLParser):
@@ -105,9 +128,12 @@ class EmailTool:
 
     def __post_init__(self) -> None:
         self.root = Path(self.config.get("runtimeRoot") or ROOT).resolve()
-        self.db_path = self.resolve_tool_path(self.config.get("database", "email.db"))
+        self.db_path = self.resolve_state_path(self.config.get("database", "email.db"))
         self.vault_root = Path(self.config.get("vaultRoot") or "").resolve()
         self.email_vault_dir = str(self.config.get("emailVaultDir", "8. Emails")).strip() or "8. Emails"
+        self.email_vault_root = (self.vault_root / self.email_vault_dir).resolve()
+        if self.email_vault_root != self.vault_root and self.vault_root not in self.email_vault_root.parents:
+            raise ValueError("Email export path escaped the configured vault root")
         self._lock = threading.Lock()
         self._progress_lock = threading.Lock()
         self.progress: dict[str, Any] = {"active": False, "phase": "idle", "message": "Idle", "updatedAt": iso_now()}
@@ -115,11 +141,15 @@ class EmailTool:
         self.oauth_callback_server: ThreadingHTTPServer | None = None
         self.init_db()
 
-    def resolve_tool_path(self, value: str | os.PathLike[str]) -> Path:
+    def resolve_state_path(self, value: str | os.PathLike[str]) -> Path:
+        """Resolve a local-state file and reject paths outside the runtime root."""
         path = Path(value)
         if not path.is_absolute():
             path = self.root / path
-        return path.resolve()
+        resolved = path.resolve()
+        if resolved != self.root and self.root not in resolved.parents:
+            raise ValueError("Email local-state path escaped the runtime root")
+        return resolved
 
     def connect(self) -> sqlite3.Connection:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -805,7 +835,7 @@ class EmailTool:
         auth = account.get("auth") if isinstance(account.get("auth"), dict) else {}
         provider = str(auth.get("provider") or "").strip().lower()
         account_id = str(account.get("id") or "").strip()
-        token_path = self.resolve_tool_path(account.get("oauthTokenPath") or f"{account_id}.json")
+        token_path = self.resolve_state_path(account.get("oauthTokenPath") or f"{account_id}.json")
         if not token_path.exists():
             raise ValueError(f"OAuth token file is missing for account {account_id}")
         tokens = json.loads(token_path.read_text(encoding="utf-8"))
@@ -881,7 +911,7 @@ class EmailTool:
         account = self.account_config(account_id)
         if not account:
             raise ValueError(f"Unknown account: {account_id}")
-        token_path = self.resolve_tool_path(account.get("oauthTokenPath") or f"{account_id}.json")
+        token_path = self.resolve_state_path(account.get("oauthTokenPath") or f"{account_id}.json")
         token_path.write_text(json.dumps(oauth_payload_to_tokens(payload), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         self.oauth_flows.pop(account_id, None)
         return {"ok": True, "pending": False, "accountId": account_id}
@@ -1059,7 +1089,7 @@ class EmailTool:
             where.append("account_id=?")
             args.append(account_id)
         where_sql = " WHERE " + " AND ".join(where) if where else ""
-        export_root = (self.vault_root / self.email_vault_dir).resolve()
+        export_root = self.email_vault_root
         export_root.mkdir(parents=True, exist_ok=True)
         with self.connect() as conn:
             rows = conn.execute(
@@ -1116,6 +1146,29 @@ def load_config(state_dir: Path) -> dict[str, Any]:
         if path.exists():
             config = deep_merge(config, json.loads(path.read_text(encoding="utf-8")))
     return config
+
+
+def parse_email_capabilities(value: str) -> frozenset[str]:
+    """Parse and validate the explicit Email write-capability allowlist."""
+    requested = frozenset(item.strip() for item in value.split(",") if item.strip())
+    unknown = sorted(requested - EMAIL_WRITE_CAPABILITIES)
+    if unknown:
+        raise RuntimeError(f"Unknown Email write capabilities: {', '.join(unknown)}")
+    return requested
+
+
+def capability_health(capabilities: frozenset[str], unrestricted: bool) -> dict[str, bool]:
+    """Return stable health keys without exposing configuration or credentials."""
+    return {
+        "unrestricted": unrestricted,
+        "mailCount": "mail.count" in capabilities,
+        "mailFetch": "mail.fetch" in capabilities,
+        "messageTag": "message.tag" in capabilities,
+        "oauthManage": "oauth.manage" in capabilities,
+        "rulesApply": "rules.apply" in capabilities,
+        "rulesManage": "rules.manage" in capabilities,
+        "vaultExport": "vault.export" in capabilities,
+    }
 
 
 def ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
@@ -1487,6 +1540,8 @@ class Handler(BaseHTTPRequestHandler):
 
     tool: EmailTool
     write_enabled = False
+    write_capabilities: frozenset[str] = frozenset()
+    unrestricted_write = False
     state_dir: Path
 
     def log_message(self, format: str, *args: Any) -> None:
@@ -1496,11 +1551,13 @@ class Handler(BaseHTTPRequestHandler):
         try:
             parsed = urllib.parse.urlparse(self.path)
             if parsed.path == "/api/ping":
+                mode = "read-write" if self.unrestricted_write else "limited-write" if self.write_enabled else "read-only"
                 self.send_json({
                     "ok": True,
                     "component": "email",
-                    "mode": "read-write" if self.write_enabled else "read-only",
+                    "mode": mode,
                     "writesEnabled": self.write_enabled,
+                    "writeCapabilities": capability_health(self.write_capabilities, self.unrestricted_write),
                     "authority": {
                         "vault": str(self.tool.vault_root),
                         "localState": str(self.state_dir),
@@ -1548,15 +1605,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         try:
-            if not self.write_enabled:
+            parsed = urllib.parse.urlparse(self.path)
+            capability = POST_ROUTE_CAPABILITIES.get(parsed.path)
+            if not capability:
+                self.send_error(404, "Not found")
+                return
+            if capability not in self.write_capabilities:
                 self.send_json({
                     "ok": False,
-                    "code": "NICA_READ_ONLY",
-                    "error": "Action disabled: set NICA_WRITE_ENABLED=true in an intentional apply run",
+                    "code": "NICA_CAPABILITY_DISABLED",
+                    "capability": capability,
+                    "error": f"Action disabled: Email capability {capability} is not enabled",
                 }, status=403)
                 return
             payload = self.read_json()
-            parsed = urllib.parse.urlparse(self.path)
             if parsed.path == "/api/fetch":
                 self.send_json(self.tool.fetch(payload))
                 return
@@ -1593,7 +1655,6 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/api/oauth/poll":
                 self.send_json(self.tool.poll_oauth_login(payload))
                 return
-            self.send_error(404, "Not found")
         except Exception as exc:
             self.send_json({"ok": False, "error": str(exc)}, status=400)
 
@@ -1717,6 +1778,9 @@ def require_state_root(vault_root: Path) -> Path:
 def serve(args: argparse.Namespace) -> None:
     vault_root = require_directory_env("NICA_VAULT_ROOT")
     state_root = require_state_root(vault_root)
+    unrestricted_write = os.environ.get("NICA_WRITE_ENABLED", "").strip().lower() == "true"
+    configured_capabilities = parse_email_capabilities(os.environ.get("NICA_EMAIL_CAPABILITIES", ""))
+    write_capabilities = EMAIL_WRITE_CAPABILITIES if unrestricted_write else configured_capabilities
     state_dir = state_root / "email"
     if state_dir.is_symlink():
         raise RuntimeError("Email state directory must not be a symbolic link")
@@ -1724,9 +1788,15 @@ def serve(args: argparse.Namespace) -> None:
     state_dir = state_dir.resolve()
     if state_root not in state_dir.parents:
         raise RuntimeError("Email state directory escaped NICA_STATE_ROOT")
+    for env_name in (".env", ".env.local"):
+        env_path = state_dir / env_name
+        if env_path.is_symlink():
+            raise RuntimeError("Email environment files must not be symbolic links")
+        load_env(env_path)
     config = load_config(state_dir)
     config["runtimeRoot"] = str(state_dir)
     config["vaultRoot"] = str(vault_root)
+    config["database"] = "email.db"
     config["host"] = os.environ.get("EMAIL_HOST", config.get("host") or "127.0.0.1")
     config["port"] = int(os.environ.get("EMAIL_PORT", args.port or config.get("port") or 4176))
     tool = EmailTool(config)
@@ -1734,12 +1804,15 @@ def serve(args: argparse.Namespace) -> None:
     port = int(tool.config.get("port") or 4176)
     Handler.tool = tool
     Handler.state_dir = state_dir
-    Handler.write_enabled = os.environ.get("NICA_WRITE_ENABLED", "").strip().lower() == "true"
+    Handler.write_capabilities = write_capabilities
+    Handler.unrestricted_write = unrestricted_write
+    Handler.write_enabled = bool(write_capabilities)
     server = ThreadingHTTPServer((host, port), Handler)
     pid_file = state_dir / "email.preview.pid"
     pid_file.write_text(str(os.getpid()), encoding="ascii")
     print(f"Email preview server: http://{host}:{port}/email.html", flush=True)
-    print(f"Runtime mode: {'read-write' if Handler.write_enabled else 'read-only'}; vault authority: {vault_root}", flush=True)
+    mode = "read-write" if unrestricted_write else "limited-write" if write_capabilities else "read-only"
+    print(f"Runtime mode: {mode}; vault authority: {vault_root}", flush=True)
     try:
         server.serve_forever()
     finally:
@@ -1795,6 +1868,18 @@ def smoke() -> None:
         assert tool.list_tags()
         exported = tool.export_markdown({"state": "included"})
         assert exported["exported"] == 1
+        try:
+            tool.resolve_state_path("../escaped-token.json")
+            raise AssertionError("Email state containment accepted an escaping path")
+        except ValueError:
+            pass
+        escaped_export = dict(config)
+        escaped_export["emailVaultDir"] = "../escaped-export"
+        try:
+            EmailTool(escaped_export)
+            raise AssertionError("Email export containment accepted an escaping path")
+        except ValueError:
+            pass
     print("Email smoke check passed")
 
 

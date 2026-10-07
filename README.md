@@ -175,6 +175,19 @@ or OAuth tokens, and every POST action remains disabled:
 Legacy Email `4176` remains the production workflow. Stop only the shadow with
 `.\scripts\stop-email-read.ps1`.
 
+### Gate 5 Email bounded-fetch shadow
+
+The next slice allows only IMAP count and fetch into the candidate's isolated
+snapshot. Preview the profile and snapshot preparation first:
+
+```powershell
+.\scripts\start-email-fetch-shadow.ps1 -VaultRoot "C:\path\to\vault" -PrepareFetchProfile -RefreshSnapshot
+```
+
+After review, stop only migrated `4276` and apply the bounded profile with the
+same command plus `-Apply`. OAuth setup, classification, rules, tags, and vault
+export remain disabled; legacy Email `4176` remains the production workflow.
+
 ## Ziele
 
 - Homepage in Obsidian Webviewer ueber lokalen Server.
