@@ -93,8 +93,9 @@ repository; the production checkout remains in place and independent.
 - Authority: the configured ledger, not the UI or timer state
 - Migration risk: critical; two installations must never write the same ledger
 - Initial candidate mode: disabled or connected only to a synthetic ledger
-- Current preparation: managed Fava port and isolated state root are explicit;
-  the live-ledger authority and transfer procedure remain a later cutover decision
+- Current configuration: managed Fava port and isolated timer-state root are
+  explicit; the migrated tool uses a validated vault-relative pointer to the
+  unchanged Nextcloud ledger
 
 ### Website monitoring (`updo`)
 

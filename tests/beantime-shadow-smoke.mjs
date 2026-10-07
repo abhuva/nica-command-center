@@ -108,9 +108,10 @@ async function request(port, method, pathname, body = null) {
 /**
  * Starts an isolated Homepage server and waits for health.
  * @param {string} capabilities - Comma-separated Beantime capabilities.
+ * @param {string} [vaultLedgerPath=""] - Optional vault-relative ledger path.
  * @returns {Promise<{port: number, child: import("node:child_process").ChildProcess}>} Running server.
  */
-async function startServer(capabilities) {
+async function startServer(capabilities, vaultLedgerPath = "") {
   const port = await getFreePort();
   const favaPort = await getFreePort();
   const child = spawn(process.execPath, [path.join(repoRoot, "serve.mjs")], {
@@ -126,6 +127,7 @@ async function startServer(capabilities) {
       NICA_PROJECT_CREATE_ENABLED: "false",
       NICA_OBSIDIAN_ACTIONS_ENABLED: "false",
       NICA_BEANTIME_CAPABILITIES: capabilities,
+      NICA_BEANTIME_LEDGER_PATH: vaultLedgerPath,
       OBSIDIAN_VAULT_NAME: "synthetic-beantime-vault"
     },
     stdio: ["ignore", "pipe", "pipe"]
@@ -164,8 +166,13 @@ async function stopServer(child) {
   });
 }
 
-/** @returns {Promise<void>} Verifies an unknown capability fails before listening. */
-async function assertUnknownCapabilityFails() {
+/**
+ * Verifies invalid startup configuration fails before listening.
+ * @param {Record<string, string>} overrides - Environment overrides under test.
+ * @param {RegExp} expectedError - Expected stderr diagnostic.
+ * @returns {Promise<void>} Resolves after the expected startup failure.
+ */
+async function assertStartupFails(overrides, expectedError) {
   const port = await getFreePort();
   const child = spawn(process.execPath, [path.join(repoRoot, "serve.mjs")], {
     cwd: repoRoot,
@@ -175,7 +182,9 @@ async function assertUnknownCapabilityFails() {
       NICA_VAULT_ROOT: vault,
       NICA_STATE_ROOT: state,
       NICA_WRITE_ENABLED: "false",
-      NICA_BEANTIME_CAPABILITIES: "beantime.read,beantime.unknown"
+      NICA_BEANTIME_CAPABILITIES: "beantime.read",
+      NICA_BEANTIME_LEDGER_PATH: "",
+      ...overrides
     },
     stdio: ["ignore", "ignore", "pipe"]
   });
@@ -186,7 +195,7 @@ async function assertUnknownCapabilityFails() {
   const exitCode = await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       child.kill();
-      reject(new Error("Server did not reject an unknown Beantime capability"));
+      reject(new Error("Server did not reject invalid Beantime startup configuration"));
     }, 3000);
     child.once("exit", (code) => {
       clearTimeout(timeout);
@@ -194,7 +203,7 @@ async function assertUnknownCapabilityFails() {
     });
   });
   assert.notEqual(exitCode, 0);
-  assert.match(stderr, /Unknown NICA_BEANTIME_CAPABILITIES value/);
+  assert.match(stderr, expectedError);
 }
 
 /** @returns {Promise<void>} Removes the synthetic sandbox after handles are released. */
@@ -220,7 +229,23 @@ const timerPayload = {
 };
 
 try {
-  await assertUnknownCapabilityFails();
+  await assertStartupFails(
+    { NICA_BEANTIME_CAPABILITIES: "beantime.read,beantime.unknown" },
+    /Unknown NICA_BEANTIME_CAPABILITIES value/
+  );
+  const outsideLedgerDir = path.join(sandbox, "outside-ledger");
+  const linkedLedgerDir = path.join(vault, "linked-ledger");
+  fs.mkdirSync(outsideLedgerDir, { recursive: true });
+  fs.writeFileSync(path.join(outsideLedgerDir, "zeit.beancount"), "synthetic\n", "utf8");
+  fs.symlinkSync(outsideLedgerDir, linkedLedgerDir, process.platform === "win32" ? "junction" : "dir");
+  await assertStartupFails(
+    { NICA_BEANTIME_LEDGER_PATH: "../outside-ledger/zeit.beancount" },
+    /must stay inside NICA_VAULT_ROOT/
+  );
+  await assertStartupFails(
+    { NICA_BEANTIME_LEDGER_PATH: "linked-ledger/zeit.beancount" },
+    /resolves outside NICA_VAULT_ROOT/
+  );
 
   const disabled = await startServer("");
   try {
@@ -302,6 +327,36 @@ try {
     assert.equal((await request(bounded.port, "POST", "/api/settings", {})).status, 403);
   } finally {
     await stopServer(bounded.child);
+  }
+
+  const vaultLedger = path.join(vault, "Tools", "data", "beantime", "zeit.beancount");
+  fs.mkdirSync(path.dirname(vaultLedger), { recursive: true });
+  fs.copyFileSync(ledger, vaultLedger);
+  const localLedgerBefore = fs.readFileSync(ledger, "utf8");
+  const vaultBacked = await startServer(
+    "beantime.read,beantime.timer,beantime.append",
+    "Tools/data/beantime/zeit.beancount"
+  );
+  try {
+    const health = await request(vaultBacked.port, "GET", "/api/ping");
+    assert.equal(health.json?.beantimeLedgerAuthority, "vault");
+    const meta = await request(vaultBacked.port, "GET", "/api/beantime/meta");
+    assert.equal(meta.status, 200);
+    assert.equal(meta.json?.file, "Tools/data/beantime/zeit.beancount");
+    assert.equal(meta.json?.ledgerAuthority, "vault");
+
+    assert.equal((await request(vaultBacked.port, "POST", "/api/beantime/start", timerPayload)).status, 200);
+    assert.equal(fs.existsSync(timerState), true, "running timer state must remain local");
+    assert.equal((await request(vaultBacked.port, "POST", "/api/beantime/stop", {})).status, 200);
+    assert.equal(fs.existsSync(timerState), false);
+    assert.match(fs.readFileSync(vaultLedger, "utf8"), /Synthetic verification/);
+    assert.equal(
+      fs.readFileSync(ledger, "utf8"),
+      localLedgerBefore,
+      "vault-backed writes must not modify the local-state ledger"
+    );
+  } finally {
+    await stopServer(vaultBacked.child);
   }
 
   console.log("Beantime shadow smoke check OK");

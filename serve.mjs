@@ -49,6 +49,9 @@ const UPDO_STATE_FILE = path.join(DATA_DIR, "state.json");
 const BEANTIME_STATE_FILE = path.join(STATE_DIR, "beantime", "state.json");
 const BEANTIME_FAVA_HOST = "127.0.0.1";
 const BEANTIME_FAVA_PORT = Number(process.env.BEANTIME_FAVA_PORT || 3464);
+const BEANTIME_VAULT_LEDGER_FILE = resolveBeantimeVaultLedgerPath(
+  process.env.NICA_BEANTIME_LEDGER_PATH || ""
+);
 const BEANTIME_FAVA_READY_TIMEOUT_MS = 12000;
 const BEANTIME_FAVA_POLL_INTERVAL_MS = 300;
 const PROJECTS_ROOT_REL = "2. Projektverwaltung";
@@ -509,6 +512,42 @@ function resolveDataPath(relativePath, fallbackAbsolutePath) {
 }
 
 /**
+ * Resolves an optional vault-relative Beantime ledger and rejects path escapes.
+ * @param {unknown} relativePath - Configured vault-relative ledger path.
+ * @returns {string} Canonical ledger path, or an empty string when not configured.
+ */
+function resolveBeantimeVaultLedgerPath(relativePath) {
+  const raw = String(relativePath || "").trim();
+  if (!raw) return "";
+  if (path.isAbsolute(raw) || /^[a-zA-Z]:/.test(raw)) {
+    throw new Error("NICA_BEANTIME_LEDGER_PATH must be relative to NICA_VAULT_ROOT");
+  }
+  const normalized = path.normalize(raw.replace(/[\\/]+/g, path.sep));
+  if (!normalized || normalized === ".") {
+    throw new Error("NICA_BEANTIME_LEDGER_PATH must identify a ledger file");
+  }
+  const candidate = path.resolve(VAULT_ROOT, normalized);
+  const lexicalRelative = path.relative(VAULT_ROOT, candidate);
+  if (!lexicalRelative || lexicalRelative.startsWith("..") || path.isAbsolute(lexicalRelative)) {
+    throw new Error("NICA_BEANTIME_LEDGER_PATH must stay inside NICA_VAULT_ROOT");
+  }
+  if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) {
+    throw new Error("Configured vault Beantime ledger does not exist or is not a file");
+  }
+  const canonicalVault = fs.realpathSync(VAULT_ROOT);
+  const canonicalLedger = fs.realpathSync(candidate);
+  const canonicalRelative = path.relative(canonicalVault, canonicalLedger);
+  if (
+    !canonicalRelative ||
+    canonicalRelative.startsWith("..") ||
+    path.isAbsolute(canonicalRelative)
+  ) {
+    throw new Error("Configured vault Beantime ledger resolves outside NICA_VAULT_ROOT");
+  }
+  return canonicalLedger;
+}
+
+/**
  * Returns current local date as `YYYY-MM-DD`.
  * @returns {string} Date token.
  */
@@ -523,17 +562,20 @@ function localTodayToken() {
 /**
  * Derives runtime Beantime configuration from effective settings.
  * @param {object} settings - Effective settings object.
- * @returns {{enabled: boolean, title: string, filePath: string, personAccount: string, stateFilePath: string, bookableAccountPrefix: string}} Runtime config.
+ * @returns {{enabled: boolean, title: string, filePath: string, ledgerAuthority: "vault"|"local-state", personAccount: string, stateFilePath: string, bookableAccountPrefix: string}} Runtime config.
  */
 function getBeantimeConfigFromSettings(settings) {
   const moduleCfg = settings?.modules?.beantime || {};
   return {
     enabled: toBool(moduleCfg.enabled, DEFAULT_SETTINGS_FALLBACK.modules.beantime.enabled),
     title: toCleanString(moduleCfg.title, DEFAULT_SETTINGS_FALLBACK.modules.beantime.title),
-    filePath: resolveDataPath(
-      toCleanString(moduleCfg.file, DEFAULT_SETTINGS_FALLBACK.modules.beantime.file),
-      path.join(STATE_DIR, "beantime", "zeit.beancount")
-    ),
+    filePath:
+      BEANTIME_VAULT_LEDGER_FILE ||
+      resolveDataPath(
+        toCleanString(moduleCfg.file, DEFAULT_SETTINGS_FALLBACK.modules.beantime.file),
+        path.join(STATE_DIR, "beantime", "zeit.beancount")
+      ),
+    ledgerAuthority: BEANTIME_VAULT_LEDGER_FILE ? "vault" : "local-state",
     personAccount: toCleanString(
       moduleCfg.personAccount,
       DEFAULT_SETTINGS_FALLBACK.modules.beantime.personAccount
@@ -547,6 +589,16 @@ function getBeantimeConfigFromSettings(settings) {
       DEFAULT_SETTINGS_FALLBACK.modules.beantime.bookableAccountPrefix
     )
   };
+}
+
+/**
+ * Formats the configured ledger path relative to its authority root.
+ * @param {{filePath: string, ledgerAuthority: "vault"|"local-state"}} config - Beantime config.
+ * @returns {string} Portable relative ledger path.
+ */
+function getBeantimeLedgerDisplayPath(config) {
+  const authorityRoot = config.ledgerAuthority === "vault" ? VAULT_ROOT : STATE_DIR;
+  return path.relative(authorityRoot, config.filePath).replace(/\\/g, "/");
 }
 
 /**
@@ -799,7 +851,7 @@ async function showBeantimeFava(settings) {
     url,
     started,
     opened,
-    file: path.relative(STATE_DIR, config.filePath).replace(/\\/g, "/")
+    file: getBeantimeLedgerDisplayPath(config)
   };
 }
 
@@ -3410,7 +3462,8 @@ const server = http.createServer((req, res) => {
         beantimeAppend: hasBeantimeCapability("beantime.append"),
         beantimeFava: hasBeantimeCapability("beantime.fava"),
         unrestricted: health.writesEnabled
-      }
+      },
+      beantimeLedgerAuthority: BEANTIME_VAULT_LEDGER_FILE ? "vault" : "local-state"
     });
     return;
   }
@@ -3592,7 +3645,8 @@ const server = http.createServer((req, res) => {
       const activePerson = running?.personAccount || config.personAccount;
       sendJson(res, 200, {
         ok: true,
-        file: path.relative(STATE_DIR, config.filePath).replace(/\\/g, "/"),
+        file: getBeantimeLedgerDisplayPath(config),
+        ledgerAuthority: config.ledgerAuthority,
         personAccount: activePerson,
         accountPrefix: config.bookableAccountPrefix,
         accounts,
@@ -3720,7 +3774,7 @@ const server = http.createServer((req, res) => {
           sendJson(res, 200, {
             ok: true,
             appended: appendResult,
-            file: path.relative(STATE_DIR, config.filePath).replace(/\\/g, "/")
+            file: getBeantimeLedgerDisplayPath(config)
           });
         } catch (error) {
           sendText(res, 422, error.message || "Could not stop Beantime");
