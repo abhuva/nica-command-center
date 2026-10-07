@@ -13,9 +13,13 @@ const vault = path.join(sandbox, "vault");
 const state = path.join(sandbox, "state");
 const inbox = path.join(vault, "6. Obsidian", "Inbox");
 const bookmarksDir = path.join(vault, ".obsidian");
+const outsideInbox = path.join(sandbox, "outside-inbox");
+const linkedInbox = path.join(vault, "linked-inbox");
 
 fs.mkdirSync(inbox, { recursive: true });
 fs.mkdirSync(bookmarksDir, { recursive: true });
+fs.mkdirSync(outsideInbox, { recursive: true });
+fs.symlinkSync(outsideInbox, linkedInbox, process.platform === "win32" ? "junction" : "dir");
 fs.writeFileSync(path.join(bookmarksDir, "bookmarks.json"), '{"items":[]}', "utf8");
 
 /** @returns {Promise<number>} Unoccupied loopback TCP port. */
@@ -80,9 +84,10 @@ async function request(port, method, pathname, body = null, extraHeaders = {}) {
 /**
  * Starts an isolated Calendar server and waits for health.
  * @param {boolean} vaultCreateEnabled - Whether the narrow creation capability is enabled.
+ * @param {string} [inboxPath="6. Obsidian/Inbox"] - Vault-relative Calendar inbox.
  * @returns {Promise<{port: number, child: import("node:child_process").ChildProcess}>} Running server.
  */
-async function startServer(vaultCreateEnabled) {
+async function startServer(vaultCreateEnabled, inboxPath = "6. Obsidian/Inbox") {
   const port = await getFreePort();
   const child = spawn(process.execPath, [path.join(repoRoot, "Calendar", "serve.mjs")], {
     cwd: path.join(repoRoot, "Calendar"),
@@ -96,6 +101,7 @@ async function startServer(vaultCreateEnabled) {
       NICA_OBSIDIAN_ACTIONS_ENABLED: "false",
       NICA_CALENDAR_ENV_FILE: "",
       OBSIDIAN_VAULT_NAME: "synthetic-calendar-vault",
+      CALENDAR_INBOX_PATH: inboxPath,
       ALLOW_MARKDOWN_FALLBACK: "true"
     },
     stdio: ["ignore", "pipe", "pipe"]
@@ -283,6 +289,19 @@ try {
     assert.equal(apply.status, 403);
   } finally {
     await stopServer(disabled.child);
+  }
+
+  const escaped = await startServer(true, "linked-inbox");
+  try {
+    const session = await request(escaped.port, "GET", "/api/session");
+    const headers = { "X-Calendar-Token": session.json.token };
+    const plan = await request(escaped.port, "POST", "/api/events/create/plan", basePayload, headers);
+    assert.equal(plan.status, 400);
+    assert.equal(plan.json?.code, "NICA_CALENDAR_PLAN_INVALID");
+    assert.match(plan.json?.message || "", /resolves outside vault/);
+    assert.deepEqual(fs.readdirSync(outsideInbox), []);
+  } finally {
+    await stopServer(escaped.child);
   }
 
   console.log("Calendar vault-event creation smoke check OK");

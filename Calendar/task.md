@@ -15,8 +15,8 @@ Validation baseline:
 - `npm.cmd --prefix .\Calendar run check:smoke` passes
 - Gate 5 Calendar reads are accepted from an external local-state credential
   profile
-- Vault-event creation has an isolated plan/apply candidate; live cutover is
-  not yet started
+- Vault-event creation is accepted on live port `4273`; legacy Calendar `4173`
+  remains the warm fallback
 
 ## Open Items
 
@@ -24,7 +24,7 @@ Validation baseline:
 - [x] Manual: confirm the migrated read-only Calendar workflow on port `4273`.
 - [ ] Policy decision: strict localhost security posture vs trusted-local-only assumptions.
 - [ ] Policy decision: recurring all-day drag/edit behavior (locked vs editable).
-- [ ] Gate 5: confirm one normal vault-event creation after controlled cutover.
+- [x] Gate 5: confirm one normal vault-event creation after controlled cutover.
 
 ## Implemented Changes (Concise)
 

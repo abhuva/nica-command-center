@@ -186,6 +186,10 @@ Write-route protections:
   `NICA_CALENDAR_VAULT_CREATE_ENABLED=true`
 - Markdown creation requires a non-mutating server plan followed by a separate
   apply carrying the unchanged plan identifier
+- the configured inbox must exist as a directory and remain inside the vault
+  by both lexical and canonical path checks
+- publication uses an exclusive hard link from the staging note so a
+  concurrently created target is reported as a conflict and never replaced
 - the narrow creation profile leaves editing, dragging, resizing, Google,
   CalDAV, OAuth, rebuild, Obsidian actions, and publishing routes disabled
 - read-only UI disables refresh, publishing, OAuth controls, create controls,

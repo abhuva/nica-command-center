@@ -830,6 +830,12 @@ function resolveInboxDirectory() {
   if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
     throw new Error(`Configured Calendar inbox does not exist: ${INBOX_PATH}`);
   }
+  const canonicalVault = fs.realpathSync(VAULT_ROOT);
+  const canonicalInbox = fs.realpathSync(resolved);
+  const relativeCanonicalPath = path.relative(canonicalVault, canonicalInbox);
+  if (relativeCanonicalPath.startsWith("..") || path.isAbsolute(relativeCanonicalPath)) {
+    throw new Error(`Inbox path resolves outside vault: ${INBOX_PATH}`);
+  }
   return resolved;
 }
 
@@ -962,18 +968,20 @@ function createVaultEvent(payload) {
   const filePath = path.resolve(VAULT_ROOT, plan.sourcePath);
   const inboxDir = resolveInboxDirectory();
   const stagingPath = path.join(inboxDir, `_nica-calendar-staging-${crypto.randomUUID()}.tmp`);
-  let published = false;
-  let committed = false;
   try {
     fs.writeFileSync(stagingPath, renderVaultEventMarkdown(plan), { encoding: "utf8", flag: "wx" });
-    if (fs.existsSync(filePath)) throw new Error("Event target was created while preparing the note");
-    fs.renameSync(stagingPath, filePath);
-    published = true;
-    if (!fs.existsSync(filePath)) throw new Error("Event note was not published completely");
-    committed = true;
+    try {
+      fs.linkSync(stagingPath, filePath);
+    } catch (error) {
+      if (error?.code === "EEXIST") {
+        const conflict = new Error("Event target was created while preparing the note");
+        conflict.code = "NICA_CALENDAR_TARGET_CONFLICT";
+        throw conflict;
+      }
+      throw error;
+    }
   } finally {
     if (fs.existsSync(stagingPath)) fs.rmSync(stagingPath, { force: true });
-    if (!committed && published && fs.existsSync(filePath)) fs.rmSync(filePath, { force: true });
   }
 
   const { schedule } = plan;
@@ -3805,12 +3813,14 @@ const server = http.createServer((req, res) => {
           res.end(JSON.stringify({ ok: true, ...result }));
         } catch (error) {
           const mismatch = error?.code === "NICA_CALENDAR_PLAN_MISMATCH";
+          const targetConflict = error?.code === "NICA_CALENDAR_TARGET_CONFLICT";
+          const rejected = mismatch || targetConflict;
           appendVaultEventAudit({
-            outcome: mismatch ? "rejected" : "failed",
+            outcome: rejected ? "rejected" : "failed",
             plan,
             code: error?.code || "NICA_CALENDAR_CREATE_FAILED"
           });
-          res.writeHead(mismatch ? 409 : 500, { "Content-Type": "application/json; charset=utf-8" });
+          res.writeHead(rejected ? 409 : 500, { "Content-Type": "application/json; charset=utf-8" });
           res.end(
             JSON.stringify({
               ok: false,

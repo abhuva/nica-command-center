@@ -36,7 +36,7 @@ decisions remain in `docs/adr/`.
 | 2 | Import sanitized history into an isolated candidate branch | Complete |
 | 3 | Remove vault-location assumptions and isolate candidate state | Complete |
 | 4 | Shadow-test capabilities without production writes | Complete; external credentials deferred |
-| 5 | Cut over one capability at a time | In progress; five capabilities accepted, Calendar writes next |
+| 5 | Cut over one capability at a time | In progress; six capabilities accepted, including Calendar vault writes |
 | 6 | Switch the stable launcher | Not started |
 | 7 | Observe, rehearse rollback, and retire the old checkout | Not started |
 
