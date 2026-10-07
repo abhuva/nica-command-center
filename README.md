@@ -221,6 +221,27 @@ copies are retained, and vault export remains disabled. Roll back by stopping
 the OAuth profile and starting `start-email-classification-shadow.ps1 -Apply`.
 Legacy Email `4176` remains available throughout.
 
+### Gate 5 Email bounded-export shadow
+
+The export slice retains Count/Fetch, classification, and OAuth and adds only
+`vault.export`. Preview the runtime transition first:
+
+```powershell
+.\scripts\start-email-export-shadow.ps1 -VaultRoot "C:\path\to\vault"
+```
+
+After review, stop only migrated `4276` and repeat the command with `-Apply`.
+Activation does not export automatically: **Preview Export** performs a
+read-only aggregate plan, and **Apply Export** is a separate action using a
+one-use token. Matching files are left untouched and differing target files
+block apply. Notes in the established flat Email archive are recognized by
+account folder and timestamp, with a bounded UID check for ambiguous matches;
+they are reported separately and never rewritten. Roll back by
+stopping the export profile and starting `start-email-oauth-shadow.ps1 -Apply`.
+Legacy Email `4176` remains available throughout. The live profile is accepted
+after a verified one-note pilot and normal-workflow confirmation; the remaining
+515-note batch requires a separate apply approval.
+
 ## Ziele
 
 - Homepage in Obsidian Webviewer ueber lokalen Server.

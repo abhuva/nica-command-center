@@ -19,6 +19,7 @@ import ssl
 import sys
 import threading
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -61,6 +62,8 @@ EMAIL_WRITE_CAPABILITIES = frozenset({
     "rules.manage",
     "vault.export",
 })
+EXPORT_PLAN_TTL_SECONDS = 300
+LEGACY_EXPORT_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}-\d{6}) - .*\.md$", re.IGNORECASE)
 POST_ROUTE_CAPABILITIES = {
     "/api/count": "mail.count",
     "/api/count-all": "mail.count",
@@ -68,6 +71,8 @@ POST_ROUTE_CAPABILITIES = {
     "/api/fetch-new": "mail.fetch",
     "/api/fetch-new-all": "mail.fetch",
     "/api/export": "vault.export",
+    "/api/export/plan": "vault.export",
+    "/api/export/apply": "vault.export",
     "/api/rules": "rules.manage",
     "/api/rules/delete": "rules.manage",
     "/api/rules/apply": "rules.apply",
@@ -140,8 +145,10 @@ class EmailTool:
             raise ValueError("Email OAuth callback port must be between 1 and 65535")
         self._lock = threading.Lock()
         self._progress_lock = threading.Lock()
+        self._export_lock = threading.Lock()
         self.progress: dict[str, Any] = {"active": False, "phase": "idle", "message": "Idle", "updatedAt": iso_now()}
         self.oauth_flows: dict[str, dict[str, Any]] = {}
+        self.export_plans: dict[str, dict[str, Any]] = {}
         self.oauth_callback_server: ThreadingHTTPServer | None = None
         self.init_db()
 
@@ -1087,50 +1094,351 @@ class EmailTool:
             )
             return 0 if before else 1
 
-    def export_markdown(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def normalize_export_selection(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Validate and normalize the bounded export selection."""
         state = str(payload.get("state") or "included").strip()
         if state not in {"candidate", "included", "excluded", "all"}:
             raise ValueError("Unsupported export state")
         limit = clamp_int(payload.get("limit"), 1, 100000, 5000)
+        return {
+            "state": state,
+            "accountId": str(payload.get("accountId") or "").strip(),
+            "limit": limit,
+        }
+
+    def build_export_snapshot(self, selection: dict[str, Any], conn: sqlite3.Connection) -> dict[str, Any]:
+        """Render an export selection and classify its current target files."""
+        state = selection["state"]
+        limit = selection["limit"]
         args: list[Any] = []
         where = []
         if state != "all":
             where.append("include_state=?")
             args.append(state)
-        account_id = str(payload.get("accountId") or "").strip()
+        account_id = selection["accountId"]
         if account_id:
             where.append("account_id=?")
             args.append(account_id)
         where_sql = " WHERE " + " AND ".join(where) if where else ""
         export_root = self.email_vault_root
-        export_root.mkdir(parents=True, exist_ok=True)
-        with self.connect() as conn:
-            rows = conn.execute(
-                f"SELECT * FROM messages{where_sql} ORDER BY COALESCE(sent_at, fetched_at) DESC LIMIT ?",
-                args + [limit],
-            ).fetchall()
-            count = 0
-            for row in rows:
-                msg = dict(row)
-                tags = [tag["tag"] for tag in conn.execute("SELECT tag FROM message_tags WHERE message_id=? ORDER BY tag", (msg["id"],))]
-                msg["tags"] = tags
-                rel_path = self.export_path_for(msg)
-                target = (export_root / rel_path).resolve()
-                if target != export_root and export_root not in target.parents:
-                    raise RuntimeError("Export path escaped email directory")
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(render_markdown(msg), encoding="utf-8")
-                exported_path = normalize_slashes(str(Path(self.email_vault_dir) / rel_path))
-                conn.execute(
-                    "UPDATE messages SET exported_path=?, exported_at=? WHERE id=?",
-                    (exported_path, iso_now(), msg["id"]),
+        rows = conn.execute(
+            f"SELECT * FROM messages{where_sql} ORDER BY COALESCE(sent_at, fetched_at) DESC LIMIT ?",
+            args + [limit],
+        ).fetchall()
+        legacy_index = build_legacy_export_filename_index(export_root)
+        account_slugs: dict[str, set[str]] = {}
+        legacy_message_counts: dict[tuple[str, str], int] = {}
+        legacy_identity_counts: dict[tuple[str, str], int] = {}
+        for account_row in conn.execute("SELECT account_id, uid, sent_at FROM messages"):
+            account_id_value = str(account_row["account_id"] or "account")
+            account_slug = legacy_account_slug(account_id_value)
+            account_slugs.setdefault(account_slug, set()).add(account_id_value)
+            identity_key = (account_slug, str(account_row["uid"] or ""))
+            legacy_message_counts[identity_key] = legacy_message_counts.get(identity_key, 0) + 1
+            legacy_timestamp = legacy_export_timestamp(account_row["sent_at"])
+            if legacy_timestamp:
+                timestamp_key = (account_slug, legacy_timestamp)
+                legacy_identity_counts[timestamp_key] = legacy_identity_counts.get(timestamp_key, 0) + 1
+        legacy_uid_cache: dict[Path, str] = {}
+        entries = []
+        seen_targets: set[Path] = set()
+        for row in rows:
+            msg = dict(row)
+            msg["tags"] = [
+                tag["tag"]
+                for tag in conn.execute(
+                    "SELECT tag FROM message_tags WHERE message_id=? ORDER BY tag",
+                    (msg["id"],),
                 )
-                conn.execute(
-                    "INSERT OR REPLACE INTO exports(message_id, profile, exported_path, content_hash, exported_at, status) VALUES(?, ?, ?, ?, ?, ?)",
-                    (msg["id"], state, exported_path, sha256_text(render_markdown(msg)), iso_now(), "written"),
-                )
-                count += 1
-        return {"ok": True, "exported": count, "dir": normalize_slashes(str(export_root))}
+            ]
+            rel_path = self.export_path_for(msg)
+            target = (export_root / rel_path).resolve()
+            if target != export_root and export_root not in target.parents:
+                raise RuntimeError("Export path escaped email directory")
+            account_slug = legacy_account_slug(msg.get("account_id") or "account")
+            message_uid = str(msg.get("uid") or "")
+            legacy_key = (account_slug, message_uid)
+            legacy_timestamp = legacy_export_timestamp(msg.get("sent_at"))
+            timestamp_key = (account_slug, legacy_timestamp)
+            timestamp_candidates = legacy_index.get(timestamp_key, []) if legacy_timestamp else []
+            legacy_candidates: list[Path] = []
+            legacy_ambiguous = False
+            if timestamp_candidates:
+                if len(account_slugs.get(account_slug, set())) > 1:
+                    legacy_ambiguous = True
+                elif legacy_identity_counts.get(timestamp_key, 0) == 1 and len(timestamp_candidates) == 1:
+                    legacy_candidates = timestamp_candidates
+                else:
+                    for candidate in timestamp_candidates:
+                        if candidate not in legacy_uid_cache:
+                            legacy_uid_cache[candidate] = read_legacy_export_uid(candidate)
+                    candidate_uids = [legacy_uid_cache[candidate] for candidate in timestamp_candidates]
+                    matching_candidates = [
+                        candidate
+                        for candidate in timestamp_candidates
+                        if legacy_uid_cache[candidate] == message_uid
+                    ]
+                    if any(not uid for uid in candidate_uids):
+                        legacy_ambiguous = True
+                    elif len(matching_candidates) == 1 and legacy_message_counts.get(legacy_key, 0) == 1:
+                        legacy_candidates = matching_candidates
+                    elif matching_candidates:
+                        legacy_ambiguous = True
+            if not target.exists() and len(legacy_candidates) == 1 and not legacy_ambiguous:
+                target = legacy_candidates[0]
+                rel_path = target.relative_to(export_root)
+            if target in seen_targets:
+                raise RuntimeError("Multiple messages resolved to the same export path")
+            seen_targets.add(target)
+            content = render_markdown(msg).encode("utf-8")
+            content_hash = hashlib.sha256(content).hexdigest()
+            target_hash = ""
+            if legacy_ambiguous and not target.exists():
+                target_status = "conflict"
+                target_hash = legacy_candidate_fingerprint(export_root, timestamp_candidates)
+            elif target.exists():
+                if target.is_file():
+                    target_hash = sha256_file(target)
+                    if len(legacy_candidates) == 1 and target == legacy_candidates[0]:
+                        target_status = "legacy-existing"
+                    else:
+                        target_status = "unchanged" if target_hash == content_hash else "conflict"
+                else:
+                    target_status = "conflict"
+                    target_hash = "non-file"
+            else:
+                target_status = "create"
+            entries.append({
+                "messageId": msg["id"],
+                "relativePath": rel_path,
+                "target": target,
+                "content": content,
+                "contentHash": content_hash,
+                "targetHash": target_hash,
+                "status": target_status,
+            })
+        fingerprint_payload = {
+            "selection": selection,
+            "entries": [
+                {
+                    "messageId": entry["messageId"],
+                    "relativePath": normalize_slashes(str(entry["relativePath"])),
+                    "contentHash": entry["contentHash"],
+                    "targetHash": entry["targetHash"],
+                    "status": entry["status"],
+                }
+                for entry in entries
+            ],
+        }
+        fingerprint = hashlib.sha256(
+            json.dumps(fingerprint_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        return {
+            "selection": selection,
+            "entries": entries,
+            "fingerprint": fingerprint,
+            "create": sum(1 for entry in entries if entry["status"] == "create"),
+            "unchanged": sum(1 for entry in entries if entry["status"] == "unchanged"),
+            "legacyExisting": sum(1 for entry in entries if entry["status"] == "legacy-existing"),
+            "conflicts": sum(1 for entry in entries if entry["status"] == "conflict"),
+        }
+
+    def plan_export(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Preview a vault export without creating directories or changing state."""
+        selection = self.normalize_export_selection(payload)
+        with self._export_lock:
+            with self.connect() as conn:
+                conn.execute("BEGIN")
+                snapshot = self.build_export_snapshot(selection, conn)
+            now = time.time()
+            self.export_plans = {
+                token: plan
+                for token, plan in self.export_plans.items()
+                if float(plan["expiresAt"]) > now
+            }
+            can_apply = bool(snapshot["entries"]) and snapshot["conflicts"] == 0
+            plan_token = secrets.token_urlsafe(24) if can_apply else ""
+            if plan_token:
+                self.export_plans[plan_token] = {
+                    "selection": selection,
+                    "fingerprint": snapshot["fingerprint"],
+                    "expiresAt": now + EXPORT_PLAN_TTL_SECONDS,
+                }
+        return {
+            "ok": True,
+            "state": selection["state"],
+            "accountScoped": bool(selection["accountId"]),
+            "limit": selection["limit"],
+            "total": len(snapshot["entries"]),
+            "create": snapshot["create"],
+            "unchanged": snapshot["unchanged"],
+            "legacyExisting": snapshot["legacyExisting"],
+            "conflicts": snapshot["conflicts"],
+            "destination": normalize_slashes(self.email_vault_dir),
+            "canApply": can_apply,
+            "planToken": plan_token,
+            "expiresIn": EXPORT_PLAN_TTL_SECONDS if plan_token else 0,
+        }
+
+    def apply_export(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Apply one current export plan with conflict-safe atomic publication."""
+        plan_token = str(payload.get("planToken") or "").strip()
+        if not plan_token:
+            raise ValueError("Export plan token is required")
+        if not self._export_lock.acquire(blocking=False):
+            raise ValueError("Another export is already running")
+        conn: sqlite3.Connection | None = None
+        staged: list[Path] = []
+        published: list[dict[str, Any]] = []
+        created_dirs: set[Path] = set()
+        try:
+            plan = self.export_plans.pop(plan_token, None)
+            if not plan or float(plan["expiresAt"]) <= time.time():
+                raise ValueError("Export plan is missing or expired; preview again")
+            with self._lock:
+                conn = self.connect()
+                conn.execute("BEGIN IMMEDIATE")
+                snapshot = self.build_export_snapshot(plan["selection"], conn)
+                if snapshot["fingerprint"] != plan["fingerprint"] or snapshot["conflicts"]:
+                    raise ValueError("Export plan is stale or has target conflicts; preview again")
+                for entry in snapshot["entries"]:
+                    if entry["status"] != "create":
+                        continue
+                    target = entry["target"]
+                    missing_dirs = []
+                    cursor = target.parent
+                    while cursor != self.email_vault_root and not cursor.exists():
+                        missing_dirs.append(cursor)
+                        cursor = cursor.parent
+                    if not self.email_vault_root.exists():
+                        missing_dirs.append(self.email_vault_root)
+                    for directory in reversed(missing_dirs):
+                        try:
+                            directory.mkdir()
+                        except FileExistsError:
+                            if not directory.is_dir():
+                                raise RuntimeError("Export directory changed during apply")
+                        else:
+                            created_dirs.add(directory)
+                    resolved_target = (self.email_vault_root / entry["relativePath"]).resolve()
+                    if resolved_target != target:
+                        raise RuntimeError("Export target changed after preview")
+                    stage = target.with_name(f".{target.name}.stage-{secrets.token_hex(12)}")
+                    descriptor = os.open(stage, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                    with os.fdopen(descriptor, "wb") as stream:
+                        stream.write(entry["content"])
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    staged.append(stage)
+                    entry["stage"] = stage
+                for entry in snapshot["entries"]:
+                    if entry["status"] != "create":
+                        continue
+                    try:
+                        os.link(entry["stage"], entry["target"])
+                    except FileExistsError as error:
+                        raise RuntimeError("Export target changed after preview") from error
+                    published.append(entry)
+                    entry["stage"].unlink()
+                    staged.remove(entry["stage"])
+                for entry in snapshot["entries"]:
+                    target = entry["target"]
+                    expected_hash = entry["targetHash"] if entry["status"] == "legacy-existing" else entry["contentHash"]
+                    if not target.is_file() or sha256_file(target) != expected_hash:
+                        raise RuntimeError("Export target changed during apply")
+                exported_at = iso_now()
+                for entry in snapshot["entries"]:
+                    exported_path = normalize_slashes(str(Path(self.email_vault_dir) / entry["relativePath"]))
+                    conn.execute(
+                        "UPDATE messages SET exported_path=?, exported_at=?, export_hash=? WHERE id=?",
+                        (
+                            exported_path,
+                            exported_at,
+                            entry["targetHash"] if entry["status"] == "legacy-existing" else entry["contentHash"],
+                            entry["messageId"],
+                        ),
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO exports(message_id, profile, exported_path, content_hash, exported_at, status)
+                        VALUES(?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(message_id, profile) DO UPDATE SET
+                          exported_path=excluded.exported_path,
+                          content_hash=excluded.content_hash,
+                          exported_at=excluded.exported_at,
+                          status=excluded.status
+                        """,
+                        (
+                            entry["messageId"],
+                            snapshot["selection"]["state"],
+                            exported_path,
+                            entry["targetHash"] if entry["status"] == "legacy-existing" else entry["contentHash"],
+                            exported_at,
+                            entry["status"],
+                        ),
+                    )
+                conn.commit()
+            return {
+                "ok": True,
+                "exported": len(snapshot["entries"]),
+                "created": snapshot["create"],
+                "unchanged": snapshot["unchanged"],
+                "legacyExisting": snapshot["legacyExisting"],
+                "destination": normalize_slashes(self.email_vault_dir),
+            }
+        except Exception as error:
+            if conn is not None:
+                conn.rollback()
+            rollback_conflicts = 0
+            for entry in reversed(published):
+                target = entry["target"]
+                if not target.exists():
+                    continue
+                if target.is_file() and sha256_file(target) == entry["contentHash"]:
+                    target.unlink()
+                else:
+                    rollback_conflicts += 1
+            for stage in staged:
+                try:
+                    stage.unlink()
+                except FileNotFoundError:
+                    pass
+            staged.clear()
+            for directory in sorted(created_dirs, key=lambda path: len(path.parts), reverse=True):
+                try:
+                    directory.rmdir()
+                except OSError:
+                    pass
+            if rollback_conflicts:
+                raise RuntimeError(
+                    f"Export failed and {rollback_conflicts} published file(s) changed before rollback"
+                ) from error
+            raise
+        finally:
+            if conn is not None:
+                conn.close()
+            for stage in staged:
+                try:
+                    stage.unlink()
+                except FileNotFoundError:
+                    pass
+            self._export_lock.release()
+
+    def export_markdown(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Compatibility wrapper that still uses the safe plan/apply pipeline."""
+        plan = self.plan_export(payload)
+        if not plan["canApply"]:
+            if plan["conflicts"]:
+                raise ValueError("Export targets conflict with existing files")
+            return {
+                "ok": True,
+                "exported": 0,
+                "created": 0,
+                "unchanged": 0,
+                "legacyExisting": 0,
+                "destination": plan["destination"],
+            }
+        return self.apply_export({"planToken": plan["planToken"]})
 
     def export_path_for(self, msg: dict[str, Any]) -> Path:
         sent = parse_iso_date(msg.get("sent_at")) or dt.datetime.now(dt.timezone.utc)
@@ -1220,6 +1528,85 @@ def stable_hash(values: Iterable[Any]) -> str:
 
 def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    """Return a file digest without loading an entire export into memory."""
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def legacy_account_slug(value: Any) -> str:
+    """Return the account-folder slug used by the established Email archive."""
+    normalized = unicodedata.normalize("NFKD", str(value or "account"))
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii").lower()
+    return re.sub(r"[^a-z0-9]+", "-", ascii_text).strip("-") or "account"
+
+
+def legacy_export_timestamp(value: Any) -> str:
+    """Return the timestamp prefix used by established Email archive notes."""
+    parsed = parse_iso_date(value)
+    return parsed.strftime("%Y-%m-%d-%H%M%S") if parsed else ""
+
+
+def read_legacy_export_uid(path: Path) -> str:
+    """Read only the bounded frontmatter UID needed to identify a legacy note."""
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as stream:
+            first_line = stream.readline(4097)
+            if len(first_line) > 4096 or first_line.strip() != "---":
+                return ""
+            for _line_number in range(64):
+                line = stream.readline(4097)
+                if not line or len(line) > 4096 or line.strip() == "---":
+                    return ""
+                if not line.startswith("uid:"):
+                    continue
+                raw_value = line.split(":", 1)[1].strip()
+                try:
+                    return str(json.loads(raw_value))
+                except (json.JSONDecodeError, TypeError):
+                    return raw_value.strip("'\"")
+    except OSError:
+        return ""
+    return ""
+
+
+def build_legacy_export_filename_index(export_root: Path) -> dict[tuple[str, str], list[Path]]:
+    """Index established flat archive filenames without opening every note."""
+    index: dict[tuple[str, str], list[Path]] = {}
+    if not export_root.is_dir():
+        return index
+    for account_directory in export_root.iterdir():
+        if account_directory.is_symlink() or not account_directory.is_dir():
+            continue
+        resolved_account = account_directory.resolve()
+        if resolved_account.parent != export_root:
+            continue
+        for candidate in account_directory.glob("*.md"):
+            if candidate.is_symlink() or not candidate.is_file():
+                continue
+            resolved_candidate = candidate.resolve()
+            if resolved_candidate.parent != resolved_account:
+                continue
+            name_match = LEGACY_EXPORT_NAME_RE.fullmatch(candidate.name)
+            if name_match:
+                index.setdefault((account_directory.name, name_match.group(1)), []).append(resolved_candidate)
+    return index
+
+
+def legacy_candidate_fingerprint(export_root: Path, candidates: list[Path]) -> str:
+    """Fingerprint ambiguous legacy candidates without exposing their paths."""
+    digest = hashlib.sha256()
+    for candidate in sorted(candidates, key=lambda path: normalize_slashes(str(path.relative_to(export_root)))):
+        digest.update(normalize_slashes(str(candidate.relative_to(export_root))).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(sha256_file(candidate).encode("ascii"))
+        digest.update(b"\0")
+    return "legacy-conflict:" + digest.hexdigest()
 
 
 def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
@@ -1507,7 +1894,7 @@ def normalize_tag(value: Any) -> str:
 
 
 def sanitize_path_part(value: Any) -> str:
-    text = re.sub(r"[<>:\\|?*\x00-\x1f]+", "-", str(value or "").strip())
+    text = re.sub(r"[<>:/\\|?*\x00-\x1f]+", "-", str(value or "").strip())
     text = re.sub(r"\s+", " ", text).strip(" .-")
     return text[:120] or "untitled"
 
@@ -1654,6 +2041,14 @@ class Handler(BaseHTTPRequestHandler):
                     "error": f"Action disabled: Email capability {capability} is not enabled",
                 }, status=403)
                 return
+            if parsed.path == "/api/export" and not self.unrestricted_write:
+                self.send_json({
+                    "ok": False,
+                    "code": "NICA_EXPORT_PLAN_REQUIRED",
+                    "capability": capability,
+                    "error": "Bounded Email export requires preview and separate apply",
+                }, status=409)
+                return
             payload = self.read_json()
             if parsed.path == "/api/fetch":
                 self.send_json(self.tool.fetch(payload))
@@ -1672,6 +2067,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/export":
                 self.send_json(self.tool.export_markdown(payload))
+                return
+            if parsed.path == "/api/export/plan":
+                self.send_json(self.tool.plan_export(payload))
+                return
+            if parsed.path == "/api/export/apply":
+                self.send_json(self.tool.apply_export(payload))
                 return
             if parsed.path == "/api/rules":
                 self.send_json(self.tool.upsert_rule(payload))

@@ -83,6 +83,18 @@ h2 { font-size: 12px; color: var(--email-muted); text-transform: uppercase; lett
 }
 .oauth-panel a { color: var(--email-accent); }
 .oauth-panel strong { color: var(--email-good); }
+.export-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid var(--email-line);
+  background: var(--email-panel);
+  color: var(--email-text);
+  padding: 8px 10px;
+}
+.export-panel.hidden { display: none; }
+.export-actions { display: flex; gap: 6px; flex: 0 0 auto; }
 .layout {
   display: grid;
   grid-template-columns: minmax(320px, 38vw) 1fr 260px;

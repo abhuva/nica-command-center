@@ -255,6 +255,23 @@ token refresh during an accepted fetch remains part of `mail.fetch`. Legacy
 Email `4176` remains the production workflow for export and the warm fallback.
 See [Gate 5 Email bounded-OAuth shadow record](gate-5-email-oauth-shadow.md).
 
+Bounded Email export is implemented and verified with synthetic API, launcher,
+rollback, regression, and Playwright MCP checks. It retains the accepted OAuth
+profile and adds only `vault.export`. Preview is read-only, apply requires a
+separate one-use plan, matching files are not rewritten, and differing targets
+block the batch. The first live preview exposed the older flat archive schema
+before any apply; it would have duplicated existing projections, so `4276` was
+rolled back with the vault unchanged. The revised preview recognizes those
+notes by account slug and timestamp, with bounded UID checks only for ambiguous
+timestamps, and reports them separately without rewriting them. The optimized
+profile is active on `4276`; a one-note pilot passed file, hash, database,
+browser, and health verification, and Marc confirmed the normal workflow on
+2026-10-07. The bounded-export capability is accepted. The remaining full
+preview contains 515 new, one unchanged, 4,125 existing-archive, and zero
+conflicting notes and has not been applied; it requires separate approval.
+Legacy Email `4176` remains the warm fallback. See [Gate 5 Email bounded-export
+shadow record](gate-5-email-export-shadow.md).
+
 Use the following sequence for each capability:
 
 1. Confirm production is healthy.

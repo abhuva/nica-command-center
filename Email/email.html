@@ -49,9 +49,16 @@
       <div class="top-actions">
         <button id="refreshBtn" type="button">Refresh</button>
         <button id="applyRulesBtn" type="button">Apply Rules</button>
-        <button id="exportBtn" type="button">Export</button>
+        <button id="exportBtn" type="button">Preview Export</button>
       </div>
     </header>
+    <section id="exportPanel" class="export-panel hidden" aria-live="polite">
+      <span id="exportSummary"></span>
+      <div class="export-actions">
+        <button id="exportApplyBtn" type="button" disabled>Apply Export</button>
+        <button id="exportCancelBtn" type="button">Cancel</button>
+      </div>
+    </section>
 
     <section id="dashboardView" class="view-panel dashboard-view">
       <section class="dashboard-actions">

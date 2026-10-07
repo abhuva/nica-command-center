@@ -14,6 +14,7 @@
     "check:email-fetch-shadow": "python ./tests/email_fetch_shadow_smoke.py",
     "check:email-classification-shadow": "python ./tests/email_classification_shadow_smoke.py",
     "check:email-oauth-shadow": "python ./tests/email_oauth_shadow_smoke.py",
+    "check:email-export-shadow": "python ./tests/email_export_shadow_smoke.py",
     "lint": "eslint .",
     "lint:jsdoc": "eslint \"**/*.{js,mjs}\""
   },

@@ -8,6 +8,7 @@ param(
   [switch]$PrepareFetchProfile,
   [switch]$EnableClassification,
   [switch]$EnableOAuth,
+  [switch]$EnableExport,
   [switch]$BackupCandidate,
   [switch]$RefreshCandidateBackup,
   [int]$OAuthCallbackPort = 8080,
@@ -27,12 +28,13 @@ $resolvedLegacy = (Resolve-Path -LiteralPath $legacyRootInput).Path
 $legacyEmailRoot = Join-Path $resolvedLegacy "Email"
 $sourceDatabase = Join-Path $legacyEmailRoot "email.db"
 $legacyConfigPath = Join-Path $legacyEmailRoot "config.local.json"
-$componentName = if ($EnableOAuth) { "email-oauth-shadow" } elseif ($EnableClassification) { "email-classification-shadow" } else { "email-fetch-shadow" }
+$componentName = if ($EnableExport) { "email-export-shadow" } elseif ($EnableOAuth) { "email-oauth-shadow" } elseif ($EnableClassification) { "email-classification-shadow" } else { "email-fetch-shadow" }
 $writeCapabilities = @("mail.count", "mail.fetch")
 if ($EnableClassification) {
   $writeCapabilities += @("message.tag", "rules.apply", "rules.manage")
 }
 if ($EnableOAuth) { $writeCapabilities += "oauth.manage" }
+if ($EnableExport) { $writeCapabilities += "vault.export" }
 
 if (-not (Test-Path -LiteralPath $sourceDatabase -PathType Leaf)) {
   throw "Legacy Email database was not found."
@@ -41,6 +43,9 @@ if ($Port -lt 1 -or $Port -gt 65535) { throw "Port must be between 1 and 65535."
 if ($OAuthCallbackPort -lt 1 -or $OAuthCallbackPort -gt 65535) { throw "OAuth callback port must be between 1 and 65535." }
 if ($EnableOAuth -and -not $EnableClassification) {
   throw "The OAuth profile must retain the accepted classification capabilities."
+}
+if ($EnableExport -and -not $EnableOAuth) {
+  throw "The export profile must retain the accepted OAuth capabilities."
 }
 if (($BackupCandidate -or $RefreshCandidateBackup) -and -not $EnableClassification) {
   throw "Candidate backup is supported only for the classification profile."
@@ -249,7 +254,7 @@ $plan = [ordered]@{
   oauthCallbackPort = $OAuthCallbackPort
   rulesEnabled = [bool]$EnableClassification
   messageTaggingEnabled = [bool]$EnableClassification
-  vaultExportEnabled = $false
+  vaultExportEnabled = [bool]$EnableExport
   imapMailboxMode = "read-only"
   port = $Port
   mode = "limited-write"
@@ -338,7 +343,7 @@ $env:EMAIL_HOST = "127.0.0.1"
 $env:EMAIL_PORT = [string]$Port
 $env:EMAIL_OAUTH_CALLBACK_PORT = [string]$OAuthCallbackPort
 
-$logPrefix = if ($EnableOAuth) { "email-oauth" } elseif ($EnableClassification) { "email-classification" } else { "email-fetch" }
+$logPrefix = if ($EnableExport) { "email-export" } elseif ($EnableOAuth) { "email-oauth" } elseif ($EnableClassification) { "email-classification" } else { "email-fetch" }
 $stdout = Join-Path $componentState ($logPrefix + ".out.log")
 $stderr = Join-Path $componentState ($logPrefix + ".err.log")
 $serverPath = Join-Path $repoRoot "Email\email_tool.py"
@@ -356,6 +361,7 @@ $manifest = [ordered]@{
   fetchProfilePrepared = [bool]$PrepareFetchProfile
   classificationEnabled = [bool]$EnableClassification
   oauthManagementEnabled = [bool]$EnableOAuth
+  vaultExportEnabled = [bool]$EnableExport
   oauthCallbackPort = $OAuthCallbackPort
   oauthTokenBackupsCreated = $oauthTokenBackupsCreated
   candidateBackupCreated = $candidateBackupCreated
@@ -390,7 +396,7 @@ try {
         ([bool]$response.writeCapabilities.rulesManage -eq [bool]$EnableClassification) -and
         ([bool]$response.writeCapabilities.rulesApply -eq [bool]$EnableClassification) -and
         ([bool]$response.writeCapabilities.messageTag -eq [bool]$EnableClassification) -and
-        -not [bool]$response.writeCapabilities.vaultExport -and
+        ([bool]$response.writeCapabilities.vaultExport -eq [bool]$EnableExport) -and
         (Test-SameDirectory -Left $response.authority.vault -Right $resolvedVault) -and
         (Test-SameDirectory -Left $response.authority.localState -Right $componentState)
       ) {
@@ -415,7 +421,10 @@ try {
     throw "$componentName did not become healthy with the planned authority and capabilities."
   }
 
-  $disabledRoutes = @("export")
+  $disabledRoutes = @()
+  if (-not $EnableExport) {
+    $disabledRoutes += @("export", "export/plan", "export/apply")
+  }
   if (-not $EnableOAuth) {
     $disabledRoutes += @("oauth/start", "oauth/poll")
   }

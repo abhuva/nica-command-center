@@ -9,6 +9,7 @@
   runtimeMode: "unknown",
   writesEnabled: false,
   writeCapabilities: {},
+  exportPlanToken: "",
 };
 
 const THEME_CACHE_KEY = "email-theme-bootstrap-v1";
@@ -54,6 +55,10 @@ const els = {
   refreshBtn: document.querySelector("#refreshBtn"),
   applyRulesBtn: document.querySelector("#applyRulesBtn"),
   exportBtn: document.querySelector("#exportBtn"),
+  exportPanel: document.querySelector("#exportPanel"),
+  exportSummary: document.querySelector("#exportSummary"),
+  exportApplyBtn: document.querySelector("#exportApplyBtn"),
+  exportCancelBtn: document.querySelector("#exportCancelBtn"),
   searchInput: document.querySelector("#searchInput"),
   stateFilter: document.querySelector("#stateFilter"),
   tagFilter: document.querySelector("#tagFilter"),
@@ -123,6 +128,8 @@ const ROUTE_CAPABILITIES = {
   "/api/fetch-new": "mailFetch",
   "/api/fetch-new-all": "mailFetch",
   "/api/export": "vaultExport",
+  "/api/export/plan": "vaultExport",
+  "/api/export/apply": "vaultExport",
   "/api/rules": "rulesManage",
   "/api/rules/delete": "rulesManage",
   "/api/rules/apply": "rulesApply",
@@ -163,10 +170,14 @@ const applyRuntimeMode = () => {
   document.querySelectorAll("[data-sender-rule]").forEach((control) => {
     setRuntimeControlState(control, capabilityEnabled("rulesManage") && capabilityEnabled("rulesApply"), "rulesManage + rulesApply");
   });
+  if (!capabilityEnabled("vaultExport")) clearExportPlan();
 };
 
 const runtimeReadyStatus = () => {
   if (state.runtimeMode === "limited-write") {
+    if (capabilityEnabled("vaultExport")) {
+      return "Ready · bounded Email export";
+    }
     if (capabilityEnabled("oauthManage")) {
       return "Ready · bounded Email OAuth";
     }
@@ -190,6 +201,15 @@ const post = (path, payload = {}) => {
 const setStatus = (text) => { els.status.textContent = text; };
 const fmtNumber = (value) => Number(value || 0).toLocaleString("de-DE");
 let progressTimer = null;
+let exportPlanRequestVersion = 0;
+
+const clearExportPlan = () => {
+  exportPlanRequestVersion += 1;
+  state.exportPlanToken = "";
+  els.exportSummary.textContent = "";
+  els.exportApplyBtn.disabled = true;
+  els.exportPanel.classList.add("hidden");
+};
 
 const formatProgress = (progress) => {
   if (!progress) return "";
@@ -828,11 +848,15 @@ els.rulesScopeFilter.addEventListener("change", renderRulesTable);
 els.rulesActionFilter.addEventListener("change", renderRulesTable);
 els.recentLimitInput.addEventListener("change", () => loadDashboard().catch((error) => setStatus(error.message)));
 els.searchInput.addEventListener("input", () => loadMessages().catch((error) => setStatus(error.message)));
-els.stateFilter.addEventListener("change", () => loadMessages().catch((error) => setStatus(error.message)));
+els.stateFilter.addEventListener("change", () => {
+  clearExportPlan();
+  loadMessages().catch((error) => setStatus(error.message));
+});
 els.tagFilter.addEventListener("input", () => loadMessages().catch((error) => setStatus(error.message)));
 els.groupFilter.addEventListener("change", renderMessages);
 els.groupSort.addEventListener("change", renderMessages);
 els.accountSelect.addEventListener("change", () => {
+  clearExportPlan();
   renderOAuthControl();
   els.serverCount.textContent = "";
   loadMessages().catch((error) => setStatus(error.message));
@@ -847,6 +871,7 @@ els.beforeInput.addEventListener("change", () => { els.serverCount.textContent =
 els.dashboardAccounts.addEventListener("click", (event) => {
   const row = event.target.closest("[data-account-open]");
   if (!row) return;
+  clearExportPlan();
   els.accountSelect.value = row.dataset.accountOpen;
   setActiveView("account");
   loadMessages().catch((error) => setStatus(error.message));
@@ -971,9 +996,52 @@ els.applyRulesBtn.addEventListener("click", async () => {
 });
 
 els.exportBtn.addEventListener("click", async () => {
-  const payload = await post("/api/export", { state: els.stateFilter.value || "included", accountId: els.accountSelect.value });
-  setStatus(`Exported ${payload.exported} markdown files`);
+  clearExportPlan();
+  const requestVersion = exportPlanRequestVersion;
+  setStatus("Planning vault export...");
+  const payload = await post("/api/export/plan", {
+    state: els.stateFilter.value || "included",
+    accountId: els.accountSelect.value,
+  });
+  if (requestVersion !== exportPlanRequestVersion) return;
+  els.exportSummary.textContent = `Export preview: ${fmtNumber(payload.total)} total · ${fmtNumber(payload.create)} new · ${fmtNumber(payload.unchanged)} unchanged · ${fmtNumber(payload.legacyExisting)} existing archive · ${fmtNumber(payload.conflicts)} conflicts`;
+  els.exportPanel.classList.remove("hidden");
+  state.exportPlanToken = payload.planToken || "";
+  els.exportApplyBtn.disabled = !payload.canApply;
+  if (payload.conflicts) {
+    setStatus("Export blocked by existing files with different content");
+  } else if (!payload.total) {
+    setStatus("Nothing matches this export selection");
+  } else {
+    setStatus("Export preview ready · review and apply separately");
+  }
+});
+
+els.exportApplyBtn.addEventListener("click", async () => {
+  const planToken = state.exportPlanToken;
+  if (!planToken) {
+    setStatus("Export preview is missing; preview again");
+    return;
+  }
+  state.exportPlanToken = "";
+  els.exportApplyBtn.disabled = true;
+  setStatus("Applying vault export...");
+  let payload;
+  try {
+    payload = await post("/api/export/apply", { planToken });
+  } catch (error) {
+    clearExportPlan();
+    setStatus(error instanceof Error ? error.message : String(error));
+    return;
+  }
+  clearExportPlan();
   await refresh();
+  setStatus(`Exported ${payload.exported} markdown files · ${payload.created} new · ${payload.unchanged} unchanged · ${payload.legacyExisting} existing archive`);
+});
+
+els.exportCancelBtn.addEventListener("click", () => {
+  clearExportPlan();
+  setStatus(runtimeReadyStatus());
 });
 
 els.saveRuleBtn.addEventListener("click", async () => {
