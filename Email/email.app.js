@@ -156,11 +156,13 @@ const applyRuntimeMode = () => {
   const readOnly = !state.writesEnabled;
   document.body.dataset.writesEnabled = String(state.writesEnabled);
   if (els.runtimeBadge) {
-    els.runtimeBadge.textContent = readOnly
-      ? "Migration candidate · read-only"
+    const label = readOnly
+      ? "Email · read-only"
       : state.runtimeMode === "limited-write"
-        ? "Migration candidate · limited write"
-        : "Migration candidate";
+        ? "Email · limited write"
+        : "Email";
+    els.runtimeBadge.textContent = label;
+    els.runtimeBadge.setAttribute("aria-label", label);
   }
   Object.entries(CAPABILITY_CONTROL_SELECTORS).forEach(([capability, selector]) => {
     document.querySelectorAll(selector).forEach((control) => {
@@ -904,7 +906,9 @@ els.countAllBtn.addEventListener("click", async () => {
   try {
     const payload = await post("/api/count-all", {});
     els.dashboardStatus.textContent = `server ${fmtNumber(payload.total)}, new ${fmtNumber(payload.newAvailable)}, local ${fmtNumber(payload.localStored)}`;
-    setStatus(`Counted all accounts: ${payload.newAvailable || 0} new`);
+    const accountSummary = `${fmtNumber(payload.succeeded)}/${fmtNumber((payload.accounts || []).length)} accounts`;
+    const failureSummary = payload.failed ? ` · ${fmtNumber(payload.failed)} failed` : "";
+    setStatus(`Counted ${accountSummary}${failureSummary} · ${fmtNumber(payload.newAvailable)} new`);
     await loadDashboard();
   } finally {
     stopProgressPolling();
@@ -935,8 +939,10 @@ els.fetchNewAllBtn.addEventListener("click", async () => {
   try {
     const payload = await post("/api/fetch-new-all", { limit: Number(els.fetchLimitInput.value || 500) });
     els.dashboardStatus.textContent = `fetched ${fmtNumber(payload.fetched)}, candidates ${fmtNumber(payload.matched)}`;
-    setStatus(`Fetched ${payload.fetched} new messages across all accounts`);
     await refresh();
+    const accountSummary = `${fmtNumber(payload.succeeded)}/${fmtNumber((payload.accounts || []).length)} accounts`;
+    const failureSummary = payload.failed ? ` · ${fmtNumber(payload.failed)} failed` : "";
+    setStatus(`Fetched ${fmtNumber(payload.fetched)} new messages from ${accountSummary}${failureSummary}`);
   } finally {
     stopProgressPolling();
   }

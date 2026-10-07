@@ -760,6 +760,8 @@ class EmailTool:
         matched = 0
         local_stored = 0
         new_available = 0
+        succeeded = 0
+        failed = 0
         enabled_accounts = [account for account in self.config.get("accounts", []) if str(account.get("id") or "").strip() and account.get("enabled") is not False]
         self.set_progress(active=True, phase="count", operation="count-all", current=0, total=len(enabled_accounts), fetched=0, message="Counting all accounts...")
         for index, account in enumerate(enabled_accounts, start=1):
@@ -772,13 +774,21 @@ class EmailTool:
                 matched += int(result.get("matched") or 0)
                 local_stored += int(result.get("localStored") or 0)
                 new_available += int(result.get("newAvailable") or 0)
+                succeeded += 1
             except Exception as exc:
                 results.append({"ok": False, "accountId": account_id, "error": str(exc)})
+                failed += 1
             self.set_progress(current=index, total=len(enabled_accounts), accountId=account_id, message=f"Counted {index}/{len(enabled_accounts)} accounts")
-        self.set_progress(active=False, phase="done", current=len(enabled_accounts), total=len(enabled_accounts), fetched=0, message=f"Counted {len(enabled_accounts)} accounts")
+        result_summary = f"Counted {succeeded}/{len(enabled_accounts)} accounts"
+        if failed:
+            result_summary += f"; {failed} failed"
+        self.set_progress(active=False, phase="done", current=len(enabled_accounts), total=len(enabled_accounts), fetched=0, message=result_summary)
         return {
             "ok": True,
             "accounts": results,
+            "succeeded": succeeded,
+            "failed": failed,
+            "partial": failed > 0,
             "total": total,
             "matched": matched,
             "localStored": local_stored,
@@ -790,6 +800,8 @@ class EmailTool:
         fetched = 0
         matched = 0
         total = 0
+        succeeded = 0
+        failed = 0
         enabled_accounts = [account for account in self.config.get("accounts", []) if str(account.get("id") or "").strip() and account.get("enabled") is not False]
         self.set_progress(active=True, phase="fetch", operation="fetch-new-all", current=0, total=len(enabled_accounts), fetched=0, message="Fetching new mail from all accounts...")
         for index, account in enumerate(enabled_accounts, start=1):
@@ -801,11 +813,25 @@ class EmailTool:
                 fetched += int(result.get("fetched") or 0)
                 matched += int(result.get("matched") or 0)
                 total += int(result.get("total") or 0)
+                succeeded += 1
             except Exception as exc:
                 results.append({"ok": False, "accountId": account_id, "error": str(exc)})
+                failed += 1
             self.set_progress(current=index, total=len(enabled_accounts), accountId=account_id, fetched=fetched, message=f"Fetched {index}/{len(enabled_accounts)} accounts, {fetched} new messages")
-        self.set_progress(active=False, phase="done", current=len(enabled_accounts), total=len(enabled_accounts), fetched=fetched, message=f"Fetched {fetched} new messages across all accounts")
-        return {"ok": True, "accounts": results, "fetched": fetched, "matched": matched, "total": total}
+        result_summary = f"Fetched {fetched} new messages from {succeeded}/{len(enabled_accounts)} accounts"
+        if failed:
+            result_summary += f"; {failed} failed"
+        self.set_progress(active=False, phase="done", current=len(enabled_accounts), total=len(enabled_accounts), fetched=fetched, message=result_summary)
+        return {
+            "ok": True,
+            "accounts": results,
+            "succeeded": succeeded,
+            "failed": failed,
+            "partial": failed > 0,
+            "fetched": fetched,
+            "matched": matched,
+            "total": total,
+        }
 
     def account_config(self, account_id: str) -> dict[str, Any] | None:
         for account in self.config.get("accounts", []):
@@ -2287,6 +2313,34 @@ def smoke() -> None:
             else:
                 os.environ["NICA_HOMEPAGE_URL"] = previous_homepage_url
         assert unavailable_theme == {"ok": True, "available": False, "theme": {"vars": {}}}
+        tool.config["accounts"] = [
+            {"id": "working", "enabled": True},
+            {"id": "failing", "enabled": True},
+        ]
+
+        def synthetic_count(payload: dict[str, Any]) -> dict[str, Any]:
+            if payload["accountId"] == "failing":
+                raise RuntimeError("synthetic account failure")
+            return {"ok": True, "accountId": "working", "total": 5, "matched": 4, "localStored": 3, "newAvailable": 1}
+
+        def synthetic_fetch(payload: dict[str, Any]) -> dict[str, Any]:
+            if payload["accountId"] == "failing":
+                raise RuntimeError("synthetic account failure")
+            return {"ok": True, "accountId": "working", "total": 5, "matched": 2, "fetched": 1}
+
+        tool.count_mailboxes = synthetic_count  # type: ignore[method-assign]
+        counted = tool.count_all({})
+        assert counted["ok"] is True
+        assert counted["succeeded"] == 1 and counted["failed"] == 1 and counted["partial"] is True
+        assert counted["newAvailable"] == 1
+        assert tool.get_progress()["message"] == "Counted 1/2 accounts; 1 failed"
+        tool.fetch_new = synthetic_fetch  # type: ignore[method-assign]
+        fetched = tool.fetch_new_all({})
+        assert fetched["ok"] is True
+        assert fetched["succeeded"] == 1 and fetched["failed"] == 1 and fetched["partial"] is True
+        assert fetched["fetched"] == 1
+        assert tool.get_progress()["message"] == "Fetched 1 new messages from 1/2 accounts; 1 failed"
+        tool.config["accounts"] = []
         sample = {
             "account_id": "demo",
             "mailbox": "INBOX",
