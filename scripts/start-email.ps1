@@ -7,7 +7,7 @@ param(
   [int]$HomepagePort = 4274,
   [int]$OAuthCallbackPort = 8080,
   [switch]$InitializeFreshDatabase,
-  [switch]$PrepareFetchProfile,
+  [switch]$PrepareProfileFromLegacy,
   [switch]$Apply
 )
 
@@ -21,12 +21,13 @@ $parameters = @{
   EnableClassification = $true
   EnableOAuth = $true
   EnableExport = $true
+  StableRuntime = $true
 }
 if (-not [string]::IsNullOrWhiteSpace($LegacyToolsRoot)) {
   $parameters.LegacyToolsRoot = $LegacyToolsRoot
 }
 if ($InitializeFreshDatabase) { $parameters.InitializeFreshDatabase = $true }
-if ($PrepareFetchProfile) { $parameters.PrepareFetchProfile = $true }
+if ($PrepareProfileFromLegacy) { $parameters.PrepareFetchProfile = $true }
 if ($Apply) { $parameters.Apply = $true }
 
 & (Join-Path $PSScriptRoot "start-email-fetch-shadow.ps1") @parameters

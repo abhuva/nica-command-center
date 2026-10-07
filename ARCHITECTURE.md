@@ -98,6 +98,11 @@ vault location. Beancount is the primary example. A narrowly scoped Git
 repository for ledger data does not justify putting software working trees or
 the complete vault under Git.
 
+The Email SQLite database is a different case: it is rebuildable local working
+state derived from mail accounts, not an organisational record to synchronize
+or migrate. This decision is recorded in
+[ADR-004](docs/adr/ADR-004-treat-email-database-as-rebuildable-local-state.md).
+
 ### The command centre coordinates; domain tools retain ownership
 
 The command centre provides one place for status, discovery, control, and

@@ -67,10 +67,12 @@ repository; the production checkout remains in place and independent.
   projections under the vault's `8. Emails/` directory
 - Local/sensitive state: `email.db` plus WAL/SHM files, `.env`, account config,
   OAuth token files, PID, and credentials supplied through environment variables
-- Migration risk: high because an inconsistent database copy or two exporters
-  could duplicate or lose processing state
-- Initial candidate mode: alternate port with a consistent database snapshot;
-  fetching, token refresh, and export disabled
+- Runtime-state decision: the SQLite database is rebuildable from the mail
+  accounts; it is not authoritative data and does not require legacy migration
+- Migration risk: active SQLite remains sensitive local state, and two
+  exporters could still create conflicting Markdown projections
+- Initial candidate mode: alternate port with a consistent database snapshot
+  for behavioral comparison; the completed runtime initializes fresh state
 
 ### VaultGraph
 
@@ -148,7 +150,7 @@ candidate launcher will be used during shadow testing.
 | Reproducible dependencies | `package.json`, lockfiles | Software metadata | Import |
 | Local dependencies | `node_modules/` | Dependency cache | Reinstall; never copy or commit |
 | Credentials | `.env*`, OAuth tokens, passwords | Secret | Keep outside Git; transfer separately |
-| Email database | `Email/email.db*` | Local operational state | Consistent backup/cutover; never commit |
+| Email database | `Email/email.db*` | Rebuildable local working state | Initialize fresh and refetch; never synchronize or commit |
 | Generated Calendar data | `Calendar/events.generated.js` | Derived from vault data | Stop tracking; regenerate locally |
 | Calendar UI state | `Calendar/calendar.filter-state.json` | Local state | Stop tracking; recreate or migrate locally |
 | Calendar backup archive | `Calendar/build-events-backup-260329.zip` | Obsolete/generated backup | Exclude from imported history |
@@ -189,7 +191,7 @@ configurable, and root defaults plus the tracked template use synthetic accounts
 - Exact versions for Fava, Docling, `updo`, and the authoritative Obsidian CLI;
   Node.js, npm, Python, and Git are recorded in the baseline snapshot
 - Ownership and recovery location for every local configuration and secret
-- Consistent backup and restore test for the Email SQLite database
+- Fresh Email initialization and refetch verification without a legacy database
 - Current process/port baseline immediately before shadow testing
 - Manual daily workflows and expected outputs for acceptance testing
 - Decision on candidate and final runtime-state directories

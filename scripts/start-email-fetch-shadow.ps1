@@ -4,13 +4,16 @@ param(
   [string]$StateRoot = (Join-Path $env:LOCALAPPDATA "NICA\CommandCenter\live"),
   [string]$LegacyToolsRoot = "",
   [int]$Port = 4276,
+  [int]$HomepagePort = 4274,
   [switch]$RefreshSnapshot,
+  [switch]$InitializeFreshDatabase,
   [switch]$PrepareFetchProfile,
   [switch]$EnableClassification,
   [switch]$EnableOAuth,
   [switch]$EnableExport,
   [switch]$BackupCandidate,
   [switch]$RefreshCandidateBackup,
+  [switch]$StableRuntime,
   [int]$OAuthCallbackPort = 8080,
   [switch]$Apply
 )
@@ -19,16 +22,23 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $resolvedVault = (Resolve-Path -LiteralPath $VaultRoot).Path
 $resolvedState = [System.IO.Path]::GetFullPath($StateRoot)
-$legacyRootInput = if ([string]::IsNullOrWhiteSpace($LegacyToolsRoot)) {
-  Join-Path $resolvedVault "Tools"
-} else {
-  $LegacyToolsRoot
+$resolvedLegacy = $null
+$legacyEmailRoot = $null
+$sourceDatabase = $null
+$legacyConfigPath = $null
+$requiresLegacyRoot = $RefreshSnapshot -or $PrepareFetchProfile
+if ($requiresLegacyRoot) {
+  $legacyRootInput = if ([string]::IsNullOrWhiteSpace($LegacyToolsRoot)) {
+    Join-Path $resolvedVault "Tools"
+  } else {
+    $LegacyToolsRoot
+  }
+  $resolvedLegacy = (Resolve-Path -LiteralPath $legacyRootInput).Path
+  $legacyEmailRoot = Join-Path $resolvedLegacy "Email"
+  $sourceDatabase = Join-Path $legacyEmailRoot "email.db"
+  $legacyConfigPath = Join-Path $legacyEmailRoot "config.local.json"
 }
-$resolvedLegacy = (Resolve-Path -LiteralPath $legacyRootInput).Path
-$legacyEmailRoot = Join-Path $resolvedLegacy "Email"
-$sourceDatabase = Join-Path $legacyEmailRoot "email.db"
-$legacyConfigPath = Join-Path $legacyEmailRoot "config.local.json"
-$componentName = if ($EnableExport) { "email-export-shadow" } elseif ($EnableOAuth) { "email-oauth-shadow" } elseif ($EnableClassification) { "email-classification-shadow" } else { "email-fetch-shadow" }
+$componentName = if ($StableRuntime) { "email" } elseif ($EnableExport) { "email-export-shadow" } elseif ($EnableOAuth) { "email-oauth-shadow" } elseif ($EnableClassification) { "email-classification-shadow" } else { "email-fetch-shadow" }
 $writeCapabilities = @("mail.count", "mail.fetch")
 if ($EnableClassification) {
   $writeCapabilities += @("message.tag", "rules.apply", "rules.manage")
@@ -36,10 +46,14 @@ if ($EnableClassification) {
 if ($EnableOAuth) { $writeCapabilities += "oauth.manage" }
 if ($EnableExport) { $writeCapabilities += "vault.export" }
 
-if (-not (Test-Path -LiteralPath $sourceDatabase -PathType Leaf)) {
+if ($RefreshSnapshot -and -not (Test-Path -LiteralPath $sourceDatabase -PathType Leaf)) {
   throw "Legacy Email database was not found."
 }
+if ($RefreshSnapshot -and $InitializeFreshDatabase) {
+  throw "RefreshSnapshot and InitializeFreshDatabase are mutually exclusive."
+}
 if ($Port -lt 1 -or $Port -gt 65535) { throw "Port must be between 1 and 65535." }
+if ($HomepagePort -lt 1 -or $HomepagePort -gt 65535) { throw "HomepagePort must be between 1 and 65535." }
 if ($OAuthCallbackPort -lt 1 -or $OAuthCallbackPort -gt 65535) { throw "OAuth callback port must be between 1 and 65535." }
 if ($EnableOAuth -and -not $EnableClassification) {
   throw "The OAuth profile must retain the accepted classification capabilities."
@@ -50,8 +64,11 @@ if ($EnableExport -and -not $EnableOAuth) {
 if (($BackupCandidate -or $RefreshCandidateBackup) -and -not $EnableClassification) {
   throw "Candidate backup is supported only for the classification profile."
 }
-if ($EnableOAuth -and $Port -eq $OAuthCallbackPort) {
-  throw "Email and OAuth callback ports must be different."
+if ($InitializeFreshDatabase -and ($BackupCandidate -or $RefreshCandidateBackup)) {
+  throw "A fresh Email database cannot also use a candidate-database backup action."
+}
+if ($Port -eq $HomepagePort -or ($EnableOAuth -and $OAuthCallbackPort -in @($Port, $HomepagePort))) {
+  throw "Email, Homepage, and enabled OAuth callback ports must be different."
 }
 
 $vaultPrefix = $resolvedVault.TrimEnd('\') + '\'
@@ -146,6 +163,10 @@ $accountCount = 0
 $credentialEnvironmentFileCount = 0
 $oauthTokenFileCount = 0
 
+if ($InitializeFreshDatabase -and (Test-Path -LiteralPath $candidateDatabase)) {
+  throw "Fresh Email initialization requires an empty database path; the existing database was not changed."
+}
+
 if ($PrepareFetchProfile) {
   if (-not (Test-Path -LiteralPath $legacyConfigPath -PathType Leaf)) {
     throw "Legacy Email configuration was not found."
@@ -228,16 +249,17 @@ $oauthTokenBackupAction = if ($EnableOAuth -and $oauthTokenFileCount -gt $oauthT
   "none"
 }
 
-$sourceInfo = Get-Item -LiteralPath $sourceDatabase
+$sourceInfo = if ($RefreshSnapshot) { Get-Item -LiteralPath $sourceDatabase } else { $null }
 $plan = [ordered]@{
   component = $componentName
   repository = $repoRoot
   vaultAuthority = $resolvedVault
   localState = $componentState
-  sourceDatabaseBytes = $sourceInfo.Length
-  sourceWalPresent = Test-Path -LiteralPath ($sourceDatabase + "-wal") -PathType Leaf
-  sourceShmPresent = Test-Path -LiteralPath ($sourceDatabase + "-shm") -PathType Leaf
-  snapshotAction = if ($RefreshSnapshot) { "consistent-sqlite-backup" } else { "retain-existing" }
+  sourceDatabaseBytes = if ($null -ne $sourceInfo) { $sourceInfo.Length } else { $null }
+  sourceWalPresent = [bool]($RefreshSnapshot -and (Test-Path -LiteralPath ($sourceDatabase + "-wal") -PathType Leaf))
+  sourceShmPresent = [bool]($RefreshSnapshot -and (Test-Path -LiteralPath ($sourceDatabase + "-shm") -PathType Leaf))
+  databaseAction = if ($InitializeFreshDatabase) { "initialize-empty" } elseif ($RefreshSnapshot) { "consistent-sqlite-backup" } else { "retain-existing" }
+  snapshotAction = if ($RefreshSnapshot) { "consistent-sqlite-backup" } elseif ($InitializeFreshDatabase) { "not-used" } else { "retain-existing" }
   snapshotReady = Test-Path -LiteralPath $candidateDatabase -PathType Leaf
   candidateBackupAction = $candidateBackupAction
   candidateBackupReady = $candidateBackupExists
@@ -257,6 +279,7 @@ $plan = [ordered]@{
   vaultExportEnabled = [bool]$EnableExport
   imapMailboxMode = "read-only"
   port = $Port
+  homepagePort = $HomepagePort
   mode = "limited-write"
   legacyProcessChanged = $false
 }
@@ -328,8 +351,8 @@ if ($RefreshSnapshot) {
   & python (Join-Path $repoRoot "Email\snapshot_db.py") --source $sourceDatabase --destination $candidateDatabase
   if ($LASTEXITCODE -ne 0) { throw "Consistent Email database snapshot failed." }
 }
-if (-not (Test-Path -LiteralPath $candidateDatabase -PathType Leaf)) {
-  throw "Email snapshot is not initialized. Re-run with -RefreshSnapshot -Apply."
+if (-not $InitializeFreshDatabase -and -not (Test-Path -LiteralPath $candidateDatabase -PathType Leaf)) {
+  throw "Email database is not initialized. Use -InitializeFreshDatabase or -RefreshSnapshot with -Apply."
 }
 if (-not (Test-Path -LiteralPath $candidateConfigPath -PathType Leaf)) {
   throw "Email fetch profile is not initialized. Re-run with -PrepareFetchProfile -Apply."
@@ -342,8 +365,9 @@ $env:NICA_EMAIL_CAPABILITIES = $writeCapabilities -join ","
 $env:EMAIL_HOST = "127.0.0.1"
 $env:EMAIL_PORT = [string]$Port
 $env:EMAIL_OAUTH_CALLBACK_PORT = [string]$OAuthCallbackPort
+$env:NICA_HOMEPAGE_URL = "http://127.0.0.1:$HomepagePort"
 
-$logPrefix = if ($EnableExport) { "email-export" } elseif ($EnableOAuth) { "email-oauth" } elseif ($EnableClassification) { "email-classification" } else { "email-fetch" }
+$logPrefix = if ($StableRuntime) { "email" } elseif ($EnableExport) { "email-export" } elseif ($EnableOAuth) { "email-oauth" } elseif ($EnableClassification) { "email-classification" } else { "email-fetch" }
 $stdout = Join-Path $componentState ($logPrefix + ".out.log")
 $stderr = Join-Path $componentState ($logPrefix + ".err.log")
 $serverPath = Join-Path $repoRoot "Email\email_tool.py"
@@ -355,8 +379,10 @@ $manifest = [ordered]@{
   vaultAuthority = $resolvedVault
   stateRoot = $resolvedState
   port = $Port
+  homepagePort = $HomepagePort
   mode = "limited-write"
   writeCapabilities = $writeCapabilities
+  databaseInitializedFresh = [bool]$InitializeFreshDatabase
   snapshotRefreshed = [bool]$RefreshSnapshot
   fetchProfilePrepared = [bool]$PrepareFetchProfile
   classificationEnabled = [bool]$EnableClassification
@@ -420,6 +446,9 @@ try {
     }
     throw "$componentName did not become healthy with the planned authority and capabilities."
   }
+  if ($InitializeFreshDatabase -and -not (Test-Path -LiteralPath $candidateDatabase -PathType Leaf)) {
+    throw "Email service did not create the planned fresh database."
+  }
 
   $disabledRoutes = @()
   if (-not $EnableExport) {
@@ -443,6 +472,11 @@ try {
   Stop-Process -Id $proc.Id -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $manifestPath -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath (Join-Path $componentState "email.preview.pid") -Force -ErrorAction SilentlyContinue
+  if ($InitializeFreshDatabase) {
+    foreach ($databaseArtifact in @($candidateDatabase, $candidateDatabase + "-wal", $candidateDatabase + "-shm")) {
+      Remove-Item -LiteralPath $databaseArtifact -Force -ErrorAction SilentlyContinue
+    }
+  }
   throw
 }
 

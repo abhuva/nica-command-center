@@ -22,6 +22,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SERVER = REPO_ROOT / "Email" / "email_tool.py"
 START_SCRIPT = REPO_ROOT / "scripts" / "start-email-fetch-shadow.ps1"
 STOP_SCRIPT = REPO_ROOT / "scripts" / "stop-email-read.ps1"
+START_STABLE_SCRIPT = REPO_ROOT / "scripts" / "start-email.ps1"
+STOP_STABLE_SCRIPT = REPO_ROOT / "scripts" / "stop-email.ps1"
 
 
 def free_port() -> int:
@@ -181,6 +183,162 @@ def launcher_smoke() -> None:
         )
 
 
+def fresh_database_launcher_smoke() -> None:
+    """Start the stable runtime with an empty database and no legacy database."""
+    powershell = shutil.which("powershell.exe") or shutil.which("powershell")
+    if not powershell:
+        print("Fresh Email launcher smoke skipped: Windows PowerShell unavailable")
+        return
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
+        root = Path(temp_dir)
+        vault = root / "vault"
+        legacy_email = vault / "Tools" / "Email"
+        state = root / "state"
+        legacy_email.mkdir(parents=True)
+        (legacy_email / "config.local.json").write_text(
+            json.dumps({
+                "database": "email.db",
+                "accounts": [{
+                    "id": "fixture",
+                    "email": "fixture@example.test",
+                    "server": "imap.example.test",
+                    "passwordEnv": "SYNTHETIC_EMAIL_SECRET",
+                    "enabled": False,
+                }],
+            }),
+            encoding="utf-8",
+        )
+        (legacy_email / ".env").write_text("SYNTHETIC_EMAIL_SECRET=fixture-only\n", encoding="utf-8")
+        port = free_port()
+        oauth_port = free_port()
+        common = [
+            powershell,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(START_STABLE_SCRIPT),
+            "-VaultRoot",
+            str(vault),
+            "-StateRoot",
+            str(state),
+            "-Port",
+            str(port),
+            "-OAuthCallbackPort",
+            str(oauth_port),
+            "-PrepareProfileFromLegacy",
+            "-InitializeFreshDatabase",
+        ]
+        plan = subprocess.run(common, capture_output=True, text=True, timeout=20, check=False)
+        assert plan.returncode == 0, plan.stderr
+        assert '"databaseAction":  "initialize-empty"' in plan.stdout or '"databaseAction": "initialize-empty"' in plan.stdout
+        assert '"sourceDatabaseBytes":  null' in plan.stdout or '"sourceDatabaseBytes": null' in plan.stdout
+        assert not state.exists()
+
+        applied = subprocess.run(
+            common + ["-Apply"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=30,
+            check=False,
+        )
+        candidate = state / "email"
+        diagnostic_path = candidate / "email.err.log"
+        diagnostic = diagnostic_path.read_text(encoding="utf-8", errors="replace") if diagnostic_path.exists() else ""
+        assert applied.returncode == 0, diagnostic
+        database = candidate / "email.db"
+        assert database.is_file()
+        with sqlite3.connect(database) as connection:
+            assert connection.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 1
+            marker = connection.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='synthetic_marker'"
+            ).fetchone()[0]
+            assert marker == 0
+        health = wait_for_ping(f"http://127.0.0.1:{port}/api/ping")
+        assert health["mode"] == "limited-write"
+        assert all(health["writeCapabilities"][name] is True for name in (
+            "mailCount",
+            "mailFetch",
+            "messageTag",
+            "oauthManage",
+            "rulesApply",
+            "rulesManage",
+            "vaultExport",
+        ))
+
+        stopped = subprocess.run(
+            [
+                powershell,
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(STOP_STABLE_SCRIPT),
+                "-StateRoot",
+                str(state),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=20,
+            check=False,
+        )
+        assert stopped.returncode == 0, stopped.stderr
+        original_bytes = database.read_bytes()
+
+        refused = subprocess.run(common + ["-Apply"], capture_output=True, text=True, timeout=20, check=False)
+        assert refused.returncode != 0
+        assert "requires an empty database path" in refused.stderr
+        assert database.read_bytes() == original_bytes
+
+        restart = subprocess.run(
+            [
+                powershell,
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(START_STABLE_SCRIPT),
+                "-VaultRoot",
+                str(vault),
+                "-StateRoot",
+                str(state),
+                "-Port",
+                str(port),
+                "-OAuthCallbackPort",
+                str(oauth_port),
+                "-Apply",
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=30,
+            check=False,
+        )
+        assert restart.returncode == 0
+        assert wait_for_ping(f"http://127.0.0.1:{port}/api/ping")["ok"] is True
+        subprocess.run(
+            [
+                powershell,
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(STOP_STABLE_SCRIPT),
+                "-StateRoot",
+                str(state),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=20,
+            check=True,
+        )
+
+
 def main() -> None:
     """Verify bounded fetch routing, health metadata, and fail-closed startup."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
@@ -263,6 +421,7 @@ def main() -> None:
         assert "Unknown Email write capabilities" in invalid.stderr
 
     launcher_smoke()
+    fresh_database_launcher_smoke()
     print("Email bounded-fetch capability smoke check passed")
 
 
