@@ -1,6 +1,6 @@
 # Gate 5: Email bounded-export shadow
 
-**Status:** synthetic and browser verification complete; live activation pending
+**Status:** live one-note pilot verified; remaining batch pending confirmation
 
 **Date:** 2026-10-07
 
@@ -125,17 +125,34 @@ deleted automatically during profile rollback.
   frontmatter only for 51 ambiguous-timestamp messages. A read-only local run
   produced the expected aggregate result in 28.98 seconds: 516 new, 4,125
   existing-archive, zero unchanged, and zero conflicts.
+- The optimized profile was activated again on `4276` with the exact reviewed
+  capabilities; direct export returned HTTP 409 and legacy `4176` remained
+  healthy. The server-side full preview completed with 4,641 included messages:
+  516 new, 4,125 existing-archive, zero unchanged, and zero conflicts. Vault
+  file count and latest-write time remained unchanged by preview.
+- Live Playwright MCP verification showed the bounded-export status and, for the
+  selected account, 139 new and 337 existing-archive notes with zero conflicts.
+  Cancel did not apply the plan, the 375-by-812 viewport had no horizontal
+  overflow, and the console had no warnings or errors.
+- After explicit approval, a fresh one-message preview still reported exactly
+  one new note and zero conflicts. Apply published exactly one file, increasing
+  the vault count from 11,751 to 11,752. The corresponding database and export
+  metadata paths and hashes match the published file, no staging file remains,
+  and both Email services stayed healthy. The dashboard reported one exported
+  message with no browser-console warnings.
+- The post-pilot full preview reported 515 new, one unchanged, 4,125
+  existing-archive, and zero conflicts. The remaining batch was not applied.
 
 ## Live acceptance checklist
 
 - [x] Review a live launcher plan that retains the accepted candidate database,
   account profile, OAuth tokens, and token recovery copies.
-- [ ] Confirm migrated `4276` and legacy `4176` are healthy before activation.
-- [ ] Activate `vault.export` on `4276` without refreshing accepted state.
-- [ ] Confirm exact health capabilities and direct-export rejection.
-- [ ] Run a live export preview and review aggregate create, unchanged, and
+- [x] Confirm migrated `4276` and legacy `4176` are healthy before activation.
+- [x] Activate `vault.export` on `4276` without refreshing accepted state.
+- [x] Confirm exact health capabilities and direct-export rejection.
+- [x] Run a live export preview and review aggregate create, unchanged, and
   legacy-existing/conflict counts without logging message names or content.
-- [ ] Apply an explicitly accepted bounded export and verify its projection and
+- [x] Apply an explicitly accepted bounded export and verify its projection and
   database metadata.
-- [ ] Rehearse rollback to the accepted OAuth profile.
+- [x] Rehearse rollback to the accepted OAuth profile.
 - [ ] Marc confirms the normal Email export workflow is usable.

@@ -263,10 +263,12 @@ block the batch. The first live preview exposed the older flat archive schema
 before any apply; it would have duplicated existing projections, so `4276` was
 rolled back with the vault unchanged. The revised preview recognizes those
 notes by account slug and timestamp, with bounded UID checks only for ambiguous
-timestamps, and reports them separately without rewriting them. Live `4276`
-remains on the accepted OAuth profile, so no live
-vault export has occurred. Legacy Email `4176` remains the production workflow
-for export and the warm fallback. See [Gate 5 Email bounded-export shadow record](gate-5-email-export-shadow.md).
+timestamps, and reports them separately without rewriting them. The optimized
+profile is active on `4276`; a one-note pilot passed file, hash, database,
+browser, and health verification. The remaining full preview contains 515 new,
+one unchanged, 4,125 existing-archive, and zero conflicting notes and has not
+been applied. Legacy Email `4176` remains the warm fallback. See [Gate 5 Email
+bounded-export shadow record](gate-5-email-export-shadow.md).
 
 Use the following sequence for each capability:
 

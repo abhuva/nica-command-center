@@ -238,8 +238,8 @@ block apply. Notes in the established flat Email archive are recognized by
 account folder and timestamp, with a bounded UID check for ambiguous matches;
 they are reported separately and never rewritten. Roll back by
 stopping the export profile and starting `start-email-oauth-shadow.ps1 -Apply`.
-Legacy Email `4176` remains available throughout. Live activation is still
-pending.
+Legacy Email `4176` remains available throughout. The live profile is active
+after a verified one-note pilot; the remaining batch is pending.
 
 ## Ziele
 

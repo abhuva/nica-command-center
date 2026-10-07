@@ -196,4 +196,5 @@ Roll back without refreshing accepted state:
 ```
 
 Validate this slice with `npm.cmd run check:email-export-shadow` from the
-repository root. Live activation remains pending.
+repository root. Live `4276` is active after a verified one-note pilot; the
+remaining batch is pending.
