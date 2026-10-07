@@ -31,6 +31,8 @@ const KALENDER_MAP_BASE_PATH = "6. Obsidian/Live/Kalender.base";
 const OBSIDIAN_VAULT_NAME = String(process.env.OBSIDIAN_VAULT_NAME || "").trim();
 const OBSIDIAN_ACTIONS_ENABLED =
   String(process.env.NICA_OBSIDIAN_ACTIONS_ENABLED || "").trim().toLowerCase() === "true";
+const VAULT_EVENT_CREATE_ENABLED =
+  String(process.env.NICA_CALENDAR_VAULT_CREATE_ENABLED || "").trim().toLowerCase() === "true";
 const ALLOW_MARKDOWN_FALLBACK = ["true", "yes", "1", "on"].includes(
   String(process.env.ALLOW_MARKDOWN_FALLBACK || "").trim().toLowerCase()
 );
@@ -70,6 +72,7 @@ const NEXTCLOUD_DEFAULT_CREATE_CALENDAR_ID =
 const BOOKMARKS_FILE = path.resolve(VAULT_ROOT, ".obsidian", "bookmarks.json");
 const FILTER_STATE_FILE = path.resolve(STATE_DIR, "calendar.filter-state.json");
 const PID_FILE = path.resolve(STATE_DIR, "calendar.preview.pid");
+const VAULT_EVENT_AUDIT_FILE = path.resolve(STATE_DIR, "audit", "vault-event-creation.jsonl");
 const PUBLIC_EXPORT_DIR = resolvePublicExportDir(process.env.CALENDAR_PUBLIC_EXPORT_DIR);
 const PUBLIC_SFTP_URL = String(process.env.CALENDAR_PUBLIC_SFTP_URL || "").trim();
 const PUBLIC_SFTP_USER = String(process.env.CALENDAR_PUBLIC_SFTP_USER || "").trim();
@@ -814,16 +817,25 @@ function normalizeTitleToFileBase(title) {
 }
 
 /**
- * Resolves and creates the configured inbox directory inside the vault.
+ * Resolves the configured inbox directory inside the vault.
  * @returns {string} Absolute inbox directory path.
  */
 function resolveInboxDirectory() {
   const normalized = INBOX_PATH.replace(/\\/g, "/").replace(/^\/+/, "");
   const resolved = path.resolve(VAULT_ROOT, normalized);
-  if (!resolved.startsWith(VAULT_ROOT)) {
+  const relativeToVault = path.relative(VAULT_ROOT, resolved);
+  if (relativeToVault.startsWith("..") || path.isAbsolute(relativeToVault)) {
     throw new Error(`Inbox path escapes vault: ${INBOX_PATH}`);
   }
-  fs.mkdirSync(resolved, { recursive: true });
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+    throw new Error(`Configured Calendar inbox does not exist: ${INBOX_PATH}`);
+  }
+  const canonicalVault = fs.realpathSync(VAULT_ROOT);
+  const canonicalInbox = fs.realpathSync(resolved);
+  const relativeCanonicalPath = path.relative(canonicalVault, canonicalInbox);
+  if (relativeCanonicalPath.startsWith("..") || path.isAbsolute(relativeCanonicalPath)) {
+    throw new Error(`Inbox path resolves outside vault: ${INBOX_PATH}`);
+  }
   return resolved;
 }
 
@@ -845,55 +857,154 @@ function pickUniqueFilePath(dirPath, fileBaseName) {
 }
 
 /**
- * Creates a new markdown event note in the inbox and returns its event payload.
- * @param {{title: unknown, start: string, end: string, allDay: boolean}} payload - Event creation data.
- * @returns {{sourcePath: string, event: object}} Created note path and FullCalendar event payload.
+ * Normalizes, validates, and fingerprints one proposed vault-event creation.
+ * @param {object} payload - Event creation request.
+ * @returns {object} Deterministic plan for preview and apply.
  */
-function createEventMarkdownFile({ title, start, end, allDay }) {
-  const safeTitle = String(title || "").trim();
+function buildVaultEventPlan(payload) {
+  const safeTitle = String(payload?.title || "").trim();
   if (!safeTitle) throw new Error("Missing title");
-  if (!isDateOrDateTime(start) || !isDateOrDateTime(end)) {
+  if (safeTitle.length > 160) throw new Error("Title must not exceed 160 characters");
+  if (/[\x00-\x1F\x7F]/.test(safeTitle)) throw new Error("Title contains unsupported control characters");
+
+  const start = normalizeCalendarDateLike(payload?.start ?? payload?.startDate ?? "");
+  const normalizedEnd = normalizeCalendarDateLike(payload?.end ?? payload?.endDate ?? "") || start;
+  const allDay =
+    payload?.allDay === true ||
+    payload?.allDay === "true" ||
+    (payload?.allDay == null && isIsoDate(start) && isIsoDate(normalizedEnd));
+  const schedule = allDay
+    ? { start: toIsoDatePart(start), end: toIsoDatePart(normalizedEnd), allDay: true }
+    : { start, end: normalizedEnd, allDay: false };
+
+  if (!schedule.start || !schedule.end || !isDateOrDateTime(schedule.start) || !isDateOrDateTime(schedule.end)) {
     throw new Error("start/end must be YYYY-MM-DD or YYYY-MM-DDTHH:mm[:ss][timezone]");
   }
+  const startValue = Date.parse(schedule.allDay ? `${schedule.start}T00:00:00Z` : schedule.start);
+  const endValue = Date.parse(schedule.allDay ? `${schedule.end}T00:00:00Z` : schedule.end);
+  if (!Number.isFinite(startValue) || !Number.isFinite(endValue)) throw new Error("Event dates are invalid");
+  if (endValue < startValue) throw new Error("Event end must not be before its start");
 
   const inboxDir = resolveInboxDirectory();
   const filePath = pickUniqueFilePath(inboxDir, safeTitle);
+  const sourcePath = path.relative(VAULT_ROOT, filePath).replace(/\\/g, "/");
+  const planCore = {
+    version: 1,
+    title: safeTitle,
+    schedule,
+    sourcePath
+  };
+  const planId = crypto.createHash("sha256").update(JSON.stringify(planCore)).digest("hex");
+
+  return {
+    ok: true,
+    canApply: true,
+    requiresConfirmation: true,
+    planId,
+    ...planCore
+  };
+}
+
+/**
+ * Renders a canonical Markdown event note from a confirmed plan.
+ * @param {object} plan - Confirmed vault-event plan.
+ * @returns {string} Complete Markdown note content.
+ */
+function renderVaultEventMarkdown(plan) {
+  const { title, schedule } = plan;
   const lineBreak = "\n";
-  const isTimed = allDay === false;
-  const frontmatter =
+  const isTimed = schedule.allDay === false;
+  return (
     `---${lineBreak}` +
-    `title: ${yamlQuote(safeTitle)}${lineBreak}` +
+    `title: ${yamlQuote(title)}${lineBreak}` +
     (isTimed
-      ? `event_start: ${start}${lineBreak}event_end: ${end}${lineBreak}`
-      : `startDate: ${start}${lineBreak}endDate: ${end}${lineBreak}`) +
+      ? `event_start: ${schedule.start}${lineBreak}event_end: ${schedule.end}${lineBreak}`
+      : `startDate: ${schedule.start}${lineBreak}endDate: ${schedule.end}${lineBreak}`) +
     `event_background: false${lineBreak}` +
     `tags:${lineBreak}` +
     `  - event${lineBreak}` +
     `---${lineBreak}${lineBreak}` +
-    `# ${safeTitle}${lineBreak}`;
+    `# ${title}${lineBreak}`
+  );
+}
 
-  fs.writeFileSync(filePath, frontmatter, "utf8");
+/**
+ * Records a minimal vault-event creation audit record without title or path.
+ * @param {{outcome: string, plan?: object, code?: string}} event - Audit outcome.
+ * @returns {void}
+ */
+function appendVaultEventAudit(event) {
+  try {
+    fs.mkdirSync(path.dirname(VAULT_EVENT_AUDIT_FILE), { recursive: true });
+    const record = {
+      timestamp: new Date().toISOString(),
+      event: "calendar.vault-event.create",
+      outcome: String(event?.outcome || "unknown"),
+      plan: String(event?.plan?.planId || "").slice(0, 12),
+      allDay: Boolean(event?.plan?.schedule?.allDay),
+      date: String(event?.plan?.schedule?.start || "").slice(0, 10),
+      code: String(event?.code || "")
+    };
+    fs.appendFileSync(VAULT_EVENT_AUDIT_FILE, `${JSON.stringify(record)}\n`, "utf8");
+  } catch (error) {
+    console.error(`Calendar vault-event audit write failed: ${error?.code || "UNKNOWN"}`);
+  }
+}
 
-  const sourcePath = path.relative(VAULT_ROOT, filePath).replace(/\\/g, "/");
+/**
+ * Atomically publishes a confirmed Markdown event note in the configured inbox.
+ * @param {object} payload - Confirmed event creation request including `planId`.
+ * @returns {{sourcePath: string, event: object, planId: string}} Creation result.
+ */
+function createVaultEvent(payload) {
+  const plan = buildVaultEventPlan(payload);
+  const suppliedPlanId = String(payload?.planId || "").trim().toLowerCase();
+  if (!suppliedPlanId || suppliedPlanId !== plan.planId) {
+    const error = new Error("Event plan is stale or was not confirmed");
+    error.code = "NICA_CALENDAR_PLAN_MISMATCH";
+    throw error;
+  }
+
+  const filePath = path.resolve(VAULT_ROOT, plan.sourcePath);
+  const inboxDir = resolveInboxDirectory();
+  const stagingPath = path.join(inboxDir, `_nica-calendar-staging-${crypto.randomUUID()}.tmp`);
+  try {
+    fs.writeFileSync(stagingPath, renderVaultEventMarkdown(plan), { encoding: "utf8", flag: "wx" });
+    try {
+      fs.linkSync(stagingPath, filePath);
+    } catch (error) {
+      if (error?.code === "EEXIST") {
+        const conflict = new Error("Event target was created while preparing the note");
+        conflict.code = "NICA_CALENDAR_TARGET_CONFLICT";
+        throw conflict;
+      }
+      throw error;
+    }
+  } finally {
+    if (fs.existsSync(stagingPath)) fs.rmSync(stagingPath, { force: true });
+  }
+
+  const { schedule } = plan;
   const event = {
-    id: sourcePath,
-    title: safeTitle,
-    start,
-    allDay: !isTimed,
+    id: plan.sourcePath,
+    title: plan.title,
+    start: schedule.start,
+    allDay: schedule.allDay,
     extendedProps: {
-      sourcePath
+      sourcePath: plan.sourcePath
     }
   };
 
-  if (isTimed) {
-    if (start !== end) event.end = end;
-  } else if (start !== end) {
-    event.end = addOneDay(end);
+  if (!schedule.allDay) {
+    if (schedule.start !== schedule.end) event.end = schedule.end;
+  } else if (schedule.start !== schedule.end) {
+    event.end = addOneDay(schedule.end);
   }
 
   return {
-    sourcePath,
-    event
+    sourcePath: plan.sourcePath,
+    event,
+    planId: plan.planId
   };
 }
 
@@ -954,7 +1065,7 @@ function readRequestBody(req) {
  */
 function withVaultArgs(args) {
   if (!OBSIDIAN_VAULT_NAME) return args;
-  return [args[0], `vault=${OBSIDIAN_VAULT_NAME}`, ...args.slice(1)];
+  return [`vault=${OBSIDIAN_VAULT_NAME}`, ...args];
 }
 
 /**
@@ -3081,8 +3192,20 @@ const server = http.createServer((req, res) => {
   const requestUrl = new URL(req.url || "/", `http://${req.headers.host || `${HOST}:${PORT}`}`);
 
   if (req.method === "GET" && req.url === "/api/ping") {
+    const health = runtimeHealth("calendar", VAULT_ROOT, STATE_DIR);
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-    res.end(JSON.stringify({ ok: true, ...runtimeHealth("calendar", VAULT_ROOT, STATE_DIR) }));
+    res.end(
+      JSON.stringify({
+        ok: true,
+        ...health,
+        mode: VAULT_EVENT_CREATE_ENABLED ? "limited-write" : health.mode,
+        writesEnabled: health.writesEnabled || VAULT_EVENT_CREATE_ENABLED,
+        writeCapabilities: {
+          vaultEventCreate: VAULT_EVENT_CREATE_ENABLED,
+          unrestricted: health.writesEnabled
+        }
+      })
+    );
     return;
   }
 
@@ -3102,6 +3225,17 @@ const server = http.createServer((req, res) => {
       res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
       res.end(JSON.stringify({ ok: true, theme }));
     } catch (error) {
+      if (ALLOW_MARKDOWN_FALLBACK) {
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            fallback: true,
+            theme: { mode: "unknown", classes: "", cssTheme: "", baseTheme: "", vars: {} }
+          })
+        );
+        return;
+      }
       res.writeHead(502, { "Content-Type": "text/plain; charset=utf-8" });
       res.end(error.message || "Could not read Obsidian theme");
     }
@@ -3205,13 +3339,15 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "POST") {
-    if (!isWriteEnabled()) {
+    const isVaultCreateRoute =
+      requestUrl.pathname === "/api/events/create/plan" || requestUrl.pathname === "/api/events/create";
+    if (!isWriteEnabled() && !(VAULT_EVENT_CREATE_ENABLED && isVaultCreateRoute)) {
       res.writeHead(403, { "Content-Type": "application/json; charset=utf-8" });
       res.end(
         JSON.stringify({
           ok: false,
           code: "NICA_READ_ONLY",
-          message: "Action disabled: set NICA_WRITE_ENABLED=true in an intentional apply run"
+          message: "Action is not enabled for this Calendar runtime"
         })
       );
       return;
@@ -3614,6 +3750,34 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === "POST" && req.url === "/api/events/create/plan") {
+    readRequestBody(req)
+      .then((rawBody) => {
+        let payload;
+        try {
+          payload = JSON.parse(rawBody || "{}");
+        } catch {
+          res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+          res.end("Invalid JSON payload");
+          return;
+        }
+
+        try {
+          const plan = buildVaultEventPlan(payload);
+          res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+          res.end(JSON.stringify(plan));
+        } catch (error) {
+          res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+          res.end(JSON.stringify({ ok: false, code: "NICA_CALENDAR_PLAN_INVALID", message: error.message }));
+        }
+      })
+      .catch((error) => {
+        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end(error.message || "Unknown error while planning event");
+      });
+    return;
+  }
+
   if (req.method === "POST" && req.url === "/api/events/create") {
     readRequestBody(req)
       .then((rawBody) => {
@@ -3626,43 +3790,48 @@ const server = http.createServer((req, res) => {
           return;
         }
 
-        const title = String(payload.title || "").trim();
-        const start = normalizeCalendarDateLike(payload.start ?? payload.startDate ?? "");
-        const end = normalizeCalendarDateLike(payload.end ?? payload.endDate ?? "") || start;
-        const allDay =
-          payload.allDay === true ||
-          payload.allDay === "true" ||
-          (payload.allDay == null && isIsoDate(start) && isIsoDate(end));
-
-        if (!title) {
-          res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
-          res.end("Missing title");
-          return;
-        }
-        if (!isDateOrDateTime(start) || !isDateOrDateTime(end)) {
-          res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
-          res.end("start/end must be YYYY-MM-DD or YYYY-MM-DDTHH:mm[:ss][timezone]");
+        let plan = null;
+        try {
+          plan = buildVaultEventPlan(payload);
+        } catch (error) {
+          appendVaultEventAudit({ outcome: "rejected", code: "NICA_CALENDAR_PLAN_INVALID" });
+          res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+          res.end(
+            JSON.stringify({
+              ok: false,
+              code: "NICA_CALENDAR_PLAN_INVALID",
+              message: error.message || "Invalid event plan"
+            })
+          );
           return;
         }
 
         try {
-          const schedule = allDay
-            ? { start: toIsoDatePart(start), end: toIsoDatePart(end), allDay: true }
-            : { start, end, allDay: false };
-          if (!schedule.start || !schedule.end) {
-            res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
-            res.end("Could not derive valid start/end values");
-            return;
-          }
-          const result = createEventMarkdownFile({ title, ...schedule });
+          const result = createVaultEvent(payload);
+          appendVaultEventAudit({ outcome: "created", plan });
           res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
           res.end(JSON.stringify({ ok: true, ...result }));
         } catch (error) {
-          res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
-          res.end(error.message || "Could not create event");
+          const mismatch = error?.code === "NICA_CALENDAR_PLAN_MISMATCH";
+          const targetConflict = error?.code === "NICA_CALENDAR_TARGET_CONFLICT";
+          const rejected = mismatch || targetConflict;
+          appendVaultEventAudit({
+            outcome: rejected ? "rejected" : "failed",
+            plan,
+            code: error?.code || "NICA_CALENDAR_CREATE_FAILED"
+          });
+          res.writeHead(rejected ? 409 : 500, { "Content-Type": "application/json; charset=utf-8" });
+          res.end(
+            JSON.stringify({
+              ok: false,
+              code: error?.code || "NICA_CALENDAR_CREATE_FAILED",
+              message: error.message || "Could not create event"
+            })
+          );
         }
       })
       .catch((error) => {
+        appendVaultEventAudit({ outcome: "failed", code: "NICA_CALENDAR_REQUEST_FAILED" });
         res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
         res.end(error.message || "Unknown error while creating event");
       });
@@ -3794,9 +3963,10 @@ server.on("error", (error) => {
 server.listen(PORT, HOST, () => {
   writePidFile();
   console.log(`Calendar preview server: http://${HOST}:${PORT}/cal.html`);
-  console.log(`Runtime mode: ${isWriteEnabled() ? "read-write" : "read-only"}; vault authority: ${VAULT_ROOT}`);
+  const runtimeMode = isWriteEnabled() ? "read-write" : VAULT_EVENT_CREATE_ENABLED ? "limited-write" : "read-only";
+  console.log(`Runtime mode: ${runtimeMode}; vault authority: ${VAULT_ROOT}`);
   console.log(
-    "Calendar API endpoints ready: GET /api/ping, GET /api/obsidian/theme, GET /api/calendar/filters, GET /api/google-calendar/config, GET /api/google-calendar/events, GET /api/google-oauth/status, GET /api/google-oauth/start, GET /api/google-oauth/callback, GET /api/nextcloud-calendar/config, GET /api/nextcloud-calendar/events, GET /api/session, GET /api/events/preview, POST /api/google-oauth/disconnect, POST /api/google-calendar/events/create, POST /api/google-calendar/events/update, POST /api/google-calendar/events/delete, POST /api/nextcloud-calendar/events/create, POST /api/nextcloud-calendar/events/update, POST /api/nextcloud-calendar/events/delete, POST /api/events/update-dates, POST /api/events/open-note, POST /api/events/open-map, POST /api/events/create, POST /api/events/rebuild, POST /api/events/publish-public"
+    "Calendar API endpoints ready: GET /api/ping, GET /api/obsidian/theme, GET /api/calendar/filters, GET /api/google-calendar/config, GET /api/google-calendar/events, GET /api/google-oauth/status, GET /api/google-oauth/start, GET /api/google-oauth/callback, GET /api/nextcloud-calendar/config, GET /api/nextcloud-calendar/events, GET /api/session, GET /api/events/preview, POST /api/google-oauth/disconnect, POST /api/google-calendar/events/create, POST /api/google-calendar/events/update, POST /api/google-calendar/events/delete, POST /api/nextcloud-calendar/events/create, POST /api/nextcloud-calendar/events/update, POST /api/nextcloud-calendar/events/delete, POST /api/events/update-dates, POST /api/events/open-note, POST /api/events/open-map, POST /api/events/create/plan, POST /api/events/create, POST /api/events/rebuild, POST /api/events/publish-public"
   );
 });
 

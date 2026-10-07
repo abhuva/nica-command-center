@@ -214,6 +214,13 @@ limited to `project.create`, and legacy Homepage `4174` remains the warm
 fallback. See [Gate 5 project creation
 cutover](gate-5-project-creation-cutover.md).
 
+Calendar vault-event creation is accepted after technical cutover, rollback
+verification, and Marc's normal workflow confirmation on 2026-10-07. Live
+`4273` enables only `vault-event.create`; Google, CalDAV, OAuth, edit, rebuild,
+Obsidian-action, and publishing routes remain disabled. Legacy Calendar `4173`
+remains the warm fallback. See [Gate 5 Calendar vault-event creation
+cutover](gate-5-calendar-vault-write-cutover.md).
+
 Use the following sequence for each capability:
 
 1. Confirm production is healthy.

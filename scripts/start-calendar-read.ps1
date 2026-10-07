@@ -7,6 +7,7 @@ param(
   [int]$Port = 4273,
   [switch]$InitializeReadProfile,
   [switch]$AllowMarkdownFallback,
+  [switch]$EnableVaultEventCreate,
   [switch]$Apply
 )
 
@@ -41,6 +42,10 @@ $readProfilePath = Join-Path $configDir "calendar-read.env"
 $manifestPath = Join-Path $componentState "calendar-read-process.json"
 $pidPath = Join-Path $componentState "calendar.preview.pid"
 $generatedEventsPath = Join-Path $componentState "events.generated.js"
+$componentName = if ($EnableVaultEventCreate) { "calendar-vault-write" } else { "calendar-read" }
+$runtimeMode = if ($EnableVaultEventCreate) { "limited-write" } else { "read-only" }
+$writeCapabilities = [System.Collections.Generic.List[string]]::new()
+if ($EnableVaultEventCreate) { $writeCapabilities.Add("vault-event.create") }
 $legacyEnvPath = $null
 $resolvedLegacy = $null
 if ($InitializeReadProfile) {
@@ -210,7 +215,7 @@ if ($InitializeReadProfile) {
 }
 
 $plan = [ordered]@{
-  component = "calendar-read"
+  component = $componentName
   repository = $repoRoot
   vaultAuthority = $resolvedVault
   obsidianVaultName = $ObsidianVaultName
@@ -228,8 +233,9 @@ $plan = [ordered]@{
   writeTargetsCopied = $false
   publishingCredentialsCopied = $false
   port = $Port
-  mode = "read-only"
-  vaultWrites = $false
+  mode = $runtimeMode
+  writeCapabilities = $writeCapabilities
+  vaultWrites = [bool]$EnableVaultEventCreate
   remoteWrites = $false
   productionProcessChanged = $false
 }
@@ -264,6 +270,7 @@ foreach ($key in $blockedCredentialKeys) {
 $env:NICA_VAULT_ROOT = $resolvedVault
 $env:NICA_STATE_ROOT = $resolvedState
 $env:NICA_WRITE_ENABLED = "false"
+$env:NICA_CALENDAR_VAULT_CREATE_ENABLED = if ($EnableVaultEventCreate) { "true" } else { "false" }
 $env:NICA_OBSIDIAN_ACTIONS_ENABLED = "false"
 $env:NICA_CALENDAR_ENV_FILE = $readProfilePath
 $env:OBSIDIAN_VAULT_NAME = $ObsidianVaultName
@@ -289,8 +296,9 @@ $generatedEventCount = if ($null -eq $generatedEvents) {
 }
 
 New-Item -ItemType Directory -Force -Path $componentState | Out-Null
-$stdout = Join-Path $componentState "calendar-read.out.log"
-$stderr = Join-Path $componentState "calendar-read.err.log"
+$logPrefix = if ($EnableVaultEventCreate) { "calendar-vault-write" } else { "calendar-read" }
+$stdout = Join-Path $componentState ($logPrefix + ".out.log")
+$stderr = Join-Path $componentState ($logPrefix + ".err.log")
 $serverPath = Join-Path $calendarRoot "serve.mjs"
 $proc = $null
 try {
@@ -303,8 +311,10 @@ try {
       if (
         $ping.ok -and
         $ping.component -eq "calendar" -and
-        $ping.mode -eq "read-only" -and
-        -not [bool]$ping.writesEnabled -and
+        $ping.mode -eq $runtimeMode -and
+        [bool]$ping.writesEnabled -eq [bool]$EnableVaultEventCreate -and
+        [bool]$ping.writeCapabilities.vaultEventCreate -eq [bool]$EnableVaultEventCreate -and
+        -not [bool]$ping.writeCapabilities.unrestricted -and
         $ping.authority.vault -eq $resolvedVault -and
         $ping.authority.localState -eq $componentState
       ) {
@@ -400,12 +410,13 @@ try {
   }
 
   $manifest = [ordered]@{
-    component = "calendar-read"
+    component = $componentName
     repository = $repoRoot
     vaultAuthority = $resolvedVault
     stateRoot = $resolvedState
     port = $Port
-    mode = "read-only"
+    mode = $runtimeMode
+    writeCapabilities = $writeCapabilities
     localEventCount = $generatedEventCount
     googleCalendarCount = $activeProfile.GoogleCalendarCount
     googleReadStatus = $googleReadStatus

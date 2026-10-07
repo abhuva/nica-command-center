@@ -330,7 +330,9 @@
       .event-modal__panel-actions {
         margin-top: 10px;
         display: flex;
+        flex-wrap: wrap;
         justify-content: flex-end;
+        gap: 8px;
       }
       .event-modal__field {
         display: block;
@@ -366,6 +368,7 @@
         margin: 8px 0 0;
         font-size: 12px;
         color: var(--cal-text-soft);
+        overflow-wrap: anywhere;
       }
       .event-modal__btn {
         border: 1px solid var(--cal-border);

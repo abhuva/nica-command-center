@@ -7,7 +7,11 @@
       var TIMEGRID_ROW_HEIGHT_MIN = 16;
       var TIMEGRID_ROW_HEIGHT_MAX = 48;
       var calendarApiToken = '';
-      var calendarRuntimeState = { writesEnabled: false, mode: 'read-only' };
+      var calendarRuntimeState = {
+        writesEnabled: false,
+        mode: 'read-only',
+        writeCapabilities: { vaultEventCreate: false, unrestricted: false }
+      };
       var ROUNDNESS_MIN = 0;
       var ROUNDNESS_MAX = 24;
       var isCreateFlowActive = false;
@@ -31,7 +35,31 @@
        * @returns {boolean} True only for an explicitly write-enabled server.
        */
       function isCalendarWriteEnabled() {
-        return calendarRuntimeState && calendarRuntimeState.writesEnabled === true;
+        return Boolean(
+          calendarRuntimeState &&
+          calendarRuntimeState.writeCapabilities &&
+          calendarRuntimeState.writeCapabilities.unrestricted === true
+        );
+      }
+
+      /**
+       * Returns whether this runtime permits creation of Markdown event notes.
+       * @returns {boolean} True only for the explicit vault-event capability.
+       */
+      function canCreateVaultEvent() {
+        return Boolean(
+          calendarRuntimeState &&
+          calendarRuntimeState.writeCapabilities &&
+          calendarRuntimeState.writeCapabilities.vaultEventCreate === true
+        );
+      }
+
+      /**
+       * Returns whether any event-creation target is available.
+       * @returns {boolean} True when vault creation or unrestricted writes are enabled.
+       */
+      function canCreateAnyEvent() {
+        return canCreateVaultEvent() || isCalendarWriteEnabled();
       }
 
       /**
@@ -1097,10 +1125,13 @@
 
       /**
        * Show Create Event Dialog.
-       * @param {*}
+       * @param {*} calendar - FullCalendar instance.
+       * @param {*} start - Proposed event start.
+       * @param {*} end - Proposed event end.
+       * @param {*} allDay - Whether the event is all-day.
        * @returns {*} Returns the function result.
        */
-      function showCreateEventDialog(calendar) {
+      function showCreateEventDialog(calendar, start, end, allDay) {
         return new Promise(function(resolve) {
           var modal = document.getElementById('create-event-modal');
           var input = document.getElementById('create-event-title');
@@ -1115,11 +1146,13 @@
           var googleColorHint = document.getElementById('create-event-google-color-hint');
           var nextcloudRadios = document.getElementById('create-event-nextcloud-calendars');
           var nextcloudCalendarHint = document.getElementById('create-event-nextcloud-calendar-hint');
+          var mdPlanStatus = document.getElementById('create-event-md-plan');
+          var planMdBtn = document.getElementById('create-event-plan-md');
           var createGoogleBtn = document.getElementById('create-event-confirm-google');
           var createNextcloudBtn = document.getElementById('create-event-confirm-nextcloud');
           var createMdBtn = document.getElementById('create-event-confirm-md');
           var cancelBtn = document.getElementById('create-event-cancel');
-          if (!modal || !input || !tabsWrap || !mdTab || !googleTab || !nextcloudTab || !mdPanel || !googlePanel || !nextcloudPanel || !googleColorSelect || !googleColorHint || !nextcloudRadios || !nextcloudCalendarHint || !createGoogleBtn || !createNextcloudBtn || !createMdBtn || !cancelBtn) {
+          if (!modal || !input || !tabsWrap || !mdTab || !googleTab || !nextcloudTab || !mdPanel || !googlePanel || !nextcloudPanel || !googleColorSelect || !googleColorHint || !nextcloudRadios || !nextcloudCalendarHint || !mdPlanStatus || !planMdBtn || !createGoogleBtn || !createNextcloudBtn || !createMdBtn || !cancelBtn) {
             resolve(null);
             return;
           }
@@ -1128,6 +1161,8 @@
           var activeTab = 'md';
           var activeTabs = ['md'];
           var nextcloudSelectedId = '';
+          var currentMdPlan = null;
+          var mdPlanPending = false;
 
           /**
            * Read Selected Nextcloud Calendar Id.
@@ -1178,8 +1213,10 @@
             nextcloudTab.removeEventListener('click', onTabNextcloud);
             createGoogleBtn.removeEventListener('click', onCreateGoogle);
             createNextcloudBtn.removeEventListener('click', onCreateNextcloud);
+            planMdBtn.removeEventListener('click', onPlanMd);
             createMdBtn.removeEventListener('click', onCreateMd);
             cancelBtn.removeEventListener('click', onCancel);
+            input.removeEventListener('input', invalidateMdPlan);
             input.removeEventListener('keydown', onKeyDown);
             modal.removeEventListener('mousedown', onBackdropPointer);
           }
@@ -1207,7 +1244,44 @@
             finish({ title: title, target: 'google', googleColorId: getSelectedGoogleColorId() });
           }
           /**
-           * On Create Md.
+           * Invalidates a previously confirmed Markdown event plan.
+           * @returns {void}
+           */
+          function invalidateMdPlan() {
+            currentMdPlan = null;
+            createMdBtn.disabled = true;
+            planMdBtn.disabled = false;
+            mdPlanStatus.textContent = 'Preview the exact note path before creating it.';
+          }
+          /**
+           * Plans the Markdown event without writing to the vault.
+           * @returns {Promise<void>}
+           */
+          async function onPlanMd() {
+            if (mdPlanPending) return;
+            var title = input.value.trim();
+            if (!title) {
+              input.focus();
+              return;
+            }
+            mdPlanPending = true;
+            planMdBtn.disabled = true;
+            createMdBtn.disabled = true;
+            mdPlanStatus.textContent = 'Checking event plan...';
+            try {
+              currentMdPlan = await planVaultEvent(title, start, end, allDay);
+              mdPlanStatus.textContent = 'Planned note: ' + String(currentMdPlan.sourcePath || '');
+              createMdBtn.disabled = false;
+            } catch (error) {
+              currentMdPlan = null;
+              mdPlanStatus.textContent = 'Preview failed: ' + error.message;
+            } finally {
+              mdPlanPending = false;
+              planMdBtn.disabled = false;
+            }
+          }
+          /**
+           * Confirms the current Markdown event plan.
            * @returns {*} Returns the function result.
            */
           function onCreateMd() {
@@ -1216,7 +1290,11 @@
               input.focus();
               return;
             }
-            finish({ title: title, target: 'md' });
+            if (!currentMdPlan || !currentMdPlan.planId) {
+              onPlanMd();
+              return;
+            }
+            finish({ title: title, target: 'md', planId: currentMdPlan.planId });
           }
           /**
            * On Create Nextcloud.
@@ -1284,7 +1362,11 @@
                 onCreateNextcloud();
                 return;
               }
-              onCreateMd();
+              if (currentMdPlan && currentMdPlan.planId) {
+                onCreateMd();
+              } else {
+                onPlanMd();
+              }
             }
             if (event.key === 'Escape') {
               event.preventDefault();
@@ -1293,6 +1375,7 @@
           }
 
           input.value = '';
+          invalidateMdPlan();
           var canCreateGoogle = isGoogleWriteEnabled() && calendarUiSettings.createGoogleEvents === true;
           var canCreateNextcloud = isNextcloudWriteEnabled() && calendarUiSettings.createNextcloudEvents === true;
           activeTabs = ['md'];
@@ -1356,8 +1439,10 @@
           nextcloudTab.addEventListener('click', onTabNextcloud);
           createGoogleBtn.addEventListener('click', onCreateGoogle);
           createNextcloudBtn.addEventListener('click', onCreateNextcloud);
+          planMdBtn.addEventListener('click', onPlanMd);
           createMdBtn.addEventListener('click', onCreateMd);
           cancelBtn.addEventListener('click', onCancel);
+          input.addEventListener('input', invalidateMdPlan);
           input.addEventListener('keydown', onKeyDown);
           modal.addEventListener('mousedown', onBackdropPointer);
           setTimeout(function() { input.focus(); }, 0);
@@ -2269,14 +2354,47 @@
       }
 
       /**
+       * Previews a Markdown event creation without writing to the vault.
+       * @param {*} title - Event title.
+       * @param {*} start - Event start.
+       * @param {*} end - Event end.
+       * @param {*} allDay - Whether the event is all-day.
+       * @returns {Promise<object>} Confirmable server-side plan.
+       */
+      async function planVaultEvent(title, start, end, allDay) {
+        if (!isHttpContext()) {
+          throw new Error('Calendar is not running on http(s). Open the preview server URL.');
+        }
+
+        var schedule = toCreatePayload(start, end, allDay);
+        var planUrl = new URL('/api/events/create/plan', CALENDAR_API_BASE).toString();
+        var response = await fetch(planUrl, {
+          method: 'POST',
+          headers: mutationHeaders(),
+          body: JSON.stringify({
+            title: title,
+            start: schedule.start,
+            end: schedule.end,
+            allDay: schedule.allDay
+          })
+        });
+        var payload = await response.json().catch(function() { return null; });
+        if (!response.ok) {
+          throw new Error(payload && payload.message ? payload.message : 'Could not preview event');
+        }
+        return payload;
+      }
+
+      /**
        * Create Event.
-       * @param {*}
-       * @param {*}
-       * @param {*}
-       * @param {*}
+       * @param {*} title - Event title.
+       * @param {*} start - Event start.
+       * @param {*} end - Event end.
+       * @param {*} allDay - Whether the event is all-day.
+       * @param {string} planId - Confirmed server-side plan identifier.
        * @returns {*} Returns event.
        */
-      async function createEvent(title, start, end, allDay) {
+      async function createEvent(title, start, end, allDay, planId) {
         if (!isHttpContext()) {
           throw new Error('Calendar is not running on http(s). Open the preview server URL.');
         }
@@ -2290,13 +2408,14 @@
             title: title,
             start: schedule.start,
             end: schedule.end,
-            allDay: schedule.allDay
+            allDay: schedule.allDay,
+            planId: planId
           })
         });
 
         if (!response.ok) {
-          var text = await response.text();
-          throw new Error(text || 'Could not create event');
+          var errorPayload = await response.json().catch(function() { return null; });
+          throw new Error(errorPayload && errorPayload.message ? errorPayload.message : 'Could not create event');
         }
 
         return response.json();
@@ -2829,7 +2948,7 @@
 
       /**
        * Fetch Calendar Runtime Status.
-       * @returns {Promise<{writesEnabled: boolean, mode: string}>} Runtime mode snapshot.
+       * @returns {Promise<{writesEnabled: boolean, mode: string, writeCapabilities: object}>} Runtime mode snapshot.
        */
       async function fetchCalendarRuntimeStatus() {
         var pingUrl = new URL('/api/ping', CALENDAR_API_BASE).toString();
@@ -2840,7 +2959,11 @@
         var payload = await response.json();
         return {
           writesEnabled: payload && payload.writesEnabled === true,
-          mode: String(payload && payload.mode || 'read-only')
+          mode: String(payload && payload.mode || 'read-only'),
+          writeCapabilities: {
+            vaultEventCreate: Boolean(payload && payload.writeCapabilities && payload.writeCapabilities.vaultEventCreate),
+            unrestricted: Boolean(payload && payload.writeCapabilities && payload.writeCapabilities.unrestricted)
+          }
         };
       }
 
@@ -3016,7 +3139,7 @@
       async function createEventForDates(calendar, start, end, allDay) {
         if (isCreateFlowActive) return;
         isCreateFlowActive = true;
-        var createChoice = await showCreateEventDialog(calendar);
+        var createChoice = await showCreateEventDialog(calendar, start, end, allDay);
         try {
           if (!createChoice || !createChoice.title) return;
           var trimmedTitle = String(createChoice.title || '').trim();
@@ -3037,7 +3160,7 @@
             ? await createGoogleCalendarEvent(trimmedTitle, start, end, allDay, createChoice.googleColorId)
             : (createOnNextcloud
               ? await createNextcloudCalendarEvent(trimmedTitle, start, end, allDay, createChoice.nextcloudCalendarId)
-              : await createEvent(trimmedTitle, start, end, allDay));
+              : await createEvent(trimmedTitle, start, end, allDay, createChoice.planId));
           if (result && result.event) {
             calendar.addEvent(result.event);
           }
@@ -3164,7 +3287,11 @@
        * @returns {*} Returns whether the condition is met.
        */
       function isGoogleWriteEnabled() {
-        return Boolean(window.googleCalendarState && window.googleCalendarState.oauthWritable === true);
+        return Boolean(
+          isCalendarWriteEnabled() &&
+          window.googleCalendarState &&
+          window.googleCalendarState.oauthWritable === true
+        );
       }
 
       /**
@@ -3182,7 +3309,11 @@
        * @returns {*} Returns whether the condition is met.
        */
       function isNextcloudWriteEnabled() {
-        return Boolean(window.nextcloudCalendarState && window.nextcloudCalendarState.writable === true);
+        return Boolean(
+          isCalendarWriteEnabled() &&
+          window.nextcloudCalendarState &&
+          window.nextcloudCalendarState.writable === true
+        );
       }
 
       /**
@@ -3368,11 +3499,15 @@
             calendarRuntimeState = await fetchCalendarRuntimeStatus();
           } catch (error) {
             console.warn('Could not load Calendar runtime status:', error.message);
-            calendarRuntimeState = { writesEnabled: false, mode: 'read-only' };
+            calendarRuntimeState = {
+              writesEnabled: false,
+              mode: 'read-only',
+              writeCapabilities: { vaultEventCreate: false, unrestricted: false }
+            };
           }
         }
 
-        if (isHttpContext() && isCalendarWriteEnabled()) {
+        if (isHttpContext() && calendarRuntimeState.writesEnabled === true) {
           try {
             calendarApiToken = await fetchCalendarSessionToken();
           } catch (error) {
@@ -3549,7 +3684,7 @@
           eventStartEditable: isCalendarWriteEnabled(),
           eventDurationEditable: isCalendarWriteEnabled(),
           eventResizableFromStart: isCalendarWriteEnabled(),
-          selectable: isCalendarWriteEnabled(),
+          selectable: canCreateAnyEvent(),
           selectMinDistance: 0,
           eventSources: eventSources,
           eventDataTransform: function(eventData) {
@@ -3577,13 +3712,13 @@
           },
           dayHeaderClassNames: dayHeaderClassNamesHook,
           eventClick: onEventClick,
-          dateClick: isCalendarWriteEnabled() ? onDateClick : function(info) {
+          dateClick: canCreateAnyEvent() ? onDateClick : function(info) {
             var dateStr = normalizeIsoDate(info && info.dateStr);
             if (dateStr) {
               setFocusedDate(info.view.calendar, calendarEl, dateStr, { jumpToFocus: false });
             }
           },
-          select: isCalendarWriteEnabled() ? onDateSelect : null,
+          select: canCreateAnyEvent() ? onDateSelect : null,
           eventAllow: isCalendarWriteEnabled() ? allowRecurringTimedEdit : function() { return false; },
           eventDrop: onEventDateChange,
           eventResize: onEventDateChange,
