@@ -2,7 +2,7 @@
 
 **Status**: Foundation established; Gate 5 capability cutovers in progress
 
-**Date**: 2026-10-06
+**Date**: 2026-10-07
 
 ## Purpose
 
@@ -269,8 +269,10 @@ accepted boundary decisions remain in ADRs.
 8. Where will secrets be stored, rotated, and recovered?
 9. Which Beancount files form a repository, who may access its remote, and how
    are other financial documents excluded?
-10. Which capability should next test controlled writes after the accepted
-    read-only integrations? Project creation is the current Gate 5 candidate.
+10. How should Calendar write authority be divided between vault event notes,
+    Google Calendar, and Nextcloud CalDAV? Project creation has validated the
+    first controlled-write pattern; Calendar vault-event creation is the next
+    Gate 5 candidate.
 
 ## Success criteria
 

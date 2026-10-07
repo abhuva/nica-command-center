@@ -207,15 +207,12 @@ cutover](gate-5-monitoring-cutover.md), and [Gate 5 Homepage shell
 cutover](gate-5-homepage-shell-cutover.md). Calendar reads are accepted after
 technical cutover, rollback verification, and Marc's normal Obsidian workflow
 confirmation on 2026-10-07. See [Gate 5 Calendar read
-cutover](gate-5-calendar-read-cutover.md).
-
-Project creation has completed its technical cutover behind a project-only
-permission, server-side preview/apply contract, staged filesystem publication,
-and an ephemeral action token. Synthetic apply, live preview, Playwright, and
-rollback checks passed without creating a disposable live project. The legacy
-Homepage on `4174` remains the accepted project-creation workflow until Marc
-confirms a real creation through the migrated UI.
-See [Gate 5 project creation cutover](gate-5-project-creation-cutover.md).
+cutover](gate-5-calendar-read-cutover.md). Project creation is accepted after
+technical cutover, rollback verification, a confirmed normal workflow, and a
+post-fix live-vault metadata probe on 2026-10-07. The write authority remains
+limited to `project.create`, and legacy Homepage `4174` remains the warm
+fallback. See [Gate 5 project creation
+cutover](gate-5-project-creation-cutover.md).
 
 Use the following sequence for each capability:
 

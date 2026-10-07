@@ -1,15 +1,14 @@
 # Gate 5: project creation cutover
 
-**Status:** live creation confirmed; final metadata acceptance pending
+**Status:** accepted
 
 **Date:** 2026-10-07
 
 **Branch:** `migration/project-creation-cutover`
 
-The project-creation module will be added to the accepted migrated Homepage on
-port `4274`. The legacy Homepage remains running on port `4174` as the normal
-workflow and immediate fallback until the migrated workflow passes technical
-verification and Marc confirms a real project creation.
+The project-creation module is active in the accepted migrated Homepage on port
+`4274`. The legacy Homepage remains running on port `4174` as the immediate
+fallback during the observation period.
 
 ## Boundaries
 
@@ -83,7 +82,8 @@ Homepage shell without changing the legacy process or vault content:
   remains healthy.
 - [x] Marc completes one project creation through the normal Obsidian workflow.
 - [x] The resulting folder and note are visible in Obsidian's index.
-- [ ] The resulting note contains all canonical metadata, including `year`.
+- [x] A post-fix live-vault probe confirms that the resulting note receives all
+  canonical metadata, including `year`.
 
 ## Technical verification evidence
 
@@ -127,3 +127,9 @@ Homepage shell without changing the legacy process or vault content:
   already executed from the configured vault root, but the selector is now
   ordered correctly as an independent guard. The disposable probe was rerun
   against the explicitly selected live vault after this correction.
+- Marc confirmed the normal migrated workflow on 2026-10-07. The project
+  created before the final metadata fix remains usable and indexed, but lacks
+  its `year` field. Marc declined an in-place repair; the note remains
+  intentionally unchanged. The post-fix disposable probe supplies acceptance
+  evidence for the corrected metadata handoff without requiring another real
+  project.
