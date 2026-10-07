@@ -14,7 +14,7 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
 }
 
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-if ($manifest.repository -ne $repoRoot -or $manifest.component -notin @("email-read-shadow", "email-fetch-shadow", "email-classification-shadow", "email-oauth-shadow", "email-export-shadow")) {
+if ($manifest.repository -ne $repoRoot -or $manifest.component -notin @("email", "email-read-shadow", "email-fetch-shadow", "email-classification-shadow", "email-oauth-shadow", "email-export-shadow")) {
   throw "Email process manifest belongs to a different repository or component."
 }
 
@@ -33,9 +33,9 @@ if ($proc) {
 
 $listener = Get-NetTCPConnection -LocalPort ([int]$manifest.port) -State Listen -ErrorAction SilentlyContinue
 if ($listener) {
-  throw "Email shadow port $($manifest.port) is still occupied; the manifest was retained."
+  throw "Email port $($manifest.port) is still occupied; the manifest was retained."
 }
 
 Remove-Item -LiteralPath $manifestPath -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $pidPath -Force -ErrorAction SilentlyContinue
-Write-Host "$($manifest.component) is stopped; its local database snapshot, profile, and logs were retained."
+Write-Host "$($manifest.component) is stopped; its local database, profile, and logs were retained."

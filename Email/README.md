@@ -1,39 +1,84 @@
 ﻿# Email Tool
 
-> Migration candidate: set absolute `NICA_VAULT_ROOT` and `NICA_STATE_ROOT`
-> values before serving. The database, config, OAuth tokens, and PID file live
-> below `NICA_STATE_ROOT\email`. All POST actions default to disabled unless
-> `NICA_WRITE_ENABLED=true`.
+> Set absolute `NICA_VAULT_ROOT` and `NICA_STATE_ROOT` values through the
+> launcher. The database, config, OAuth tokens, logs, and PID file live below
+> `NICA_STATE_ROOT\email`, outside both Git and Nextcloud.
 
 Database-first email bridge for the Obsidian vault.
 
 The tool fetches email into a local SQLite database, applies local rules/tags, and exports only selected messages into the vault's `8. Emails/` folder. IMAP flags are not used as processing state.
 
-## Start
+## Runtime boundary
+
+- Mail accounts are authoritative for original messages.
+- `email.db` is rebuildable, sensitive local working state.
+- Markdown files in `8. Emails/` are generated vault projections.
+- Account configuration and credentials/tokens are separate local state and
+  are never stored in the database or repository.
+
+See
+[ADR-004](../docs/adr/ADR-004-treat-email-database-as-rebuildable-local-state.md).
+
+## Start the stable runtime candidate
+
+Preview a normal start without changing files or processes:
 
 ```powershell
-npm.cmd --prefix .\Email run preview
+.\scripts\start-email.ps1 -VaultRoot "C:\path\to\vault"
 ```
 
-Open:
+Apply after reviewing the plan:
+
+```powershell
+.\scripts\start-email.ps1 -VaultRoot "C:\path\to\vault" -Apply
+```
+
+For a new state root, initialize an empty database instead of copying the
+legacy database:
+
+```powershell
+.\scripts\start-email.ps1 `
+  -VaultRoot "C:\path\to\vault" `
+  -InitializeFreshDatabase
+
+.\scripts\start-email.ps1 `
+  -VaultRoot "C:\path\to\vault" `
+  -InitializeFreshDatabase `
+  -Apply
+```
+
+Fresh initialization refuses to overwrite any existing `email.db`. The account
+profile must already exist below the Email state directory. During transition,
+`-PrepareProfileFromLegacy` may be added to copy only the existing account
+configuration, credential environment file, and referenced OAuth tokens—not
+the database.
+
+Stop the runtime while retaining local state:
+
+```powershell
+.\scripts\stop-email.ps1
+```
+
+Open the interface at:
 
 ```text
-http://127.0.0.1:4176/email.html
+http://127.0.0.1:4276/email.html
 ```
 
 ## Local Config
 
-For the legacy tool, create `Email/config.local.json` from
-`config.example.json`. Migrated runtime configuration belongs below
+Create `config.local.json` from `config.example.json` below
 `NICA_STATE_ROOT\email`, not in this repository.
 
-Secrets are read from `Tools/Email/.env.local`, `Tools/Email/.env`, or the process environment.
+Secrets are read from `.env.local`, `.env`, or the process environment in the
+Email runtime state.
 
 Use `ssl: true` for implicit TLS on port 993. Use `ssl: false` plus `starttls: true` for port 143 servers that require STARTTLS before login.
 
 ## Data Model
 
-- `email.db` stores fetched messages, tags, rules, exports, and account sync state.
+- `email.db` stores rebuildable fetched messages, tags, rules, exports, and
+  account sync state.
 - Markdown files in `8. Emails/` are generated projections and can be regenerated.
 - Stable export filenames use account, date, sender, subject, and a message hash.
 
@@ -44,6 +89,9 @@ Use `ssl: true` for implicit TLS on port 993. Use `ssl: false` plus `starttls: t
 3. Apply blacklist/whitelist/tag rules in SQLite.
 4. Review/filter in the local UI.
 5. Export included/candidate messages to `8. Emails/`.
+
+The product baseline and deliberately deferred choices are documented in
+[Email tool workflow](../docs/email-tool-workflow.md).
 
 ## Validation
 
@@ -197,5 +245,6 @@ Roll back without refreshing accepted state:
 
 Validate this slice with `npm.cmd run check:email-export-shadow` from the
 repository root. Live `4276` is accepted after a verified one-note pilot and
-normal-workflow confirmation; the remaining 515-note batch requires a separate
-apply approval.
+normal-workflow confirmation. The recorded 515-note batch is not required for
+database or software migration and is not planned unless requested later as an
+independent content export.

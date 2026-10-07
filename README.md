@@ -239,8 +239,24 @@ account folder and timestamp, with a bounded UID check for ambiguous matches;
 they are reported separately and never rewritten. Roll back by
 stopping the export profile and starting `start-email-oauth-shadow.ps1 -Apply`.
 Legacy Email `4176` remains available throughout. The live profile is accepted
-after a verified one-note pilot and normal-workflow confirmation; the remaining
-515-note batch requires a separate apply approval.
+after a verified one-note pilot and normal-workflow confirmation. The previously
+previewed 515-note batch is not a migration requirement and is not planned as
+part of the software cutover.
+
+### Email stable runtime candidate
+
+The Email database is rebuildable local state. A normal start retains the
+existing local database:
+
+```powershell
+.\scripts\start-email.ps1 -VaultRoot "C:\path\to\vault"
+.\scripts\start-email.ps1 -VaultRoot "C:\path\to\vault" -Apply
+```
+
+For a new, empty state root, add `-InitializeFreshDatabase`. This mode never
+copies the legacy database and refuses to overwrite an existing database. Add
+`-PrepareProfileFromLegacy` only when the existing account configuration and
+local credentials/tokens should be copied separately from the old tool.
 
 ## Ziele
 

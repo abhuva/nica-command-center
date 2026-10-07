@@ -269,9 +269,14 @@ profile is active on `4276`; a one-note pilot passed file, hash, database,
 browser, and health verification, and Marc confirmed the normal workflow on
 2026-10-07. The bounded-export capability is accepted. The remaining full
 preview contains 515 new, one unchanged, 4,125 existing-archive, and zero
-conflicting notes and has not been applied; it requires separate approval.
-Legacy Email `4176` remains the warm fallback. See [Gate 5 Email bounded-export
-shadow record](gate-5-email-export-shadow.md).
+conflicting notes and was not applied. Under
+[ADR-004](../adr/ADR-004-treat-email-database-as-rebuildable-local-state.md),
+that batch is not a migration requirement: mail accounts remain authoritative,
+the SQLite database may be initialized fresh and refetched, and existing vault
+notes remain projections. During the follow-up assessment, migrated `4276` was
+healthy and legacy `4176` was unavailable; neither database nor any vault note
+was deleted. See [Gate 5 Email bounded-export shadow
+record](gate-5-email-export-shadow.md).
 
 The Beantime synthetic shadow is accepted with separate read,
 timer-state, ledger-append, and managed-Fava capabilities. It provisions only an

@@ -1499,12 +1499,14 @@ def ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -
 
 
 def fetch_homepage_theme_snapshot() -> dict[str, Any]:
-    homepage_url = os.environ.get("NICA_HOMEPAGE_URL", "http://127.0.0.1:4174").rstrip("/")
+    homepage_url = os.environ.get("NICA_HOMEPAGE_URL", "http://127.0.0.1:4274").rstrip("/")
     try:
         with urllib.request.urlopen(f"{homepage_url}/api/obsidian/theme", timeout=3) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except Exception as exc:
-        raise RuntimeError(f"Could not read Obsidian theme via Homepage server at {homepage_url}") from exc
+            payload = json.loads(response.read().decode("utf-8"))
+            payload["available"] = True
+            return payload
+    except Exception:
+        return {"ok": True, "available": False, "theme": {"vars": {}}}
 
 
 def deep_merge(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
@@ -2275,6 +2277,16 @@ def smoke() -> None:
         config["vaultRoot"] = temp_dir
         config["emailVaultDir"] = "8. Emails"
         tool = EmailTool(config)
+        previous_homepage_url = os.environ.get("NICA_HOMEPAGE_URL")
+        os.environ["NICA_HOMEPAGE_URL"] = "http://127.0.0.1:1"
+        try:
+            unavailable_theme = fetch_homepage_theme_snapshot()
+        finally:
+            if previous_homepage_url is None:
+                os.environ.pop("NICA_HOMEPAGE_URL", None)
+            else:
+                os.environ["NICA_HOMEPAGE_URL"] = previous_homepage_url
+        assert unavailable_theme == {"ok": True, "available": False, "theme": {"vars": {}}}
         sample = {
             "account_id": "demo",
             "mailbox": "INBOX",

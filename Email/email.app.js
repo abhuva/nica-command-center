@@ -315,6 +315,7 @@ const applyMirroredThemeVars = (themeVars) => {
 const applyEmailTheme = async () => {
   try {
     const payload = await api("/api/obsidian/theme");
+    if (payload?.available === false) return;
     const mirrored = applyMirroredThemeVars(payload?.theme?.vars);
     if (mirrored) persistThemeBootstrapCache();
   } catch (error) {

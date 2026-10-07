@@ -1,6 +1,6 @@
 # Gate 5: Email bounded-export shadow
 
-**Status:** bounded-export capability accepted; remaining 515-note batch requires separate approval
+**Status:** bounded-export capability accepted; bulk batch not required for migration
 
 **Date:** 2026-10-07
 
@@ -144,6 +144,21 @@ deleted automatically during profile rollback.
   existing-archive, and zero conflicts. The remaining batch was not applied.
 - Marc confirmed the normal Email and Obsidian workflow works with the live
   bounded-export profile and pilot projection on 2026-10-07.
+
+## Post-acceptance database decision
+
+Marc confirmed on 2026-10-07 that the legacy and candidate Email databases do
+not contain irreplaceable operational history. Source messages can be fetched
+again from the mail accounts, and the early filtering work can be recreated.
+The database is therefore rebuildable local working state under
+[ADR-004](../adr/ADR-004-treat-email-database-as-rebuildable-local-state.md),
+not data that must be migrated.
+
+The recorded 515-note preview remains historical verification of the bounded
+export implementation. Applying that batch is not part of the tool migration
+and is not planned unless it is later requested as an independent content
+export. No existing database or Markdown projection was deleted by this
+decision.
 
 ## Live acceptance checklist
 
