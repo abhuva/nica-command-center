@@ -167,6 +167,9 @@ const applyRuntimeMode = () => {
 
 const runtimeReadyStatus = () => {
   if (state.runtimeMode === "limited-write") {
+    if (capabilityEnabled("oauthManage")) {
+      return "Ready · bounded Email OAuth";
+    }
     const classificationEnabled = capabilityEnabled("messageTag")
       && capabilityEnabled("rulesApply")
       && capabilityEnabled("rulesManage");

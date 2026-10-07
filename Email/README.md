@@ -52,6 +52,7 @@ npm.cmd --prefix .\Email run check:smoke
 npm run check:email-read-shadow
 npm run check:email-fetch-shadow
 npm run check:email-classification-shadow
+npm run check:email-oauth-shadow
 ```
 
 ## Gate 5 read-only shadow
@@ -133,3 +134,31 @@ The pre-classification database snapshot remains below local runtime state at
 Repeating `-BackupCandidate` retains that file. To replace it deliberately, use
 `-RefreshCandidateBackup`; the first refresh preserves the prior recovery copy
 as `email/backups/email-before-classification.original.db`.
+
+## Gate 5 bounded-OAuth shadow
+
+The OAuth profile retains Count/Fetch and classification and adds only
+`oauth.manage` for interactive Microsoft login and reauthorization. Automatic
+access-token refresh during fetch already belongs to `mail.fetch`. Preview the
+profile and immutable token-backup action first:
+
+```powershell
+.\scripts\start-email-oauth-shadow.ps1 -VaultRoot "C:\path\to\vault"
+```
+
+After review, stop only migrated `4276` and apply the profile:
+
+```powershell
+.\scripts\stop-email-read.ps1
+.\scripts\start-email-oauth-shadow.ps1 -VaultRoot "C:\path\to\vault" -Apply
+```
+
+The loopback callback port defaults to `8080` and can be changed with
+`-OAuthCallbackPort` or `EMAIL_OAUTH_CALLBACK_PORT` when the provider's
+registered redirect URI permits it. Token recovery copies live under
+`email/backups/oauth-before-management/` in local runtime state. OAuth startup
+creates missing copies automatically for existing tokens and never overwrites
+them during normal restarts; tokenless accounts remain available for first-time
+login. Vault export remains disabled. Roll back by
+stopping the process and starting `start-email-classification-shadow.ps1` with
+`-Apply` and no profile or database refresh.
