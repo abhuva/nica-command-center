@@ -101,6 +101,8 @@ $candidateConfigPath = Join-Path $componentState "config.local.json"
 $profileFiles = @()
 $oauthTokenFiles = @()
 $accountCount = 0
+$credentialEnvironmentFileCount = 0
+$oauthTokenFileCount = 0
 
 if ($PrepareFetchProfile) {
   if (-not (Test-Path -LiteralPath $legacyConfigPath -PathType Leaf)) {
@@ -136,6 +138,25 @@ if ($PrepareFetchProfile) {
       destination = $tokenDestination
     }
   }
+  $credentialEnvironmentFileCount = @($profileFiles | Where-Object { (Split-Path -Leaf $_.source) -like ".env*" }).Count
+  $oauthTokenFileCount = $oauthTokenFiles.Count
+} elseif (Test-Path -LiteralPath $candidateConfigPath -PathType Leaf) {
+  $candidateConfig = Get-Content -LiteralPath $candidateConfigPath -Raw | ConvertFrom-Json
+  $candidateAccounts = @($candidateConfig.accounts)
+  $accountCount = $candidateAccounts.Count
+  $credentialEnvironmentFileCount = @(
+    @(".env", ".env.local") | Where-Object { Test-Path -LiteralPath (Join-Path $componentState $_) -PathType Leaf }
+  ).Count
+  foreach ($account in $candidateAccounts) {
+    $authMethod = if ($null -ne $account.auth) { [string]$account.auth.method } else { "" }
+    if ($authMethod.ToLowerInvariant() -ne "oauth") { continue }
+    $tokenRelative = [string]$account.oauthTokenPath
+    if ([string]::IsNullOrWhiteSpace($tokenRelative)) {
+      $tokenRelative = ([string]$account.id) + ".json"
+    }
+    $tokenPath = Resolve-ContainedFile -Root $componentState -RelativePath $tokenRelative -Label "Candidate OAuth token"
+    if (Test-Path -LiteralPath $tokenPath -PathType Leaf) { $oauthTokenFileCount++ }
+  }
 }
 
 $sourceInfo = Get-Item -LiteralPath $sourceDatabase
@@ -152,8 +173,8 @@ $plan = [ordered]@{
   profileAction = if ($PrepareFetchProfile) { "copy-to-isolated-local-state" } else { "retain-existing" }
   profileReady = Test-Path -LiteralPath $candidateConfigPath -PathType Leaf
   configuredAccountCount = $accountCount
-  credentialEnvironmentFileCount = @($profileFiles | Where-Object { (Split-Path -Leaf $_.source) -like ".env*" }).Count
-  oauthTokenFileCount = $oauthTokenFiles.Count
+  credentialEnvironmentFileCount = $credentialEnvironmentFileCount
+  oauthTokenFileCount = $oauthTokenFileCount
   writeCapabilities = @("mail.count", "mail.fetch")
   oauthSetupEnabled = $false
   rulesEnabled = $false

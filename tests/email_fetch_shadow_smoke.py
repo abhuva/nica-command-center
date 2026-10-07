@@ -86,7 +86,16 @@ def launcher_smoke() -> None:
             connection.execute("CREATE TABLE synthetic_marker (value TEXT NOT NULL)")
             connection.execute("INSERT INTO synthetic_marker(value) VALUES ('fixture')")
         (legacy_email / "config.local.json").write_text(
-            json.dumps({"database": "email.db", "accounts": []}),
+            json.dumps({
+                "database": "email.db",
+                "accounts": [{
+                    "id": "fixture",
+                    "email": "fixture@example.test",
+                    "server": "imap.example.test",
+                    "passwordEnv": "SYNTHETIC_EMAIL_SECRET",
+                    "enabled": False,
+                }],
+            }),
             encoding="utf-8",
         )
         (legacy_email / ".env").write_text("SYNTHETIC_EMAIL_SECRET=fixture-only\n", encoding="utf-8")
@@ -154,6 +163,24 @@ def launcher_smoke() -> None:
         assert stopped.returncode == 0, stopped.stderr
         assert (candidate / "email.db").is_file()
         assert not (candidate / "email-read-process.json").exists()
+        retained_plan = subprocess.run(
+            common[:-2],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        assert retained_plan.returncode == 0, retained_plan.stderr
+        assert (
+            '"configuredAccountCount":  1' in retained_plan.stdout
+            or '"configuredAccountCount": 1' in retained_plan.stdout
+        )
+        assert (
+            '"credentialEnvironmentFileCount":  1' in retained_plan.stdout
+            or '"credentialEnvironmentFileCount": 1' in retained_plan.stdout
+        )
+
+
 def main() -> None:
     """Verify bounded fetch routing, health metadata, and fail-closed startup."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
