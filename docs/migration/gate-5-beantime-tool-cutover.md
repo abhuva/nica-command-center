@@ -1,6 +1,6 @@
 # Gate 5 Beantime tool cutover
 
-**Status**: Technical cutover complete; normal-workflow confirmation pending
+**Status**: Accepted
 
 **Date**: 2026-10-07
 
@@ -102,4 +102,5 @@ Technical verification on 2026-10-07 established:
   timer is active.
 
 No live timer was started and no transaction was appended during technical
-cutover. Marc's normal-workflow confirmation remains the acceptance criterion.
+cutover. Marc confirmed the normal Beantime and managed-Fava workflow on
+2026-10-07.

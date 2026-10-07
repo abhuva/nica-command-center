@@ -281,13 +281,13 @@ Fava ledger validation, and stop/restart passed, and Marc confirmed the workflow
 on 2026-10-07. This does not authorize live-ledger access or cutover. See [Gate
 5 Beantime synthetic shadow record](gate-5-beantime-shadow.md).
 
-The Beantime tool cutover is technically complete on Homepage `4274`. The
+The Beantime tool cutover is accepted on Homepage `4274`. The
 authoritative ledger was not migrated: it remains unchanged in Nextcloud and is
 selected through a validated vault-relative configuration. Legacy Homepage
 `4174` is stopped, migrated timer state is local, managed Fava remains on `3464`,
 and the ledger hash was unchanged by startup. Playwright MCP and Fava checks
-passed without starting a timer or appending a transaction. Marc's normal
-workflow confirmation remains pending. See [Gate 5 Beantime tool cutover
+passed without starting a timer or appending a transaction, and Marc confirmed
+the normal workflow on 2026-10-07. See [Gate 5 Beantime tool cutover
 record](gate-5-beantime-tool-cutover.md).
 
 Use the following sequence for each capability:
