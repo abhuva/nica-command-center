@@ -3484,6 +3484,7 @@ const server = http.createServer((req, res) => {
       writeCapabilities: {
         projectCreate: PROJECT_CREATE_ENABLED,
         settingsManage: SETTINGS_MANAGE_ENABLED,
+        obsidianOpen: OBSIDIAN_ACTIONS_ENABLED,
         beantimeRead: hasBeantimeCapability("beantime.read"),
         beantimeTimer: hasBeantimeCapability("beantime.timer"),
         beantimeAppend: hasBeantimeCapability("beantime.append"),
@@ -3528,12 +3529,23 @@ const server = http.createServer((req, res) => {
 
   const scopedProjectApply = pathname === "/api/projects/create" && PROJECT_CREATE_ENABLED;
   const scopedSettingsApply = pathname === "/api/settings" && SETTINGS_MANAGE_ENABLED;
+  const scopedObsidianAction = OBSIDIAN_ACTIONS_ENABLED && new Set([
+    "/api/bookmarks/open",
+    "/api/search/open"
+  ]).has(pathname);
   const beantimePostRoute = new Set([
     "/api/beantime/start",
     "/api/beantime/stop",
     "/api/beantime/show"
   ]).has(pathname);
-  if (req.method === "POST" && !isWriteEnabled() && !scopedProjectApply && !scopedSettingsApply && !beantimePostRoute) {
+  if (
+    req.method === "POST" &&
+    !isWriteEnabled() &&
+    !scopedProjectApply &&
+    !scopedSettingsApply &&
+    !scopedObsidianAction &&
+    !beantimePostRoute
+  ) {
     sendJson(res, 403, {
       ok: false,
       code: "NICA_READ_ONLY",

@@ -180,6 +180,11 @@ try {
 
     const blockedSettings = await request(enabled.port, "POST", "/api/settings", {});
     assert.equal(blockedSettings.status, 403, "unrelated writes must remain disabled");
+    const blockedSearch = await request(enabled.port, "POST", "/api/search/open", {
+      provider: "obsidian-search",
+      openInNewTab: true
+    });
+    assert.equal(blockedSearch.status, 403, "Obsidian actions require their explicit capability");
 
     const invalidSociety = await request(enabled.port, "POST", "/api/projects/plan", {
       ...basePayload,
@@ -299,6 +304,11 @@ try {
 
   const failing = await startServer({ projectEnabled: true, obsidianActions: true });
   try {
+    const allowedSearch = await request(failing.port, "POST", "/api/search/open", {
+      provider: "obsidian-search",
+      openInNewTab: true
+    });
+    assert.equal(allowedSearch.status, 502, "enabled Obsidian actions must pass the global read-only guard");
     const session = await request(failing.port, "GET", "/api/projects/session");
     const actionHeaders = { "X-NICA-Action-Token": session.json.actionToken };
     const failurePayload = { ...basePayload, title: "Obsidian Failure" };

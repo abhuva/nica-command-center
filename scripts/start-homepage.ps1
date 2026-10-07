@@ -408,6 +408,7 @@ $plan = [ordered]@{
   legacyPreferenceSource = if ($PrepareShellProfile -or $PrepareProjectProfile -or $PrepareBeantimeProfile) { $resolvedLegacy } else { $null }
   projectCreationEnabled = $plannedProjectEnabled
   settingsManagementEnabled = $true
+  obsidianOpenEnabled = $true
   beantimeEnabled = $plannedBeantimeEnabled
   beantimeLedgerAuthority = if ($plannedBeantimeEnabled) { "vault" } else { "none" }
   beantimeLedgerPath = $plannedBeantimeLedgerPath
@@ -482,7 +483,7 @@ $env:NICA_STATE_ROOT = $resolvedState
 $env:NICA_WRITE_ENABLED = "false"
 $env:NICA_PROJECT_CREATE_ENABLED = if ($projectCreationEnabled) { "true" } else { "false" }
 $env:NICA_SETTINGS_MANAGE_ENABLED = "true"
-$env:NICA_OBSIDIAN_ACTIONS_ENABLED = if ($projectCreationEnabled) { "true" } else { "false" }
+$env:NICA_OBSIDIAN_ACTIONS_ENABLED = "true"
 $env:NICA_BEANTIME_CAPABILITIES = if ($beantimeEnabled) {
   "beantime.read,beantime.timer,beantime.append,beantime.fava"
 } else {
@@ -496,7 +497,7 @@ $env:BEANTIME_FAVA_PORT = [string]$BeantimeFavaPort
 $stdout = Join-Path $componentState "homepage.out.log"
 $stderr = Join-Path $componentState "homepage.err.log"
 $serverPath = Join-Path $repoRoot "serve.mjs"
-$writeCapabilities = [string[]]@("settings.manage")
+$writeCapabilities = [string[]]@("settings.manage", "obsidian.open")
 if ($projectCreationEnabled) { $writeCapabilities += "project.create" }
 if ($beantimeEnabled) {
   $writeCapabilities += @("beantime.read", "beantime.timer", "beantime.append", "beantime.fava")
@@ -544,6 +545,7 @@ try {
         [bool]$ping.writesEnabled -and
         [bool]$ping.writeCapabilities.projectCreate -eq $projectCreationEnabled -and
         [bool]$ping.writeCapabilities.settingsManage -and
+        [bool]$ping.writeCapabilities.obsidianOpen -and
         ([bool]$ping.writeCapabilities.beantimeRead -eq $beantimeEnabled) -and
         ([bool]$ping.writeCapabilities.beantimeTimer -eq $beantimeEnabled) -and
         ([bool]$ping.writeCapabilities.beantimeAppend -eq $beantimeEnabled) -and

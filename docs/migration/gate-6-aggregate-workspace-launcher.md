@@ -23,7 +23,9 @@ lifecycle.
 Machine-specific paths and ports are stored outside Git in a workspace profile
 below `%LOCALAPPDATA%\NICA\CommandCenter\live\launcher`. The profile contains
 no credentials. Homepage can update only its normalized local settings through
-the new bounded `settings.manage` capability; unrestricted writes remain off.
+the bounded `settings.manage` capability. Bookmark and search clicks use the
+separate `obsidian.open` capability against the explicitly configured vault;
+unrestricted writes remain off.
 
 This implements
 [ADR-005](../adr/ADR-005-use-a-repository-owned-workspace-launcher.md).
@@ -133,6 +135,10 @@ Live cutover verification on 2026-10-08 established:
   `ok`;
 - the live Homepage reported limited-write mode with `settings.manage` enabled
   and unrestricted writes disabled;
+- after the first normal-workflow click exposed an over-broad POST guard,
+  `obsidian.open` was separated as a bounded capability; a live API replay and
+  Playwright MCP click both opened the Calendar bookmark successfully while
+  unrestricted writes remained disabled;
 - Playwright MCP loaded and saved the real schema-v2 Settings UI with every
   startup default enabled, no horizontal overflow, and no console warning or
   error.
