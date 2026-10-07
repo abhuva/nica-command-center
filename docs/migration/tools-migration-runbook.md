@@ -246,16 +246,14 @@ export remain blocked. Legacy Email `4176` remains the production workflow for
 export and the warm fallback. See [Gate 5 Email bounded-classification shadow
 record](gate-5-email-classification-shadow.md).
 
-Bounded Email OAuth is the next controlled slice. Its synthetic API, launcher,
-rollback, and Playwright MCP checks pass. It retains Count/Fetch and
-classification, adds only interactive Microsoft login/reauthorization through
-`oauth.manage`, and keeps vault export blocked. Automatic token refresh during
-an accepted fetch was already allowed; this slice covers explicit OAuth setup.
-The live profile is active on `4276` after exact-capability checks, immutable
-token backup, rollback rehearsal, and Playwright MCP verification. Normal OAuth
-sign-in plus Count/Fetch confirmation is still pending, so legacy Email `4176`
-remains the warm fallback and the production workflow for export. See [Gate 5
-Email bounded-OAuth shadow record](gate-5-email-oauth-shadow.md).
+Bounded Email OAuth is accepted after synthetic API and launcher checks,
+immutable token backup, rollback rehearsal, Playwright MCP verification, and
+Marc's normal Microsoft OAuth workflow confirmation on 2026-10-07. Live `4276`
+retains Count/Fetch and classification and adds only interactive login and
+reauthorization through `oauth.manage`; vault export remains blocked. Automatic
+token refresh during an accepted fetch remains part of `mail.fetch`. Legacy
+Email `4176` remains the production workflow for export and the warm fallback.
+See [Gate 5 Email bounded-OAuth shadow record](gate-5-email-oauth-shadow.md).
 
 Use the following sequence for each capability:
 

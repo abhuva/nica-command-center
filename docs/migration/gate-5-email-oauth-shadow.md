@@ -1,6 +1,6 @@
 # Gate 5: Email bounded-OAuth shadow
 
-**Status:** live bounded-OAuth profile active; normal-workflow confirmation pending
+**Status:** bounded-OAuth shadow accepted; Email export remains legacy-only
 
 **Date:** 2026-10-07
 
@@ -109,6 +109,8 @@ classification profile.
   All observed API calls returned HTTP 200, the console had no warnings or
   errors, and the 375-by-812 viewport had no horizontal overflow. The OAuth
   authorization link was not opened during this read-only browser check.
+- Marc completed the normal Microsoft OAuth login and confirmed the
+  OAuth-dependent Email workflow works on `4276` on 2026-10-07.
 
 ## Live acceptance checklist
 
@@ -118,7 +120,7 @@ classification profile.
 - [x] Confirm migrated `4276` and legacy `4176` are healthy before activation.
 - [x] Create the immutable token recovery copy and activate the OAuth profile.
 - [x] Confirm exact health capabilities and that Export remains blocked.
-- [ ] Complete one normal OAuth reauthorization and then Count/Fetch for that
+- [x] Complete one normal OAuth reauthorization and then Count/Fetch for that
   account.
 - [x] Rehearse rollback to bounded classification.
-- [ ] Marc confirms the normal OAuth-dependent Email workflow is usable.
+- [x] Marc confirms the normal OAuth-dependent Email workflow is usable.
