@@ -235,7 +235,8 @@ Activation does not export automatically: **Preview Export** performs a
 read-only aggregate plan, and **Apply Export** is a separate action using a
 one-use token. Matching files are left untouched and differing target files
 block apply. Notes in the established flat Email archive are recognized by
-account folder and UID, reported separately, and never rewritten. Roll back by
+account folder and timestamp, with a bounded UID check for ambiguous matches;
+they are reported separately and never rewritten. Roll back by
 stopping the export profile and starting `start-email-oauth-shadow.ps1 -Apply`.
 Legacy Email `4176` remains available throughout. Live activation is still
 pending.

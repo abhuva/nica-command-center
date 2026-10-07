@@ -184,9 +184,10 @@ Runtime activation does not export automatically. **Preview Export** is
 read-only and returns aggregate create, unchanged, and conflict counts. A
 separate **Apply Export** action uses a one-use five-minute plan, revalidates
 the database and filesystem, never rewrites matching files, and refuses
-differing targets. Existing notes in the older flat archive are matched only by
-the established account-folder slug and frontmatter UID, reported as
-`legacyExisting`, and never rewritten. Ambiguous legacy matches block apply.
+differing targets. Existing notes in the older flat archive are matched by the
+established account-folder slug and filename timestamp, with a bounded
+frontmatter UID read only for ambiguous timestamps. They are reported as
+`legacyExisting` and never rewritten. Ambiguous legacy matches block apply.
 Roll back without refreshing accepted state:
 
 ```powershell

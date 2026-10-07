@@ -236,7 +236,7 @@ def legacy_archive_adoption_smoke() -> None:
         assert export_row["status"] == "legacy-existing"
         assert export_row["content_hash"] == message_row["export_hash"]
 
-        duplicate = legacy_directory / "2026-02-06-120001 - Duplicate synthetic note.md"
+        duplicate = legacy_directory / "2026-02-06-120000 - Duplicate synthetic note.md"
         duplicate.write_text(
             "---\nuid: 6\nsubject: Duplicate synthetic schema\n---\n\nSynthetic duplicate.\n",
             encoding="utf-8",

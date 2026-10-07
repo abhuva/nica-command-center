@@ -27,10 +27,11 @@ files before publishing anything.
   rewritten. A different file or non-file at the target path is a conflict and
   prevents apply.
 - The established flat Email archive uses an older path and frontmatter schema.
-  Preview identifies those notes only through the bounded account-folder slug
-  and frontmatter `uid`, reports them separately as `legacyExisting`, and never
-  rewrites them. Multiple legacy notes for one message are a blocking conflict.
-  Only included messages without an established projection use the new
+  Preview identifies those notes through the account-folder slug and filename
+  timestamp, reading the bounded frontmatter `uid` only when a timestamp is
+  ambiguous. It reports them separately as `legacyExisting` and never rewrites
+  them. Multiple legacy notes for one message are a blocking conflict. Only
+  included messages without an established projection use the new
   collision-resistant account/year/month path.
 - Plan tokens are random, one-use, process-local, and expire after five minutes.
   Apply recomputes the selection, rendered content, and target hashes before it
@@ -115,7 +116,15 @@ deleted automatically during profile rollback.
   immediately rolled back to the accepted OAuth profile; the vault count and
   latest-write timestamp remained identical. Aggregate reconciliation then
   mapped 11,695 existing notes to candidate messages, including 4,125 included
-  messages, through account slug and UID without exposing message content.
+  messages, through account slug, timestamp, and bounded UID checks without
+  exposing message content.
+- The first revised full-vault preview opened every legacy note and exceeded a
+  45-second client timeout. Apply was not used, and `4276` was rolled back again
+  with the vault baseline unchanged. Filename indexing now resolves 4,074 of
+  the included archive notes without opening them and reads bounded UID
+  frontmatter only for 51 ambiguous-timestamp messages. A read-only local run
+  produced the expected aggregate result in 28.98 seconds: 516 new, 4,125
+  existing-archive, zero unchanged, and zero conflicts.
 
 ## Live acceptance checklist
 

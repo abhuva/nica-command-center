@@ -63,6 +63,7 @@ EMAIL_WRITE_CAPABILITIES = frozenset({
     "vault.export",
 })
 EXPORT_PLAN_TTL_SECONDS = 300
+LEGACY_EXPORT_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}-\d{6}) - .*\.md$", re.IGNORECASE)
 POST_ROUTE_CAPABILITIES = {
     "/api/count": "mail.count",
     "/api/count-all": "mail.count",
@@ -1124,15 +1125,21 @@ class EmailTool:
             f"SELECT * FROM messages{where_sql} ORDER BY COALESCE(sent_at, fetched_at) DESC LIMIT ?",
             args + [limit],
         ).fetchall()
-        legacy_index = build_legacy_export_index(export_root)
+        legacy_index = build_legacy_export_filename_index(export_root)
         account_slugs: dict[str, set[str]] = {}
         legacy_message_counts: dict[tuple[str, str], int] = {}
-        for account_row in conn.execute("SELECT account_id, uid FROM messages"):
+        legacy_identity_counts: dict[tuple[str, str], int] = {}
+        for account_row in conn.execute("SELECT account_id, uid, sent_at FROM messages"):
             account_id_value = str(account_row["account_id"] or "account")
             account_slug = legacy_account_slug(account_id_value)
             account_slugs.setdefault(account_slug, set()).add(account_id_value)
             identity_key = (account_slug, str(account_row["uid"] or ""))
             legacy_message_counts[identity_key] = legacy_message_counts.get(identity_key, 0) + 1
+            legacy_timestamp = legacy_export_timestamp(account_row["sent_at"])
+            if legacy_timestamp:
+                timestamp_key = (account_slug, legacy_timestamp)
+                legacy_identity_counts[timestamp_key] = legacy_identity_counts.get(timestamp_key, 0) + 1
+        legacy_uid_cache: dict[Path, str] = {}
         entries = []
         seen_targets: set[Path] = set()
         for row in rows:
@@ -1148,16 +1155,35 @@ class EmailTool:
             target = (export_root / rel_path).resolve()
             if target != export_root and export_root not in target.parents:
                 raise RuntimeError("Export path escaped email directory")
-            legacy_key = (
-                legacy_account_slug(msg.get("account_id") or "account"),
-                str(msg.get("uid") or ""),
-            )
-            legacy_candidates = legacy_index.get(legacy_key, [])
-            legacy_ambiguous = bool(legacy_candidates) and (
-                len(account_slugs.get(legacy_key[0], set())) > 1
-                or legacy_message_counts.get(legacy_key, 0) > 1
-                or len(legacy_candidates) > 1
-            )
+            account_slug = legacy_account_slug(msg.get("account_id") or "account")
+            message_uid = str(msg.get("uid") or "")
+            legacy_key = (account_slug, message_uid)
+            legacy_timestamp = legacy_export_timestamp(msg.get("sent_at"))
+            timestamp_key = (account_slug, legacy_timestamp)
+            timestamp_candidates = legacy_index.get(timestamp_key, []) if legacy_timestamp else []
+            legacy_candidates: list[Path] = []
+            legacy_ambiguous = False
+            if timestamp_candidates:
+                if len(account_slugs.get(account_slug, set())) > 1:
+                    legacy_ambiguous = True
+                elif legacy_identity_counts.get(timestamp_key, 0) == 1 and len(timestamp_candidates) == 1:
+                    legacy_candidates = timestamp_candidates
+                else:
+                    for candidate in timestamp_candidates:
+                        if candidate not in legacy_uid_cache:
+                            legacy_uid_cache[candidate] = read_legacy_export_uid(candidate)
+                    candidate_uids = [legacy_uid_cache[candidate] for candidate in timestamp_candidates]
+                    matching_candidates = [
+                        candidate
+                        for candidate in timestamp_candidates
+                        if legacy_uid_cache[candidate] == message_uid
+                    ]
+                    if any(not uid for uid in candidate_uids):
+                        legacy_ambiguous = True
+                    elif len(matching_candidates) == 1 and legacy_message_counts.get(legacy_key, 0) == 1:
+                        legacy_candidates = matching_candidates
+                    elif matching_candidates:
+                        legacy_ambiguous = True
             if not target.exists() and len(legacy_candidates) == 1 and not legacy_ambiguous:
                 target = legacy_candidates[0]
                 rel_path = target.relative_to(export_root)
@@ -1169,7 +1195,7 @@ class EmailTool:
             target_hash = ""
             if legacy_ambiguous and not target.exists():
                 target_status = "conflict"
-                target_hash = legacy_candidate_fingerprint(export_root, legacy_candidates)
+                target_hash = legacy_candidate_fingerprint(export_root, timestamp_candidates)
             elif target.exists():
                 if target.is_file():
                     target_hash = sha256_file(target)
@@ -1520,6 +1546,12 @@ def legacy_account_slug(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "-", ascii_text).strip("-") or "account"
 
 
+def legacy_export_timestamp(value: Any) -> str:
+    """Return the timestamp prefix used by established Email archive notes."""
+    parsed = parse_iso_date(value)
+    return parsed.strftime("%Y-%m-%d-%H%M%S") if parsed else ""
+
+
 def read_legacy_export_uid(path: Path) -> str:
     """Read only the bounded frontmatter UID needed to identify a legacy note."""
     try:
@@ -1543,8 +1575,8 @@ def read_legacy_export_uid(path: Path) -> str:
     return ""
 
 
-def build_legacy_export_index(export_root: Path) -> dict[tuple[str, str], list[Path]]:
-    """Index established flat archive notes without interpreting their content."""
+def build_legacy_export_filename_index(export_root: Path) -> dict[tuple[str, str], list[Path]]:
+    """Index established flat archive filenames without opening every note."""
     index: dict[tuple[str, str], list[Path]] = {}
     if not export_root.is_dir():
         return index
@@ -1560,9 +1592,9 @@ def build_legacy_export_index(export_root: Path) -> dict[tuple[str, str], list[P
             resolved_candidate = candidate.resolve()
             if resolved_candidate.parent != resolved_account:
                 continue
-            uid = read_legacy_export_uid(resolved_candidate)
-            if uid:
-                index.setdefault((account_directory.name, uid), []).append(resolved_candidate)
+            name_match = LEGACY_EXPORT_NAME_RE.fullmatch(candidate.name)
+            if name_match:
+                index.setdefault((account_directory.name, name_match.group(1)), []).append(resolved_candidate)
     return index
 
 
