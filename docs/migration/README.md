@@ -25,6 +25,7 @@ passed its acceptance checks and has a tested rollback path.
 - [Gate 5 Calendar vault-event creation record](gate-5-calendar-vault-write-cutover.md)
 - [Gate 5 Email read-only shadow record](gate-5-email-read-shadow.md)
 - [Gate 5 Email bounded-fetch shadow record](gate-5-email-fetch-shadow.md)
+- [Gate 5 Email bounded-classification shadow record](gate-5-email-classification-shadow.md)
 
 These documents are operational plans. Accepted, long-lived architecture
 decisions remain in `docs/adr/`.
@@ -38,7 +39,7 @@ decisions remain in `docs/adr/`.
 | 2 | Import sanitized history into an isolated candidate branch | Complete |
 | 3 | Remove vault-location assumptions and isolate candidate state | Complete |
 | 4 | Shadow-test capabilities without production writes | Complete; external credentials deferred |
-| 5 | Cut over one capability at a time | In progress; eight capabilities accepted, Email classification and export remain legacy-only |
+| 5 | Cut over one capability at a time | In progress; eight capabilities accepted, bounded Email classification is the next candidate |
 | 6 | Switch the stable launcher | Not started |
 | 7 | Observe, rehearse rollback, and retire the old checkout | Not started |
 
