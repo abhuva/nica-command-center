@@ -1,6 +1,6 @@
 # Gate 5: Calendar vault-event creation cutover
 
-**Status:** technical candidate verified; live cutover ready
+**Status:** technical cutover complete; awaiting normal-workflow acceptance
 
 **Date:** 2026-10-07
 
@@ -8,8 +8,8 @@
 
 This cutover adds one controlled write capability to the accepted migrated
 Calendar on port `4273`: creation of Markdown event notes in the configured
-vault inbox. The accepted read-only Calendar remains the live workflow until a
-separate cutover apply, and legacy Calendar `4173` remains the rollback.
+vault inbox. The narrow writer is now live on `4273`, and legacy Calendar
+`4173` remains the warm fallback.
 
 ## Boundaries
 
@@ -80,6 +80,16 @@ legacy `4173` or vault content:
   local read profile, reported one Google and seven Nextcloud read calendars,
   excluded OAuth/write/publishing credentials, and proposed only
   `vault-event.create`. It changed no process or production data.
+- The controlled live cutover started `4273` in `limited-write` mode with only
+  `vault-event.create`. All unrelated write routes and Google OAuth start
+  returned HTTP 403; legacy `4173` remained healthy.
+- Live API and Playwright MCP previews displayed the planned inbox note without
+  creating it. Editing the UI title invalidated the plan, the 375 px view had
+  no horizontal overflow, and the current-page console had no warnings or
+  errors.
+- The live rollback rehearsal restored `read-only` mode, disabled planning with
+  HTTP 403, and preserved legacy availability. The narrow writer was then
+  restored and passed its final health and capability checks.
 
 ## Acceptance checklist
 
@@ -89,5 +99,5 @@ legacy `4173` or vault content:
 - [x] Failure paths leave no staging or duplicate final note.
 - [x] Browser-level responsive and console checks pass with Playwright MCP.
 - [x] Preview the live runtime authority and capability set without restarting.
-- [ ] Apply the narrow profile during a controlled cutover.
+- [x] Apply the narrow profile during a controlled cutover.
 - [ ] Marc creates one needed event and confirms the normal workflow.
