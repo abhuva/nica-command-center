@@ -234,9 +234,11 @@ After review, stop only migrated `4276` and repeat the command with `-Apply`.
 Activation does not export automatically: **Preview Export** performs a
 read-only aggregate plan, and **Apply Export** is a separate action using a
 one-use token. Matching files are left untouched and differing target files
-block apply. Roll back by stopping the export profile and starting
-`start-email-oauth-shadow.ps1 -Apply`. Legacy Email `4176` remains available
-throughout. Live activation is still pending.
+block apply. Notes in the established flat Email archive are recognized by
+account folder and UID, reported separately, and never rewritten. Roll back by
+stopping the export profile and starting `start-email-oauth-shadow.ps1 -Apply`.
+Legacy Email `4176` remains available throughout. Live activation is still
+pending.
 
 ## Ziele
 

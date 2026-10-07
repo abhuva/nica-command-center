@@ -1000,7 +1000,7 @@ els.exportBtn.addEventListener("click", async () => {
     state: els.stateFilter.value || "included",
     accountId: els.accountSelect.value,
   });
-  els.exportSummary.textContent = `Export preview: ${fmtNumber(payload.total)} total · ${fmtNumber(payload.create)} new · ${fmtNumber(payload.unchanged)} unchanged · ${fmtNumber(payload.conflicts)} conflicts`;
+  els.exportSummary.textContent = `Export preview: ${fmtNumber(payload.total)} total · ${fmtNumber(payload.create)} new · ${fmtNumber(payload.unchanged)} unchanged · ${fmtNumber(payload.legacyExisting)} existing archive · ${fmtNumber(payload.conflicts)} conflicts`;
   els.exportPanel.classList.remove("hidden");
   state.exportPlanToken = payload.planToken || "";
   els.exportApplyBtn.disabled = !payload.canApply;
@@ -1025,7 +1025,7 @@ els.exportApplyBtn.addEventListener("click", async () => {
   const payload = await post("/api/export/apply", { planToken });
   clearExportPlan();
   await refresh();
-  setStatus(`Exported ${payload.exported} markdown files · ${payload.created} new · ${payload.unchanged} unchanged`);
+  setStatus(`Exported ${payload.exported} markdown files · ${payload.created} new · ${payload.unchanged} unchanged · ${payload.legacyExisting} existing archive`);
 });
 
 els.exportCancelBtn.addEventListener("click", () => {

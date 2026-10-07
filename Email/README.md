@@ -184,7 +184,10 @@ Runtime activation does not export automatically. **Preview Export** is
 read-only and returns aggregate create, unchanged, and conflict counts. A
 separate **Apply Export** action uses a one-use five-minute plan, revalidates
 the database and filesystem, never rewrites matching files, and refuses
-differing targets. Roll back without refreshing accepted state:
+differing targets. Existing notes in the older flat archive are matched only by
+the established account-folder slug and frontmatter UID, reported as
+`legacyExisting`, and never rewritten. Ambiguous legacy matches block apply.
+Roll back without refreshing accepted state:
 
 ```powershell
 .\scripts\stop-email-read.ps1

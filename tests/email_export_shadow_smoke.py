@@ -133,6 +133,7 @@ def plan_apply_smoke() -> None:
             "exported": 1,
             "created": 1,
             "unchanged": 0,
+            "legacyExisting": 0,
             "destination": "8. Emails",
         }
         original_bytes = target.read_bytes()
@@ -180,6 +181,71 @@ def plan_apply_smoke() -> None:
         assert conflict["canApply"] is False
         assert conflict["planToken"] == ""
         assert target.read_text(encoding="utf-8") == "Human-edited synthetic file.\n"
+
+
+def legacy_archive_adoption_smoke() -> None:
+    """Adopt an established flat archive note without rewriting or duplicating it."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
+        root = Path(temp_dir)
+        vault = root / "vault"
+        runtime = root / "state" / "email"
+        vault.mkdir()
+        tool = email_tool.EmailTool(fixture_config(runtime, vault))
+        message_id = add_message(tool, "6", "Synthetic / legacy archive")
+        current_target = target_for(tool, message_id)
+        assert len(tool.export_path_for(tool.get_message(message_id)).parts) == 4
+
+        legacy_directory = tool.email_vault_root / email_tool.legacy_account_slug("fixture")
+        legacy_directory.mkdir(parents=True)
+        legacy_target = legacy_directory / "2026-02-06-120000 - Established synthetic note.md"
+        legacy_target.write_text(
+            "---\nuid: 6\nsubject: Legacy synthetic schema\n---\n\nSynthetic legacy projection.\n",
+            encoding="utf-8",
+        )
+        legacy_bytes = legacy_target.read_bytes()
+        legacy_mtime = legacy_target.stat().st_mtime_ns
+
+        plan = tool.plan_export({"state": "included", "accountId": "fixture"})
+        assert plan["total"] == 1
+        assert plan["create"] == 0
+        assert plan["unchanged"] == 0
+        assert plan["legacyExisting"] == 1
+        assert plan["conflicts"] == 0
+        assert plan["canApply"] is True
+        assert not current_target.exists()
+        assert_not_exported(tool, [message_id])
+
+        applied = tool.apply_export({"planToken": plan["planToken"]})
+        assert applied["created"] == 0
+        assert applied["unchanged"] == 0
+        assert applied["legacyExisting"] == 1
+        assert legacy_target.read_bytes() == legacy_bytes
+        assert legacy_target.stat().st_mtime_ns == legacy_mtime
+        assert not current_target.exists()
+        with tool.connect() as conn:
+            message_row = conn.execute(
+                "SELECT exported_path, export_hash FROM messages WHERE id=?",
+                (message_id,),
+            ).fetchone()
+            export_row = conn.execute(
+                "SELECT status, content_hash FROM exports WHERE message_id=? AND profile='included'",
+                (message_id,),
+            ).fetchone()
+        assert message_row["exported_path"].endswith("Established synthetic note.md")
+        assert message_row["export_hash"] == email_tool.sha256_file(legacy_target)
+        assert export_row["status"] == "legacy-existing"
+        assert export_row["content_hash"] == message_row["export_hash"]
+
+        duplicate = legacy_directory / "2026-02-06-120001 - Duplicate synthetic note.md"
+        duplicate.write_text(
+            "---\nuid: 6\nsubject: Duplicate synthetic schema\n---\n\nSynthetic duplicate.\n",
+            encoding="utf-8",
+        )
+        conflict = tool.plan_export({"state": "included", "accountId": "fixture"})
+        assert conflict["legacyExisting"] == 0
+        assert conflict["conflicts"] == 1
+        assert conflict["canApply"] is False
+        assert conflict["planToken"] == ""
 
 
 def stale_and_rollback_smoke() -> None:
@@ -357,6 +423,12 @@ def serve_ui_fixture(port: int, callback_port: int) -> None:
         (component / "config.local.json").write_text(json.dumps({"accounts": []}), encoding="utf-8")
         tool = email_tool.EmailTool(fixture_config(component, vault))
         add_message(tool, "5", "Browser export message")
+        legacy_directory = tool.email_vault_root / email_tool.legacy_account_slug("fixture")
+        legacy_directory.mkdir(parents=True)
+        (legacy_directory / "2026-02-05-120000 - Browser legacy projection.md").write_text(
+            "---\nuid: 5\nsubject: Browser legacy schema\n---\n\nSynthetic browser projection.\n",
+            encoding="utf-8",
+        )
         port_env = os.environ.copy()
         port_env.update({
             "NICA_VAULT_ROOT": str(vault),
@@ -393,6 +465,7 @@ def serve_ui_fixture(port: int, callback_port: int) -> None:
 def main() -> None:
     """Run bounded Email export verification."""
     plan_apply_smoke()
+    legacy_archive_adoption_smoke()
     stale_and_rollback_smoke()
     launcher_and_rollback_smoke()
     print("Email bounded-export capability smoke check passed")

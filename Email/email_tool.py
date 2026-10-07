@@ -19,6 +19,7 @@ import ssl
 import sys
 import threading
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -1123,6 +1124,15 @@ class EmailTool:
             f"SELECT * FROM messages{where_sql} ORDER BY COALESCE(sent_at, fetched_at) DESC LIMIT ?",
             args + [limit],
         ).fetchall()
+        legacy_index = build_legacy_export_index(export_root)
+        account_slugs: dict[str, set[str]] = {}
+        legacy_message_counts: dict[tuple[str, str], int] = {}
+        for account_row in conn.execute("SELECT account_id, uid FROM messages"):
+            account_id_value = str(account_row["account_id"] or "account")
+            account_slug = legacy_account_slug(account_id_value)
+            account_slugs.setdefault(account_slug, set()).add(account_id_value)
+            identity_key = (account_slug, str(account_row["uid"] or ""))
+            legacy_message_counts[identity_key] = legacy_message_counts.get(identity_key, 0) + 1
         entries = []
         seen_targets: set[Path] = set()
         for row in rows:
@@ -1138,16 +1148,35 @@ class EmailTool:
             target = (export_root / rel_path).resolve()
             if target != export_root and export_root not in target.parents:
                 raise RuntimeError("Export path escaped email directory")
+            legacy_key = (
+                legacy_account_slug(msg.get("account_id") or "account"),
+                str(msg.get("uid") or ""),
+            )
+            legacy_candidates = legacy_index.get(legacy_key, [])
+            legacy_ambiguous = bool(legacy_candidates) and (
+                len(account_slugs.get(legacy_key[0], set())) > 1
+                or legacy_message_counts.get(legacy_key, 0) > 1
+                or len(legacy_candidates) > 1
+            )
+            if not target.exists() and len(legacy_candidates) == 1 and not legacy_ambiguous:
+                target = legacy_candidates[0]
+                rel_path = target.relative_to(export_root)
             if target in seen_targets:
                 raise RuntimeError("Multiple messages resolved to the same export path")
             seen_targets.add(target)
             content = render_markdown(msg).encode("utf-8")
             content_hash = hashlib.sha256(content).hexdigest()
             target_hash = ""
-            if target.exists():
+            if legacy_ambiguous and not target.exists():
+                target_status = "conflict"
+                target_hash = legacy_candidate_fingerprint(export_root, legacy_candidates)
+            elif target.exists():
                 if target.is_file():
                     target_hash = sha256_file(target)
-                    target_status = "unchanged" if target_hash == content_hash else "conflict"
+                    if len(legacy_candidates) == 1 and target == legacy_candidates[0]:
+                        target_status = "legacy-existing"
+                    else:
+                        target_status = "unchanged" if target_hash == content_hash else "conflict"
                 else:
                     target_status = "conflict"
                     target_hash = "non-file"
@@ -1184,6 +1213,7 @@ class EmailTool:
             "fingerprint": fingerprint,
             "create": sum(1 for entry in entries if entry["status"] == "create"),
             "unchanged": sum(1 for entry in entries if entry["status"] == "unchanged"),
+            "legacyExisting": sum(1 for entry in entries if entry["status"] == "legacy-existing"),
             "conflicts": sum(1 for entry in entries if entry["status"] == "conflict"),
         }
 
@@ -1216,6 +1246,7 @@ class EmailTool:
             "total": len(snapshot["entries"]),
             "create": snapshot["create"],
             "unchanged": snapshot["unchanged"],
+            "legacyExisting": snapshot["legacyExisting"],
             "conflicts": snapshot["conflicts"],
             "destination": normalize_slashes(self.email_vault_dir),
             "canApply": can_apply,
@@ -1286,14 +1317,20 @@ class EmailTool:
                     staged.remove(entry["stage"])
                 for entry in snapshot["entries"]:
                     target = entry["target"]
-                    if not target.is_file() or sha256_file(target) != entry["contentHash"]:
+                    expected_hash = entry["targetHash"] if entry["status"] == "legacy-existing" else entry["contentHash"]
+                    if not target.is_file() or sha256_file(target) != expected_hash:
                         raise RuntimeError("Export target changed during apply")
                 exported_at = iso_now()
                 for entry in snapshot["entries"]:
                     exported_path = normalize_slashes(str(Path(self.email_vault_dir) / entry["relativePath"]))
                     conn.execute(
                         "UPDATE messages SET exported_path=?, exported_at=?, export_hash=? WHERE id=?",
-                        (exported_path, exported_at, entry["contentHash"], entry["messageId"]),
+                        (
+                            exported_path,
+                            exported_at,
+                            entry["targetHash"] if entry["status"] == "legacy-existing" else entry["contentHash"],
+                            entry["messageId"],
+                        ),
                     )
                     conn.execute(
                         """
@@ -1309,7 +1346,7 @@ class EmailTool:
                             entry["messageId"],
                             snapshot["selection"]["state"],
                             exported_path,
-                            entry["contentHash"],
+                            entry["targetHash"] if entry["status"] == "legacy-existing" else entry["contentHash"],
                             exported_at,
                             entry["status"],
                         ),
@@ -1320,6 +1357,7 @@ class EmailTool:
                 "exported": len(snapshot["entries"]),
                 "created": snapshot["create"],
                 "unchanged": snapshot["unchanged"],
+                "legacyExisting": snapshot["legacyExisting"],
                 "destination": normalize_slashes(self.email_vault_dir),
             }
         except Exception as error:
@@ -1366,7 +1404,14 @@ class EmailTool:
         if not plan["canApply"]:
             if plan["conflicts"]:
                 raise ValueError("Export targets conflict with existing files")
-            return {"ok": True, "exported": 0, "created": 0, "unchanged": 0, "destination": plan["destination"]}
+            return {
+                "ok": True,
+                "exported": 0,
+                "created": 0,
+                "unchanged": 0,
+                "legacyExisting": 0,
+                "destination": plan["destination"],
+            }
         return self.apply_export({"planToken": plan["planToken"]})
 
     def export_path_for(self, msg: dict[str, Any]) -> Path:
@@ -1466,6 +1511,70 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def legacy_account_slug(value: Any) -> str:
+    """Return the account-folder slug used by the established Email archive."""
+    normalized = unicodedata.normalize("NFKD", str(value or "account"))
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii").lower()
+    return re.sub(r"[^a-z0-9]+", "-", ascii_text).strip("-") or "account"
+
+
+def read_legacy_export_uid(path: Path) -> str:
+    """Read only the bounded frontmatter UID needed to identify a legacy note."""
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as stream:
+            first_line = stream.readline(4097)
+            if len(first_line) > 4096 or first_line.strip() != "---":
+                return ""
+            for _line_number in range(64):
+                line = stream.readline(4097)
+                if not line or len(line) > 4096 or line.strip() == "---":
+                    return ""
+                if not line.startswith("uid:"):
+                    continue
+                raw_value = line.split(":", 1)[1].strip()
+                try:
+                    return str(json.loads(raw_value))
+                except (json.JSONDecodeError, TypeError):
+                    return raw_value.strip("'\"")
+    except OSError:
+        return ""
+    return ""
+
+
+def build_legacy_export_index(export_root: Path) -> dict[tuple[str, str], list[Path]]:
+    """Index established flat archive notes without interpreting their content."""
+    index: dict[tuple[str, str], list[Path]] = {}
+    if not export_root.is_dir():
+        return index
+    for account_directory in export_root.iterdir():
+        if account_directory.is_symlink() or not account_directory.is_dir():
+            continue
+        resolved_account = account_directory.resolve()
+        if resolved_account.parent != export_root:
+            continue
+        for candidate in account_directory.glob("*.md"):
+            if candidate.is_symlink() or not candidate.is_file():
+                continue
+            resolved_candidate = candidate.resolve()
+            if resolved_candidate.parent != resolved_account:
+                continue
+            uid = read_legacy_export_uid(resolved_candidate)
+            if uid:
+                index.setdefault((account_directory.name, uid), []).append(resolved_candidate)
+    return index
+
+
+def legacy_candidate_fingerprint(export_root: Path, candidates: list[Path]) -> str:
+    """Fingerprint ambiguous legacy candidates without exposing their paths."""
+    digest = hashlib.sha256()
+    for candidate in sorted(candidates, key=lambda path: normalize_slashes(str(path.relative_to(export_root)))):
+        digest.update(normalize_slashes(str(candidate.relative_to(export_root))).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(sha256_file(candidate).encode("ascii"))
+        digest.update(b"\0")
+    return "legacy-conflict:" + digest.hexdigest()
 
 
 def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
@@ -1753,7 +1862,7 @@ def normalize_tag(value: Any) -> str:
 
 
 def sanitize_path_part(value: Any) -> str:
-    text = re.sub(r"[<>:\\|?*\x00-\x1f]+", "-", str(value or "").strip())
+    text = re.sub(r"[<>:/\\|?*\x00-\x1f]+", "-", str(value or "").strip())
     text = re.sub(r"\s+", " ", text).strip(" .-")
     return text[:120] or "untitled"
 
