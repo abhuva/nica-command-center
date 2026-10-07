@@ -51,6 +51,7 @@ Use `ssl: true` for implicit TLS on port 993. Use `ssl: false` plus `starttls: t
 npm.cmd --prefix .\Email run check:smoke
 npm run check:email-read-shadow
 npm run check:email-fetch-shadow
+npm run check:email-classification-shadow
 ```
 
 ## Gate 5 read-only shadow
@@ -106,3 +107,29 @@ The launcher keeps `NICA_WRITE_ENABLED=false` and enables only
 and token refreshes stay in isolated local state; OAuth setup, classification,
 rules, tags, and vault export remain disabled. Legacy Email `4176` remains the
 production workflow and immediate fallback.
+
+## Gate 5 bounded-classification shadow
+
+The classification profile retains Count/Fetch and additionally enables only
+`message.tag`, `rules.apply`, and `rules.manage`. Preview the profile and its
+consistent candidate-database rollback snapshot without changing state:
+
+```powershell
+.\scripts\start-email-classification-shadow.ps1 -VaultRoot "C:\path\to\vault" -BackupCandidate
+```
+
+After review, stop only migrated `4276` and apply the profile:
+
+```powershell
+.\scripts\stop-email-read.ps1
+.\scripts\start-email-classification-shadow.ps1 -VaultRoot "C:\path\to\vault" -BackupCandidate -Apply
+```
+
+OAuth setup and vault export remain disabled. Roll back to the accepted
+fetch-only authority by stopping the process and running
+`start-email-fetch-shadow.ps1` with `-Apply` and without a snapshot refresh.
+The pre-classification database snapshot remains below local runtime state at
+`email/backups/email-before-classification.db` for state recovery if required.
+Repeating `-BackupCandidate` retains that file. To replace it deliberately, use
+`-RefreshCandidateBackup`; the first refresh preserves the prior recovery copy
+as `email/backups/email-before-classification.original.db`.

@@ -188,6 +188,23 @@ After review, stop only migrated `4276` and apply the bounded profile with the
 same command plus `-Apply`. OAuth setup, classification, rules, tags, and vault
 export remain disabled; legacy Email `4176` remains the production workflow.
 
+### Gate 5 Email bounded-classification shadow
+
+The next Email slice retains Count/Fetch and enables only local rule management,
+rule application, and message tagging in the isolated candidate database.
+Preview the activation and consistent rollback snapshot first:
+
+```powershell
+.\scripts\start-email-classification-shadow.ps1 -VaultRoot "C:\path\to\vault" -BackupCandidate
+```
+
+After review, stop only migrated `4276` and repeat the command with `-Apply`.
+OAuth setup and vault export remain disabled. Roll back by stopping the
+classification profile and starting `start-email-fetch-shadow.ps1` without a
+snapshot refresh. Repeating `-BackupCandidate` retains an existing recovery
+copy; `-RefreshCandidateBackup` is required to replace it and preserves the
+original first. Legacy Email `4176` remains available throughout.
+
 ## Ziele
 
 - Homepage in Obsidian Webviewer ueber lokalen Server.

@@ -6,6 +6,9 @@ param(
   [int]$Port = 4276,
   [switch]$RefreshSnapshot,
   [switch]$PrepareFetchProfile,
+  [switch]$EnableClassification,
+  [switch]$BackupCandidate,
+  [switch]$RefreshCandidateBackup,
   [switch]$Apply
 )
 
@@ -22,11 +25,19 @@ $resolvedLegacy = (Resolve-Path -LiteralPath $legacyRootInput).Path
 $legacyEmailRoot = Join-Path $resolvedLegacy "Email"
 $sourceDatabase = Join-Path $legacyEmailRoot "email.db"
 $legacyConfigPath = Join-Path $legacyEmailRoot "config.local.json"
+$componentName = if ($EnableClassification) { "email-classification-shadow" } else { "email-fetch-shadow" }
+$writeCapabilities = @("mail.count", "mail.fetch")
+if ($EnableClassification) {
+  $writeCapabilities += @("message.tag", "rules.apply", "rules.manage")
+}
 
 if (-not (Test-Path -LiteralPath $sourceDatabase -PathType Leaf)) {
   throw "Legacy Email database was not found."
 }
 if ($Port -lt 1 -or $Port -gt 65535) { throw "Port must be between 1 and 65535." }
+if (($BackupCandidate -or $RefreshCandidateBackup) -and -not $EnableClassification) {
+  throw "Candidate backup is supported only for the classification profile."
+}
 
 $vaultPrefix = $resolvedVault.TrimEnd('\') + '\'
 $statePrefix = $resolvedState.TrimEnd('\') + '\'
@@ -64,19 +75,24 @@ function Resolve-ContainedFile {
 function Copy-AtomicFile {
   param(
     [Parameter(Mandatory = $true)][string]$Source,
-    [Parameter(Mandatory = $true)][string]$Destination
+    [Parameter(Mandatory = $true)][string]$Destination,
+    [switch]$NoOverwrite
   )
 
   $sourceItem = Get-Item -LiteralPath $Source
   if ($sourceItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
-    throw "Credential-profile sources must not be symbolic links or reparse points."
+    throw "Backup and credential-profile sources must not be symbolic links or reparse points."
   }
   $destinationDirectory = Split-Path -Parent $Destination
   New-Item -ItemType Directory -Force -Path $destinationDirectory | Out-Null
   $staged = $Destination + ".stage-" + [Guid]::NewGuid().ToString("N")
   try {
     Copy-Item -LiteralPath $Source -Destination $staged
-    Move-Item -LiteralPath $staged -Destination $Destination -Force
+    if ($NoOverwrite) {
+      [System.IO.File]::Move($staged, $Destination)
+    } else {
+      Move-Item -LiteralPath $staged -Destination $Destination -Force
+    }
   } finally {
     Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue
   }
@@ -98,6 +114,16 @@ function Test-SameDirectory {
 $componentState = Join-Path $resolvedState "email"
 $candidateDatabase = Join-Path $componentState "email.db"
 $candidateConfigPath = Join-Path $componentState "config.local.json"
+$rollbackDatabase = Join-Path $componentState "backups\email-before-classification.db"
+$originalRollbackDatabase = Join-Path $componentState "backups\email-before-classification.original.db"
+$candidateBackupExists = Test-Path -LiteralPath $rollbackDatabase -PathType Leaf
+$candidateBackupAction = if ($RefreshCandidateBackup) {
+  if ($candidateBackupExists) { "preserve-original-and-refresh" } else { "create" }
+} elseif ($BackupCandidate) {
+  if ($candidateBackupExists) { "retain-existing" } else { "create" }
+} else {
+  "none"
+}
 $profileFiles = @()
 $oauthTokenFiles = @()
 $accountCount = 0
@@ -161,7 +187,7 @@ if ($PrepareFetchProfile) {
 
 $sourceInfo = Get-Item -LiteralPath $sourceDatabase
 $plan = [ordered]@{
-  component = "email-fetch-shadow"
+  component = $componentName
   repository = $repoRoot
   vaultAuthority = $resolvedVault
   localState = $componentState
@@ -170,15 +196,18 @@ $plan = [ordered]@{
   sourceShmPresent = Test-Path -LiteralPath ($sourceDatabase + "-shm") -PathType Leaf
   snapshotAction = if ($RefreshSnapshot) { "consistent-sqlite-backup" } else { "retain-existing" }
   snapshotReady = Test-Path -LiteralPath $candidateDatabase -PathType Leaf
+  candidateBackupAction = $candidateBackupAction
+  candidateBackupReady = $candidateBackupExists
+  originalCandidateBackupReady = Test-Path -LiteralPath $originalRollbackDatabase -PathType Leaf
   profileAction = if ($PrepareFetchProfile) { "copy-to-isolated-local-state" } else { "retain-existing" }
   profileReady = Test-Path -LiteralPath $candidateConfigPath -PathType Leaf
   configuredAccountCount = $accountCount
   credentialEnvironmentFileCount = $credentialEnvironmentFileCount
   oauthTokenFileCount = $oauthTokenFileCount
-  writeCapabilities = @("mail.count", "mail.fetch")
+  writeCapabilities = $writeCapabilities
   oauthSetupEnabled = $false
-  rulesEnabled = $false
-  messageTaggingEnabled = $false
+  rulesEnabled = [bool]$EnableClassification
+  messageTaggingEnabled = [bool]$EnableClassification
   vaultExportEnabled = $false
   imapMailboxMode = "read-only"
   port = $Port
@@ -198,6 +227,33 @@ New-Item -ItemType Directory -Force -Path $componentState | Out-Null
 $componentState = (Resolve-Path -LiteralPath $componentState).Path
 $candidateDatabase = Join-Path $componentState "email.db"
 $candidateConfigPath = Join-Path $componentState "config.local.json"
+$rollbackDatabase = Join-Path $componentState "backups\email-before-classification.db"
+$originalRollbackDatabase = Join-Path $componentState "backups\email-before-classification.original.db"
+$candidateBackupCreated = $false
+$candidateBackupRefreshed = $false
+$originalCandidateBackupCreated = $false
+
+if ($BackupCandidate -or $RefreshCandidateBackup) {
+  if (-not (Test-Path -LiteralPath $candidateDatabase -PathType Leaf)) {
+    throw "Candidate Email database is not initialized; no classification rollback snapshot was created."
+  }
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $rollbackDatabase) | Out-Null
+  $rollbackExists = Test-Path -LiteralPath $rollbackDatabase -PathType Leaf
+  if ($RefreshCandidateBackup -and $rollbackExists) {
+    if (-not (Test-Path -LiteralPath $originalRollbackDatabase -PathType Leaf)) {
+      Copy-AtomicFile -Source $rollbackDatabase -Destination $originalRollbackDatabase -NoOverwrite
+      $originalCandidateBackupCreated = $true
+    }
+    & python (Join-Path $repoRoot "Email\snapshot_db.py") --source $candidateDatabase --destination $rollbackDatabase
+    if ($LASTEXITCODE -ne 0) { throw "Candidate Email rollback snapshot refresh failed." }
+    $candidateBackupCreated = $true
+    $candidateBackupRefreshed = $true
+  } elseif (-not $rollbackExists) {
+    & python (Join-Path $repoRoot "Email\snapshot_db.py") --source $candidateDatabase --destination $rollbackDatabase
+    if ($LASTEXITCODE -ne 0) { throw "Candidate Email rollback snapshot failed." }
+    $candidateBackupCreated = $true
+  }
+}
 
 if ($PrepareFetchProfile) {
   foreach ($file in @($profileFiles) + @($oauthTokenFiles)) {
@@ -219,25 +275,32 @@ if (-not (Test-Path -LiteralPath $candidateConfigPath -PathType Leaf)) {
 $env:NICA_VAULT_ROOT = $resolvedVault
 $env:NICA_STATE_ROOT = $resolvedState
 $env:NICA_WRITE_ENABLED = "false"
-$env:NICA_EMAIL_CAPABILITIES = "mail.count,mail.fetch"
+$env:NICA_EMAIL_CAPABILITIES = $writeCapabilities -join ","
 $env:EMAIL_HOST = "127.0.0.1"
 $env:EMAIL_PORT = [string]$Port
 
-$stdout = Join-Path $componentState "email-fetch.out.log"
-$stderr = Join-Path $componentState "email-fetch.err.log"
+$logPrefix = if ($EnableClassification) { "email-classification" } else { "email-fetch" }
+$stdout = Join-Path $componentState ($logPrefix + ".out.log")
+$stderr = Join-Path $componentState ($logPrefix + ".err.log")
 $serverPath = Join-Path $repoRoot "Email\email_tool.py"
 $proc = Start-Process -FilePath "python" -ArgumentList ('"' + $serverPath + '" serve') -WorkingDirectory (Join-Path $repoRoot "Email") -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
 $manifestPath = Join-Path $componentState "email-read-process.json"
 $manifest = [ordered]@{
-  component = "email-fetch-shadow"
+  component = $componentName
   repository = $repoRoot
   vaultAuthority = $resolvedVault
   stateRoot = $resolvedState
   port = $Port
   mode = "limited-write"
-  writeCapabilities = @("mail.count", "mail.fetch")
+  writeCapabilities = $writeCapabilities
   snapshotRefreshed = [bool]$RefreshSnapshot
   fetchProfilePrepared = [bool]$PrepareFetchProfile
+  classificationEnabled = [bool]$EnableClassification
+  candidateBackupCreated = $candidateBackupCreated
+  candidateBackupRefreshed = $candidateBackupRefreshed
+  candidateBackup = if ($BackupCandidate -or $RefreshCandidateBackup) { $rollbackDatabase } else { $null }
+  originalCandidateBackupCreated = $originalCandidateBackupCreated
+  originalCandidateBackup = if (Test-Path -LiteralPath $originalRollbackDatabase -PathType Leaf) { $originalRollbackDatabase } else { $null }
   pid = $proc.Id
   startedAt = (Get-Date).ToString("o")
   stdout = $stdout
@@ -261,9 +324,9 @@ try {
         [bool]$response.writeCapabilities.mailCount -and
         [bool]$response.writeCapabilities.mailFetch -and
         -not [bool]$response.writeCapabilities.oauthManage -and
-        -not [bool]$response.writeCapabilities.rulesManage -and
-        -not [bool]$response.writeCapabilities.rulesApply -and
-        -not [bool]$response.writeCapabilities.messageTag -and
+        ([bool]$response.writeCapabilities.rulesManage -eq [bool]$EnableClassification) -and
+        ([bool]$response.writeCapabilities.rulesApply -eq [bool]$EnableClassification) -and
+        ([bool]$response.writeCapabilities.messageTag -eq [bool]$EnableClassification) -and
         -not [bool]$response.writeCapabilities.vaultExport -and
         (Test-SameDirectory -Left $response.authority.vault -Right $resolvedVault) -and
         (Test-SameDirectory -Left $response.authority.localState -Right $componentState)
@@ -286,10 +349,14 @@ try {
       }
       Write-Error ($diagnostic | ConvertTo-Json -Depth 4)
     }
-    throw "Email fetch shadow did not become healthy with the planned authority and capabilities."
+    throw "$componentName did not become healthy with the planned authority and capabilities."
   }
 
-  foreach ($route in @("export", "rules", "rules/apply", "messages/tag", "oauth/start")) {
+  $disabledRoutes = @("export", "oauth/start")
+  if (-not $EnableClassification) {
+    $disabledRoutes += @("rules", "rules/apply", "messages/tag")
+  }
+  foreach ($route in $disabledRoutes) {
     try {
       Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/$route" -Method Post -ContentType "application/json" -Body "{}" -UseBasicParsing | Out-Null
       throw "Email route $route unexpectedly accepted a disabled request."

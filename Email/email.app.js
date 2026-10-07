@@ -165,6 +165,18 @@ const applyRuntimeMode = () => {
   });
 };
 
+const runtimeReadyStatus = () => {
+  if (state.runtimeMode === "limited-write") {
+    const classificationEnabled = capabilityEnabled("messageTag")
+      && capabilityEnabled("rulesApply")
+      && capabilityEnabled("rulesManage");
+    return classificationEnabled
+      ? "Ready · bounded Email classification"
+      : "Ready · bounded Email fetch";
+  }
+  return state.writesEnabled ? "Ready" : "Ready · read-only shadow";
+};
+
 const post = (path, payload = {}) => {
   const capability = ROUTE_CAPABILITIES[path];
   if (!capability || !capabilityEnabled(capability)) {
@@ -790,7 +802,7 @@ const refresh = async () => {
     await loadMessages();
   }
   applyRuntimeMode();
-  setStatus(state.runtimeMode === "limited-write" ? "Ready · bounded Email fetch" : state.writesEnabled ? "Ready" : "Ready · read-only shadow");
+  setStatus(runtimeReadyStatus());
 };
 
 const loadRuntimeMode = async () => {
