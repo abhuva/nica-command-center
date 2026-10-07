@@ -1,6 +1,6 @@
 # Gate 5: Email bounded-fetch shadow
 
-**Status:** live bounded-fetch shadow active; awaiting normal-workflow acceptance
+**Status:** bounded-fetch shadow accepted; Email classification and export remain legacy-only
 
 **Date:** 2026-10-07
 
@@ -94,6 +94,7 @@ Restart the accepted read-only shadow with `start-email-read.ps1`. Legacy Email
 - Rollback restored the accepted read-only shadow while legacy `4176` stayed
   healthy. The bounded-fetch profile was then restored without refreshing away
   its candidate state.
+- Marc confirmed the normal bounded Count/Fetch workflow on 2026-10-07.
 
 ## Acceptance checklist
 
@@ -109,4 +110,4 @@ Restart the accepted read-only shadow with `start-email-read.ps1`. Legacy Email
 - [x] Run a bounded count/fetch without recording mail payloads.
 - [x] Confirm legacy `4176` remained healthy and the vault remained unchanged.
 - [x] Rehearse rollback to the accepted read-only shadow.
-- [ ] Marc confirms the bounded fetch workflow is usable.
+- [x] Marc confirms the bounded fetch workflow is usable.
