@@ -1,6 +1,6 @@
 # Gate 5: Email bounded-export shadow
 
-**Status:** live one-note pilot verified; remaining batch pending confirmation
+**Status:** bounded-export capability accepted; remaining 515-note batch requires separate approval
 
 **Date:** 2026-10-07
 
@@ -142,6 +142,8 @@ deleted automatically during profile rollback.
   message with no browser-console warnings.
 - The post-pilot full preview reported 515 new, one unchanged, 4,125
   existing-archive, and zero conflicts. The remaining batch was not applied.
+- Marc confirmed the normal Email and Obsidian workflow works with the live
+  bounded-export profile and pilot projection on 2026-10-07.
 
 ## Live acceptance checklist
 
@@ -155,4 +157,4 @@ deleted automatically during profile rollback.
 - [x] Apply an explicitly accepted bounded export and verify its projection and
   database metadata.
 - [x] Rehearse rollback to the accepted OAuth profile.
-- [ ] Marc confirms the normal Email export workflow is usable.
+- [x] Marc confirms the normal Email export workflow is usable.

@@ -265,10 +265,12 @@ rolled back with the vault unchanged. The revised preview recognizes those
 notes by account slug and timestamp, with bounded UID checks only for ambiguous
 timestamps, and reports them separately without rewriting them. The optimized
 profile is active on `4276`; a one-note pilot passed file, hash, database,
-browser, and health verification. The remaining full preview contains 515 new,
-one unchanged, 4,125 existing-archive, and zero conflicting notes and has not
-been applied. Legacy Email `4176` remains the warm fallback. See [Gate 5 Email
-bounded-export shadow record](gate-5-email-export-shadow.md).
+browser, and health verification, and Marc confirmed the normal workflow on
+2026-10-07. The bounded-export capability is accepted. The remaining full
+preview contains 515 new, one unchanged, 4,125 existing-archive, and zero
+conflicting notes and has not been applied; it requires separate approval.
+Legacy Email `4176` remains the warm fallback. See [Gate 5 Email bounded-export
+shadow record](gate-5-email-export-shadow.md).
 
 Use the following sequence for each capability:
 
