@@ -1,6 +1,6 @@
 # Gate 5: project creation cutover
 
-**Status:** technical cutover complete; awaiting normal-workflow acceptance
+**Status:** live creation confirmed; final metadata acceptance pending
 
 **Date:** 2026-10-07
 
@@ -34,11 +34,14 @@ exact proposed folder, note, frontmatter, and confirmation identifier.
 
 Apply recomputes the plan. Changed input, a changed template, a new collision,
 or a missing confirmation is rejected. The note is prepared in a uniquely
-named staging directory below `2. Projektverwaltung`, updated with canonical
-frontmatter, and renamed to the final folder only after preparation succeeds.
-An unsuccessful preparation removes only that exact staging directory. Failure
-to open an already-created note in Obsidian is reported as a warning rather
-than encouraging a duplicate retry.
+named staging directory below `2. Projektverwaltung`, published through
+Obsidian's file manager, and then updated with canonical frontmatter through
+Obsidian's frontmatter API. The operation reports success only after the final
+folder and note are present and indexed. An unsuccessful preparation removes
+only that exact staging directory; a failed post-publish metadata update also
+removes the exact newly published folder. Failure to open an already-created
+note in Obsidian is reported as a warning rather than encouraging a duplicate
+retry.
 
 ## Start and rollback
 
@@ -78,8 +81,9 @@ Homepage shell without changing the legacy process or vault content:
 - [x] Live technical verification does not create a disposable society project.
 - [x] Rollback to the accepted Homepage shell is rehearsed while legacy `4174`
   remains healthy.
-- [ ] Marc creates one genuinely needed project through the normal Obsidian
-  workflow and confirms the result.
+- [x] Marc completes one project creation through the normal Obsidian workflow.
+- [x] The resulting folder and note are visible in Obsidian's index.
+- [ ] The resulting note contains all canonical metadata, including `year`.
 
 ## Technical verification evidence
 
@@ -110,4 +114,16 @@ Homepage shell without changing the legacy process or vault content:
   dot-prefixed folders from its vault index. Staging now uses the indexed
   `_nica-project-staging-*` prefix while retaining exact-path cleanup. A bounded
   live probe confirmed that Obsidian could create, discover, and remove that
-  prefix, with no filesystem residue.
+  prefix.
+- The next user apply completed and published the requested folder. A correctly
+  targeted acceptance inspection confirmed that its folder and note were in
+  Obsidian's index, but canonical `year` metadata had not been applied.
+- The final handoff now renames through Obsidian's file manager and writes
+  canonical metadata only after publication through Obsidian's frontmatter
+  API. A disposable live probe verified final-folder and note indexing,
+  persisted `year` and `category` metadata, refreshed metadata-cache values,
+  and exact cleanup. The user's created project was not changed by this probe.
+- Obsidian's global `vault=` selector must precede the CLI command. The runtime
+  already executed from the configured vault root, but the selector is now
+  ordered correctly as an independent guard. The disposable probe was rerun
+  against the explicitly selected live vault after this correction.

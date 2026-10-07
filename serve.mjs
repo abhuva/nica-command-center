@@ -230,7 +230,7 @@ function resolveObsidianBin() {
  */
 function withVaultArgs(args) {
   if (!OBSIDIAN_VAULT_NAME) return args;
-  return [args[0], `vault=${OBSIDIAN_VAULT_NAME}`, ...args.slice(1)];
+  return [`vault=${OBSIDIAN_VAULT_NAME}`, ...args];
 }
 
 /**
@@ -2975,7 +2975,29 @@ const targetPath = ${JSON.stringify(targetPath)};
 const source = app.vault.getAbstractFileByPath(sourcePath);
 if (!source) throw new Error("Prepared project folder not found");
 if (app.vault.getAbstractFileByPath(targetPath)) throw new Error("Project target already exists");
-await app.vault.rename(source, targetPath);
+await app.fileManager.renameFile(source, targetPath);
+return "ok";
+})();
+`.trim();
+  runObsidianAction(["eval", `code=${js}`]);
+}
+
+/**
+ * Applies canonical project metadata through Obsidian's frontmatter API.
+ * @param {string} projectFileRel - Vault-relative project note path.
+ * @param {Record<string, unknown>} fields - Canonical frontmatter values.
+ * @returns {void}
+ */
+function applyProjectFrontmatterViaObsidian(projectFileRel, fields) {
+  const js = `
+(async () => {
+const filePath = ${JSON.stringify(projectFileRel)};
+const fields = ${JSON.stringify(fields)};
+const file = app.vault.getAbstractFileByPath(filePath);
+if (!file) throw new Error("Published project note not found");
+await app.fileManager.processFrontMatter(file, (frontmatter) => {
+  for (const [key, value] of Object.entries(fields)) frontmatter[key] = value;
+});
 return "ok";
 })();
 `.trim();
@@ -3180,6 +3202,7 @@ function createProject(payload) {
   const stagingFileAbs = path.join(stagingFolderAbs, plan.fileName);
   const stagingFileRel = sanitizePathSeparators(path.relative(VAULT_ROOT, stagingFileAbs));
   let committed = false;
+  let published = false;
 
   try {
     let created = { createdPath: stagingFileRel };
@@ -3205,21 +3228,30 @@ function createProject(payload) {
       }
       if (fs.existsSync(createdAbs) && createdAbs !== stagingFileAbs) {
         if (fs.existsSync(stagingFileAbs)) throw new Error("Projektdatei existiert im Entwurf doppelt");
-        fs.renameSync(createdAbs, stagingFileAbs);
+        if (OBSIDIAN_ACTIONS_ENABLED) {
+          renameVaultPath(createdRel, stagingFileRel);
+        } else {
+          fs.renameSync(createdAbs, stagingFileAbs);
+        }
       }
       renderedFileAbs = stagingFileAbs;
     }
 
     if (!fs.existsSync(renderedFileAbs)) {
+      if (OBSIDIAN_ACTIONS_ENABLED) {
+        throw new Error("Template hat keine Projektdatei erzeugt");
+      }
       const templateAbs = path.resolve(VAULT_ROOT, plan.template.path);
       const templateRaw = fs.readFileSync(templateAbs, "utf8");
       const rendered = renderTemplateFallback(templateRaw, plan.folderName);
       fs.writeFileSync(renderedFileAbs, rendered, { encoding: "utf8", flag: "wx" });
     }
 
-    const raw = fs.readFileSync(renderedFileAbs, "utf8");
-    const next = applyProjectFrontmatter(raw, plan.frontmatter);
-    fs.writeFileSync(renderedFileAbs, next, "utf8");
+    if (!OBSIDIAN_ACTIONS_ENABLED) {
+      const raw = fs.readFileSync(renderedFileAbs, "utf8");
+      const next = applyProjectFrontmatter(raw, plan.frontmatter);
+      fs.writeFileSync(renderedFileAbs, next, "utf8");
+    }
     if (fs.existsSync(projectFolderAbs) || fs.existsSync(projectFileAbs)) {
       throw new Error("Projektziel wurde waehrend der Vorbereitung angelegt");
     }
@@ -3228,13 +3260,24 @@ function createProject(payload) {
     } else {
       fs.renameSync(stagingFolderAbs, projectFolderAbs);
     }
+    published = true;
     if (!fs.existsSync(projectFolderAbs) || !fs.existsSync(projectFileAbs)) {
       throw new Error("Projekt wurde nicht vollstaendig am Ziel veroeffentlicht");
+    }
+    if (OBSIDIAN_ACTIONS_ENABLED) {
+      applyProjectFrontmatterViaObsidian(plan.paths.file, plan.frontmatter);
     }
     committed = true;
   } finally {
     if (!committed) {
       if (OBSIDIAN_ACTIONS_ENABLED) {
+        if (published) {
+          try {
+            deleteVaultPathIfPresent(plan.paths.folder);
+          } catch {
+            // The exact filesystem fallback below still removes the newly published folder.
+          }
+        }
         try {
           deleteVaultPathIfPresent(stagingFolderRel);
         } catch {
@@ -3243,6 +3286,9 @@ function createProject(payload) {
       }
       if (fs.existsSync(stagingFolderAbs)) {
         fs.rmSync(stagingFolderAbs, { recursive: true, force: true });
+      }
+      if (published && fs.existsSync(projectFolderAbs)) {
+        fs.rmSync(projectFolderAbs, { recursive: true, force: true });
       }
     }
   }
