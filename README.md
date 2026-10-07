@@ -201,7 +201,9 @@ Preview the activation and consistent rollback snapshot first:
 After review, stop only migrated `4276` and repeat the command with `-Apply`.
 OAuth setup and vault export remain disabled. Roll back by stopping the
 classification profile and starting `start-email-fetch-shadow.ps1` without a
-snapshot refresh. Legacy Email `4176` remains available throughout.
+snapshot refresh. Repeating `-BackupCandidate` retains an existing recovery
+copy; `-RefreshCandidateBackup` is required to replace it and preserves the
+original first. Legacy Email `4176` remains available throughout.
 
 ## Ziele
 

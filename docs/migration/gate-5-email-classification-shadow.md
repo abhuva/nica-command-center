@@ -34,7 +34,11 @@ rollback target.
   actions are explicitly requested.
 - `-BackupCandidate` creates a consistent SQLite rollback snapshot at
   `email/backups/email-before-classification.db` below the runtime-state root
-  before the classification process starts.
+  when none exists. Normal restarts retain that recovery copy unchanged.
+- `-RefreshCandidateBackup` explicitly refreshes the active rollback snapshot.
+  Before its first replacement, the launcher preserves the existing recovery
+  copy as `email-before-classification.original.db`; later refreshes never
+  overwrite that original copy.
 - The launcher refuses a requested backup when the candidate database does not
   already exist.
 - No test or launcher writes Email content into the vault.
@@ -76,7 +80,8 @@ restore `email/backups/email-before-classification.db` to the candidate
 - `npm run check:email-classification-shadow` passed with synthetic messages,
   rule creation/application/deletion, manual tagging, exact capability health,
   disabled OAuth/export routes, launcher plan/apply/stop, a consistent rollback
-  snapshot, and rollback to the fetch-only profile.
+  snapshot, default snapshot retention, explicit refresh with original-copy
+  preservation, and rollback to the fetch-only profile.
 - `npm run check:email-fetch-shadow` still passed after the launcher extension.
 - Playwright MCP verified the synthetic candidate UI on `4476`: the page showed
   `Ready · bounded Email classification`; Count, Fetch, rule management, and

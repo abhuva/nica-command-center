@@ -10,6 +10,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -83,6 +84,16 @@ def add_fixture_message(tool: EmailTool, uid: str = "1") -> str:
     return str(listed["messages"][0]["id"])
 
 
+def database_has_table(database: Path, table: str) -> bool:
+    """Return whether a synthetic marker table exists."""
+    with closing(sqlite3.connect(database)) as connection:
+        row = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        ).fetchone()
+    return row is not None
+
+
 def exercise_classification_api(base_url: str, database: Path, message_id: str) -> None:
     """Verify local classification mutations and denied external boundaries."""
     status, tagged = request_json(
@@ -112,7 +123,7 @@ def exercise_classification_api(base_url: str, database: Path, message_id: str) 
     assert status == 200 and applied.get("matches") == 1
     assert applied.get("changed") == 1
 
-    with sqlite3.connect(database) as connection:
+    with closing(sqlite3.connect(database)) as connection:
         state = connection.execute(
             "SELECT include_state, include_reason FROM messages WHERE id=?",
             (message_id,),
@@ -190,11 +201,28 @@ def run_powershell(
     capture: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     """Run one launcher command without inheriting an interactive console."""
+    if not capture:
+        with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as stdout_file:
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as stderr_file:
+                result = subprocess.run(
+                    arguments,
+                    stdin=subprocess.DEVNULL,
+                    stdout=stdout_file,
+                    stderr=stderr_file,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
+                )
+                stdout_file.seek(0)
+                stderr_file.seek(0)
+                result.stdout = stdout_file.read()
+                result.stderr = stderr_file.read()
+                return result
     return subprocess.run(
         arguments,
         stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
-        stderr=subprocess.PIPE if capture else subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
         timeout=timeout,
         check=False,
@@ -231,8 +259,8 @@ def launcher_and_rollback_smoke() -> None:
         )
         candidate = state / "email"
         candidate.mkdir(parents=True)
-        with sqlite3.connect(legacy_email / "email.db") as source_connection:
-            with sqlite3.connect(candidate / "email.db") as candidate_connection:
+        with closing(sqlite3.connect(legacy_email / "email.db")) as source_connection:
+            with closing(sqlite3.connect(candidate / "email.db")) as candidate_connection:
                 source_connection.backup(candidate_connection)
         shutil.copy2(source_config, candidate / "config.local.json")
         port = free_port()
@@ -264,7 +292,7 @@ def launcher_and_rollback_smoke() -> None:
         diagnostic = diagnostic_path.read_text(encoding="utf-8", errors="replace") if diagnostic_path.exists() else ""
         assert applied.returncode == 0, diagnostic
         assert rollback_database.is_file()
-        with sqlite3.connect(rollback_database) as rollback_connection:
+        with closing(sqlite3.connect(rollback_database)) as rollback_connection:
             assert rollback_connection.execute("PRAGMA quick_check").fetchone()[0] == "ok"
         stop_arguments = [
             powershell,
@@ -282,6 +310,43 @@ def launcher_and_rollback_smoke() -> None:
         finally:
             stopped = run_powershell(stop_arguments, timeout=20, capture=False)
         assert stopped.returncode == 0
+
+        marker_table = "synthetic_post_classification_marker"
+        with closing(sqlite3.connect(candidate / "email.db")) as candidate_connection:
+            candidate_connection.execute(f"CREATE TABLE {marker_table} (value TEXT NOT NULL)")
+            candidate_connection.execute(f"INSERT INTO {marker_table}(value) VALUES ('newer-state')")
+        assert not database_has_table(rollback_database, marker_table)
+
+        retain_plan = run_powershell(common, timeout=20)
+        assert retain_plan.returncode == 0, retain_plan.stderr
+        assert '"candidateBackupAction":  "retain-existing"' in retain_plan.stdout or '"candidateBackupAction": "retain-existing"' in retain_plan.stdout
+        retained_restart = run_powershell(common + ["-Apply"], capture=False)
+        assert retained_restart.returncode == 0, diagnostic
+        try:
+            retained_health = wait_for_ping(f"http://127.0.0.1:{port}/api/ping")
+            assert retained_health["writeCapabilities"] == CLASSIFICATION_CAPABILITIES
+        finally:
+            retained_stop = run_powershell(stop_arguments, timeout=20, capture=False)
+        assert retained_stop.returncode == 0
+        assert not database_has_table(rollback_database, marker_table)
+
+        original_rollback_database = candidate / "backups" / "email-before-classification.original.db"
+        refresh_common = common[:-1] + ["-RefreshCandidateBackup"]
+        refresh_plan = run_powershell(refresh_common, timeout=20)
+        assert refresh_plan.returncode == 0, refresh_plan.stderr
+        assert '"candidateBackupAction":  "preserve-original-and-refresh"' in refresh_plan.stdout or '"candidateBackupAction": "preserve-original-and-refresh"' in refresh_plan.stdout
+        assert not original_rollback_database.exists()
+        refreshed_restart = run_powershell(refresh_common + ["-Apply"], capture=False)
+        assert refreshed_restart.returncode == 0, refreshed_restart.stderr + refreshed_restart.stdout + diagnostic
+        try:
+            refreshed_health = wait_for_ping(f"http://127.0.0.1:{port}/api/ping")
+            assert refreshed_health["writeCapabilities"] == CLASSIFICATION_CAPABILITIES
+        finally:
+            refreshed_stop = run_powershell(stop_arguments, timeout=20, capture=False)
+        assert refreshed_stop.returncode == 0
+        assert original_rollback_database.is_file()
+        assert not database_has_table(original_rollback_database, marker_table)
+        assert database_has_table(rollback_database, marker_table)
 
         rollback = run_powershell([
             powershell,

@@ -7,6 +7,7 @@ param(
   [switch]$RefreshSnapshot,
   [switch]$PrepareFetchProfile,
   [switch]$BackupCandidate,
+  [switch]$RefreshCandidateBackup,
   [switch]$Apply
 )
 
@@ -23,6 +24,7 @@ if (-not [string]::IsNullOrWhiteSpace($LegacyToolsRoot)) {
 if ($RefreshSnapshot) { $parameters.RefreshSnapshot = $true }
 if ($PrepareFetchProfile) { $parameters.PrepareFetchProfile = $true }
 if ($BackupCandidate) { $parameters.BackupCandidate = $true }
+if ($RefreshCandidateBackup) { $parameters.RefreshCandidateBackup = $true }
 if ($Apply) { $parameters.Apply = $true }
 
 & (Join-Path $PSScriptRoot "start-email-fetch-shadow.ps1") @parameters

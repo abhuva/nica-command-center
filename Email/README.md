@@ -130,3 +130,6 @@ fetch-only authority by stopping the process and running
 `start-email-fetch-shadow.ps1` with `-Apply` and without a snapshot refresh.
 The pre-classification database snapshot remains below local runtime state at
 `email/backups/email-before-classification.db` for state recovery if required.
+Repeating `-BackupCandidate` retains that file. To replace it deliberately, use
+`-RefreshCandidateBackup`; the first refresh preserves the prior recovery copy
+as `email/backups/email-before-classification.original.db`.

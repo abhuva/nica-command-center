@@ -8,6 +8,7 @@ param(
   [switch]$PrepareFetchProfile,
   [switch]$EnableClassification,
   [switch]$BackupCandidate,
+  [switch]$RefreshCandidateBackup,
   [switch]$Apply
 )
 
@@ -34,7 +35,7 @@ if (-not (Test-Path -LiteralPath $sourceDatabase -PathType Leaf)) {
   throw "Legacy Email database was not found."
 }
 if ($Port -lt 1 -or $Port -gt 65535) { throw "Port must be between 1 and 65535." }
-if ($BackupCandidate -and -not $EnableClassification) {
+if (($BackupCandidate -or $RefreshCandidateBackup) -and -not $EnableClassification) {
   throw "Candidate backup is supported only for the classification profile."
 }
 
@@ -74,19 +75,24 @@ function Resolve-ContainedFile {
 function Copy-AtomicFile {
   param(
     [Parameter(Mandatory = $true)][string]$Source,
-    [Parameter(Mandatory = $true)][string]$Destination
+    [Parameter(Mandatory = $true)][string]$Destination,
+    [switch]$NoOverwrite
   )
 
   $sourceItem = Get-Item -LiteralPath $Source
   if ($sourceItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
-    throw "Credential-profile sources must not be symbolic links or reparse points."
+    throw "Backup and credential-profile sources must not be symbolic links or reparse points."
   }
   $destinationDirectory = Split-Path -Parent $Destination
   New-Item -ItemType Directory -Force -Path $destinationDirectory | Out-Null
   $staged = $Destination + ".stage-" + [Guid]::NewGuid().ToString("N")
   try {
     Copy-Item -LiteralPath $Source -Destination $staged
-    Move-Item -LiteralPath $staged -Destination $Destination -Force
+    if ($NoOverwrite) {
+      [System.IO.File]::Move($staged, $Destination)
+    } else {
+      Move-Item -LiteralPath $staged -Destination $Destination -Force
+    }
   } finally {
     Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue
   }
@@ -109,6 +115,15 @@ $componentState = Join-Path $resolvedState "email"
 $candidateDatabase = Join-Path $componentState "email.db"
 $candidateConfigPath = Join-Path $componentState "config.local.json"
 $rollbackDatabase = Join-Path $componentState "backups\email-before-classification.db"
+$originalRollbackDatabase = Join-Path $componentState "backups\email-before-classification.original.db"
+$candidateBackupExists = Test-Path -LiteralPath $rollbackDatabase -PathType Leaf
+$candidateBackupAction = if ($RefreshCandidateBackup) {
+  if ($candidateBackupExists) { "preserve-original-and-refresh" } else { "create" }
+} elseif ($BackupCandidate) {
+  if ($candidateBackupExists) { "retain-existing" } else { "create" }
+} else {
+  "none"
+}
 $profileFiles = @()
 $oauthTokenFiles = @()
 $accountCount = 0
@@ -181,8 +196,9 @@ $plan = [ordered]@{
   sourceShmPresent = Test-Path -LiteralPath ($sourceDatabase + "-shm") -PathType Leaf
   snapshotAction = if ($RefreshSnapshot) { "consistent-sqlite-backup" } else { "retain-existing" }
   snapshotReady = Test-Path -LiteralPath $candidateDatabase -PathType Leaf
-  candidateBackupAction = if ($BackupCandidate) { "consistent-sqlite-backup" } else { "none" }
-  candidateBackupReady = Test-Path -LiteralPath $rollbackDatabase -PathType Leaf
+  candidateBackupAction = $candidateBackupAction
+  candidateBackupReady = $candidateBackupExists
+  originalCandidateBackupReady = Test-Path -LiteralPath $originalRollbackDatabase -PathType Leaf
   profileAction = if ($PrepareFetchProfile) { "copy-to-isolated-local-state" } else { "retain-existing" }
   profileReady = Test-Path -LiteralPath $candidateConfigPath -PathType Leaf
   configuredAccountCount = $accountCount
@@ -212,14 +228,31 @@ $componentState = (Resolve-Path -LiteralPath $componentState).Path
 $candidateDatabase = Join-Path $componentState "email.db"
 $candidateConfigPath = Join-Path $componentState "config.local.json"
 $rollbackDatabase = Join-Path $componentState "backups\email-before-classification.db"
+$originalRollbackDatabase = Join-Path $componentState "backups\email-before-classification.original.db"
+$candidateBackupCreated = $false
+$candidateBackupRefreshed = $false
+$originalCandidateBackupCreated = $false
 
-if ($BackupCandidate) {
+if ($BackupCandidate -or $RefreshCandidateBackup) {
   if (-not (Test-Path -LiteralPath $candidateDatabase -PathType Leaf)) {
     throw "Candidate Email database is not initialized; no classification rollback snapshot was created."
   }
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $rollbackDatabase) | Out-Null
-  & python (Join-Path $repoRoot "Email\snapshot_db.py") --source $candidateDatabase --destination $rollbackDatabase
-  if ($LASTEXITCODE -ne 0) { throw "Candidate Email rollback snapshot failed." }
+  $rollbackExists = Test-Path -LiteralPath $rollbackDatabase -PathType Leaf
+  if ($RefreshCandidateBackup -and $rollbackExists) {
+    if (-not (Test-Path -LiteralPath $originalRollbackDatabase -PathType Leaf)) {
+      Copy-AtomicFile -Source $rollbackDatabase -Destination $originalRollbackDatabase -NoOverwrite
+      $originalCandidateBackupCreated = $true
+    }
+    & python (Join-Path $repoRoot "Email\snapshot_db.py") --source $candidateDatabase --destination $rollbackDatabase
+    if ($LASTEXITCODE -ne 0) { throw "Candidate Email rollback snapshot refresh failed." }
+    $candidateBackupCreated = $true
+    $candidateBackupRefreshed = $true
+  } elseif (-not $rollbackExists) {
+    & python (Join-Path $repoRoot "Email\snapshot_db.py") --source $candidateDatabase --destination $rollbackDatabase
+    if ($LASTEXITCODE -ne 0) { throw "Candidate Email rollback snapshot failed." }
+    $candidateBackupCreated = $true
+  }
 }
 
 if ($PrepareFetchProfile) {
@@ -263,8 +296,11 @@ $manifest = [ordered]@{
   snapshotRefreshed = [bool]$RefreshSnapshot
   fetchProfilePrepared = [bool]$PrepareFetchProfile
   classificationEnabled = [bool]$EnableClassification
-  candidateBackupCreated = [bool]$BackupCandidate
-  candidateBackup = if ($BackupCandidate) { $rollbackDatabase } else { $null }
+  candidateBackupCreated = $candidateBackupCreated
+  candidateBackupRefreshed = $candidateBackupRefreshed
+  candidateBackup = if ($BackupCandidate -or $RefreshCandidateBackup) { $rollbackDatabase } else { $null }
+  originalCandidateBackupCreated = $originalCandidateBackupCreated
+  originalCandidateBackup = if (Test-Path -LiteralPath $originalRollbackDatabase -PathType Leaf) { $originalRollbackDatabase } else { $null }
   pid = $proc.Id
   startedAt = (Get-Date).ToString("o")
   stdout = $stdout
