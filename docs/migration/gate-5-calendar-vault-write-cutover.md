@@ -1,6 +1,6 @@
 # Gate 5: Calendar vault-event creation cutover
 
-**Status:** technical candidate verified; live cutover not started
+**Status:** technical candidate verified; live cutover ready
 
 **Date:** 2026-10-07
 
@@ -76,6 +76,10 @@ legacy `4173` or vault content:
   rollback restored `read-only` mode and returned the plan route to HTTP 403.
 - Live migrated Calendar `4273` remained read-only and healthy throughout;
   legacy `4173` remained available.
+- The live plan-only run selected the accepted vault authority and retained
+  local read profile, reported one Google and seven Nextcloud read calendars,
+  excluded OAuth/write/publishing credentials, and proposed only
+  `vault-event.create`. It changed no process or production data.
 
 ## Acceptance checklist
 
@@ -84,6 +88,6 @@ legacy `4173` or vault content:
 - [x] Launcher start, stop, restart, and read-only rollback are rehearsed.
 - [x] Failure paths leave no staging or duplicate final note.
 - [x] Browser-level responsive and console checks pass with Playwright MCP.
-- [ ] Preview the live runtime authority and capability set without restarting.
+- [x] Preview the live runtime authority and capability set without restarting.
 - [ ] Apply the narrow profile during a controlled cutover.
 - [ ] Marc creates one needed event and confirms the normal workflow.
