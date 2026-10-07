@@ -1,6 +1,44 @@
-# Homepage Tool (Modular)
+# NICA Command Centre
 
-Lokaler Preview-Server fuer eine modulare Obsidian-Homepage.
+Die migrierten lokalen Werkzeuge laufen als getrennte Hintergrundprozesse,
+lassen sich aber ueber einen gemeinsamen Workspace-Starter bedienen.
+
+## Workspace einmal einrichten
+
+Die Maschinenkonfiguration liegt ausserhalb des Repositorys unter
+`%LOCALAPPDATA%\NICA\CommandCenter\live\launcher\workspace-profile.json` und
+enthaelt keine Zugangsdaten. Zuerst den Plan pruefen, dann anwenden:
+
+```powershell
+.\scripts\configure-workspace.ps1 `
+  -VaultRoot "C:\path\to\vault" `
+  -ObsidianVaultName "vault-name"
+.\scripts\configure-workspace.ps1 `
+  -VaultRoot "C:\path\to\vault" `
+  -ObsidianVaultName "vault-name" `
+  -Apply
+```
+
+Danach startet ein Doppelklick auf `start-workspace.cmd` Obsidian und die in
+der Homepage unter Settings > Workspace-Start ausgewaehlten Dienste ohne
+offene Terminalfenster. `stop-workspace.cmd` beendet nur die vom Repository
+verwalteten Dienste; Obsidian bleibt offen. Homepage startet immer. Calendar,
+Email, VaultGraph sowie NICA- und TOHU-Fava koennen fuer den naechsten Start
+einzeln deaktiviert werden.
+
+Beide Wrapper koennen auch aus PowerShell aufgerufen werden:
+
+```powershell
+.\scripts\start-workspace.ps1
+.\scripts\start-workspace.ps1 -Apply
+.\scripts\stop-workspace.ps1
+```
+
+Der Start ist standardmaessig nur eine Vorschau. Der CMD-Wrapper verwendet
+`-Apply`. Ein Gesamtergebnis wird unter
+`%LOCALAPPDATA%\NICA\CommandCenter\live\launcher\workspace-status.json`
+gespeichert; komponentenspezifische Logs bleiben in deren jeweiligen
+State-Verzeichnissen.
 
 ## Migration candidate
 
@@ -280,7 +318,7 @@ local credentials/tokens should be copied separately from the old tool.
 - `Tools/config/settings.default.json`: versionierte Default-Konfiguration.
 - `Tools/config/settings.local.json`: lokale Ueberschreibungen fuer diesen Arbeitsplatz.
 
-## Start / Stop
+## Legacy vault startup reference
 
 Von Repository-Root:
 
@@ -288,7 +326,7 @@ Von Repository-Root:
 npm.cmd --prefix .\Tools run preview
 ```
 
-Alle lokalen Tools plus Obsidian-Homepage starten:
+Der fruehere vault-lokale Sammelstarter lautete:
 
 ```powershell
 .\startup-all.bat
@@ -300,7 +338,10 @@ Hinweis: `startup-all.bat` liegt eine Ebene ueber diesem Repository und wird aus
 npm.cmd --prefix .\Tools run preview
 ```
 
-Der Sammelstarter startet Homepage, Calendar, VaultGraph sowie die beiden Fava-Server fuer NICA/TOHU in eigenen Terminalfenstern und oeffnet danach `http://127.0.0.1:4174/home.html` in Obsidian.
+Dieser Abschnitt dokumentiert nur noch die alte `Tools`-Installation und ihren
+Rollback-Pfad. Der neue Repository-Starter steht am Anfang dieser Datei.
+
+Der alte Sammelstarter startet Homepage, Calendar, VaultGraph sowie die beiden Fava-Server fuer NICA/TOHU in eigenen Terminalfenstern und oeffnet danach `http://127.0.0.1:4174/home.html` in Obsidian.
 Wenn der externe Sammelstarter aktuell ist, startet er zusaetzlich den Email-Preview-Server auf `http://127.0.0.1:4176/email.html`.
 
 Voraussetzung fuer Website Monitoring (`updo`-Modul): Das `updo` CLI muss installiert und im `PATH` verfuegbar sein.
@@ -338,7 +379,9 @@ obsidian web url="http://127.0.0.1:4174/settings.html"
 
 - `GET /api/ping`: Health-Check.
 - `GET /api/settings`: Effektive Settings (Default + Local Merge).
-- `POST /api/settings`: Speichert Settings nach `Tools/config/settings.local.json`.
+- `POST /api/settings`: Speichert lokale Settings; erfordert `application/json`
+  (Parameter und Gross-/Kleinschreibung werden ignoriert) sowie den exakten
+  Homepage-`Origin`.
 - `GET /api/bookmarks`: Liest `.obsidian/bookmarks.json` fuer Bookmark-Modul.
 - `POST /api/bookmarks/open`: Oeffnet Bookmark in Obsidian ueber Bookmark-Plugin-API.
 - `GET /api/obsidian/theme`: Liefert einen Theme-Snapshot aus Obsidian (fuer `mirror-obsidian`).
@@ -378,7 +421,7 @@ Damit sind spaetere Features stabil erweiterbar (neue Module, neue Optionen).
   - Projekt-Templates werden aus `6. Obsidian/_template/project/*.md` geladen.
   - Angezeigt werden die Dateinamen ohne `.md`; `Projekt.md` steht standardmaessig oben, falls vorhanden.
 - `beantime` (Beancount): Start/Stop-Timer mit Konten- und Personenauswahl; schreibt beim Stop eine fertige `HR`-Buchung inkl. Metadaten in eine Beancount-Datei.
-  - Standard-Ziel fuer Laufzeitbuchungen: `Tools/data/beantime/zeit.beancount` (lokal, git-ignored).
+  - Empfohlenes Laufzeit-Ziel: `1. Vereinsverwaltung/Buchhaltung/Zeiterfassung/zeit.beancount` im konfigurierten Nextcloud-Vault.
   - Vorlage fuer Kontenstruktur: `Tools/beantime/zeit.beancount` (Repository-Template).
   - Enthaelt den Button `Show`, der Fava auf Port `3464` oeffnet.
 - `vaultGraph`: Bindet die separate VaultGraph-Preview (`http://127.0.0.1:4175/vault-graph.html`) als Homepage-Tab ein.

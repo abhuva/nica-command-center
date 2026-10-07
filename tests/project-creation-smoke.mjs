@@ -51,7 +51,13 @@ async function request(port, method, pathname, body = null, extraHeaders = {}) {
         method,
         path: pathname,
         headers: {
-          ...(encoded ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(encoded) } : {}),
+          ...(encoded
+            ? {
+                "Content-Type": "application/json",
+                "Content-Length": Buffer.byteLength(encoded),
+                Origin: `http://127.0.0.1:${port}`
+              }
+            : {}),
           ...extraHeaders
         }
       },
@@ -83,7 +89,7 @@ async function request(port, method, pathname, body = null, extraHeaders = {}) {
  * @param {{projectEnabled: boolean, obsidianActions?: boolean}} options - Runtime capability options.
  * @returns {Promise<{port: number, child: import("node:child_process").ChildProcess}>} Running server.
  */
-async function startServer({ projectEnabled, obsidianActions = false }) {
+async function startServer({ projectEnabled, obsidianActions = false, settingsEnabled = false }) {
   const port = await getFreePort();
   const child = spawn(process.execPath, [path.join(repoRoot, "serve.mjs")], {
     cwd: repoRoot,
@@ -94,6 +100,7 @@ async function startServer({ projectEnabled, obsidianActions = false }) {
       NICA_STATE_ROOT: state,
       NICA_WRITE_ENABLED: "false",
       NICA_PROJECT_CREATE_ENABLED: projectEnabled ? "true" : "false",
+      NICA_SETTINGS_MANAGE_ENABLED: settingsEnabled ? "true" : "false",
       NICA_OBSIDIAN_ACTIONS_ENABLED: obsidianActions ? "true" : "false",
       OBSIDIAN_VAULT_NAME: "synthetic-project-vault",
       OBSIDIAN_BIN: process.execPath
@@ -179,6 +186,11 @@ try {
 
     const blockedSettings = await request(enabled.port, "POST", "/api/settings", {});
     assert.equal(blockedSettings.status, 403, "unrelated writes must remain disabled");
+    const blockedSearch = await request(enabled.port, "POST", "/api/search/open", {
+      provider: "obsidian-search",
+      openInNewTab: true
+    });
+    assert.equal(blockedSearch.status, 403, "Obsidian actions require their explicit capability");
 
     const invalidSociety = await request(enabled.port, "POST", "/api/projects/plan", {
       ...basePayload,
@@ -262,8 +274,65 @@ try {
     await stopServer(disabled.child);
   }
 
+  const settingsServer = await startServer({ projectEnabled: false, settingsEnabled: true });
+  try {
+    const health = await request(settingsServer.port, "GET", "/api/ping");
+    assert.equal(health.json?.mode, "limited-write");
+    assert.equal(health.json?.writeCapabilities?.settingsManage, true);
+    assert.equal(health.json?.writeCapabilities?.projectCreate, false);
+    const wrongContentType = await request(
+      settingsServer.port,
+      "POST",
+      "/api/settings",
+      { settings: { startup: { openHomepage: false } } },
+      { "Content-Type": "text/plain" }
+    );
+    assert.equal(wrongContentType.status, 415, "settings writes must require JSON content type");
+    const wrongOrigin = await request(
+      settingsServer.port,
+      "POST",
+      "/api/settings",
+      { settings: { startup: { openHomepage: false } } },
+      { Origin: "http://example.invalid" }
+    );
+    assert.equal(wrongOrigin.status, 403, "settings writes must require the Homepage origin");
+    const unchanged = await request(settingsServer.port, "GET", "/api/settings");
+    assert.equal(unchanged.json?.settings?.startup?.openHomepage, true);
+    const saved = await request(settingsServer.port, "POST", "/api/settings", {
+      settings: {
+        startup: {
+          openObsidian: true,
+          openHomepage: false,
+          openCalendar: false,
+          services: {
+            calendar: false,
+            email: true,
+            vaultGraph: false,
+            financeNica: true,
+            financeTohu: false
+          }
+        },
+        modules: { updo: { enabled: false } }
+      }
+    }, { "Content-Type": "Application/JSON; Charset=UTF-8" });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.json?.settings?.schemaVersion, 2);
+    assert.equal(saved.json?.settings?.startup?.services?.email, true);
+    assert.equal(saved.json?.settings?.startup?.services?.calendar, false);
+    assert.equal(saved.json?.settings?.modules?.updo?.enabled, false);
+    const blockedApply = await request(settingsServer.port, "POST", "/api/projects/create", basePayload);
+    assert.equal(blockedApply.status, 403, "settings capability must not enable project creation");
+  } finally {
+    await stopServer(settingsServer.child);
+  }
+
   const failing = await startServer({ projectEnabled: true, obsidianActions: true });
   try {
+    const allowedSearch = await request(failing.port, "POST", "/api/search/open", {
+      provider: "obsidian-search",
+      openInNewTab: true
+    });
+    assert.equal(allowedSearch.status, 502, "enabled Obsidian actions must pass the global read-only guard");
     const session = await request(failing.port, "GET", "/api/projects/session");
     const actionHeaders = { "X-NICA-Action-Token": session.json.actionToken };
     const failurePayload = { ...basePayload, title: "Obsidian Failure" };

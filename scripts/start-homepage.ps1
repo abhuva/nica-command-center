@@ -407,6 +407,8 @@ $plan = [ordered]@{
   enabledModules = $enabledModules
   legacyPreferenceSource = if ($PrepareShellProfile -or $PrepareProjectProfile -or $PrepareBeantimeProfile) { $resolvedLegacy } else { $null }
   projectCreationEnabled = $plannedProjectEnabled
+  settingsManagementEnabled = $true
+  obsidianOpenEnabled = $true
   beantimeEnabled = $plannedBeantimeEnabled
   beantimeLedgerAuthority = if ($plannedBeantimeEnabled) { "vault" } else { "none" }
   beantimeLedgerPath = $plannedBeantimeLedgerPath
@@ -466,30 +468,22 @@ $actualEnabled = @(
     Where-Object { [bool]$_.Value.enabled } |
     ForEach-Object { $_.Name }
 )
+$updoEnabled = [bool]$shellSettings.modules.updo.enabled
 $projectCreationEnabled = $profile -in @("homepage-project-creation", "homepage-project-beantime")
 $beantimeEnabled = $profile -eq "homepage-project-beantime"
 $beantimeLedgerPath = if ($beantimeEnabled) { [string]$profileData.beantimeLedgerPath } else { "" }
 if ($beantimeEnabled -and [string]::IsNullOrWhiteSpace($beantimeLedgerPath)) {
   throw "The Beantime profile has no vault-relative ledger path."
 }
-$expectedEnabled = if ($beantimeEnabled) {
-  @("bookmarks", "clock", "newProject", "beantime", "updo")
-} elseif ($projectCreationEnabled) {
-  @("bookmarks", "clock", "newProject", "updo")
-} else {
-  @("bookmarks", "clock", "updo")
-}
-if (Compare-Object -ReferenceObject $expectedEnabled -DifferenceObject $actualEnabled) {
-  throw "Homepage shell profile does not contain the expected enabled modules."
-}
 $targetCount = @($shellSettings.modules.updo.targets).Count
-if (-not $targetCount) { throw "Homepage shell profile has no monitoring targets." }
+if ($updoEnabled -and -not $targetCount) { throw "Enabled Homepage monitoring has no targets." }
 
 $env:NICA_VAULT_ROOT = $resolvedVault
 $env:NICA_STATE_ROOT = $resolvedState
 $env:NICA_WRITE_ENABLED = "false"
 $env:NICA_PROJECT_CREATE_ENABLED = if ($projectCreationEnabled) { "true" } else { "false" }
-$env:NICA_OBSIDIAN_ACTIONS_ENABLED = if ($projectCreationEnabled) { "true" } else { "false" }
+$env:NICA_SETTINGS_MANAGE_ENABLED = "true"
+$env:NICA_OBSIDIAN_ACTIONS_ENABLED = "true"
 $env:NICA_BEANTIME_CAPABILITIES = if ($beantimeEnabled) {
   "beantime.read,beantime.timer,beantime.append,beantime.fava"
 } else {
@@ -503,8 +497,8 @@ $env:BEANTIME_FAVA_PORT = [string]$BeantimeFavaPort
 $stdout = Join-Path $componentState "homepage.out.log"
 $stderr = Join-Path $componentState "homepage.err.log"
 $serverPath = Join-Path $repoRoot "serve.mjs"
-$writeCapabilities = [string[]]@()
-if ($projectCreationEnabled) { $writeCapabilities = [string[]]@("project.create") }
+$writeCapabilities = [string[]]@("settings.manage", "obsidian.open")
+if ($projectCreationEnabled) { $writeCapabilities += "project.create" }
 if ($beantimeEnabled) {
   $writeCapabilities += @("beantime.read", "beantime.timer", "beantime.append", "beantime.fava")
 }
@@ -518,9 +512,9 @@ try {
     obsidianVaultName = $ObsidianVaultName
     stateRoot = $resolvedState
     port = $Port
-    mode = if ($projectCreationEnabled) { "limited-write" } else { "read-only" }
+    mode = "limited-write"
     writeCapabilities = $writeCapabilities
-    enabledModules = $expectedEnabled
+    enabledModules = $actualEnabled
     beantimeLedgerAuthority = if ($beantimeEnabled) { "vault" } else { "none" }
     beantimeLedgerPath = if ($beantimeEnabled) { $beantimeLedgerPath } else { $null }
     beantimeFavaPort = if ($beantimeEnabled) { $BeantimeFavaPort } else { $null }
@@ -547,9 +541,11 @@ try {
       if (
         $ping.ok -and
         $ping.component -eq "homepage" -and
-        $ping.mode -eq $(if ($projectCreationEnabled) { "limited-write" } else { "read-only" }) -and
-        [bool]$ping.writesEnabled -eq $projectCreationEnabled -and
+        $ping.mode -eq "limited-write" -and
+        [bool]$ping.writesEnabled -and
         [bool]$ping.writeCapabilities.projectCreate -eq $projectCreationEnabled -and
+        [bool]$ping.writeCapabilities.settingsManage -and
+        [bool]$ping.writeCapabilities.obsidianOpen -and
         ([bool]$ping.writeCapabilities.beantimeRead -eq $beantimeEnabled) -and
         ([bool]$ping.writeCapabilities.beantimeTimer -eq $beantimeEnabled) -and
         ([bool]$ping.writeCapabilities.beantimeAppend -eq $beantimeEnabled) -and
@@ -558,11 +554,11 @@ try {
         -not [bool]$ping.writeCapabilities.unrestricted -and
         $ping.authority.vault -eq $resolvedVault -and
         $ping.authority.localState -eq $componentState -and
-        -not (Compare-Object -ReferenceObject $expectedEnabled -DifferenceObject $healthEnabled) -and
+        -not (Compare-Object -ReferenceObject $actualEnabled -DifferenceObject $healthEnabled) -and
         $null -ne $bookmarksResponse.items -and
         $monitorResponse.ok -and
-        $monitorResponse.running -and
-        @($monitorResponse.targets).Count -eq $targetCount -and
+        ([bool]$monitorResponse.running -eq $updoEnabled) -and
+        (-not $updoEnabled -or @($monitorResponse.targets).Count -eq $targetCount) -and
         [string]::IsNullOrWhiteSpace([string]$monitorResponse.error)
       ) {
         if ($beantimeEnabled) {

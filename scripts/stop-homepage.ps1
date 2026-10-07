@@ -9,7 +9,7 @@ $manifestPath = Join-Path $componentState "homepage-process.json"
 
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
   Write-Host "No Homepage shell process manifest found."
-  exit 0
+  return
 }
 
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json

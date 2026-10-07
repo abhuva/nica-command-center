@@ -1,8 +1,8 @@
 # NICA command-centre architecture
 
-**Status**: Foundation established; Gate 5 capability cutovers in progress
+**Status**: Capability cutovers and aggregate launcher accepted; Gate 7 observation in progress
 
-**Date**: 2026-10-07
+**Date**: 2026-10-08
 
 ## Purpose
 
@@ -18,6 +18,8 @@ separated deliberately instead of reproducing the current mixed layout.
 
 The accepted repository-placement decision is recorded in
 [ADR-001](docs/adr/ADR-001-separate-operational-software-from-the-shared-vault.md).
+The accepted local-workspace orchestration decision is recorded in
+[ADR-005](docs/adr/ADR-005-use-a-repository-owned-workspace-launcher.md).
 
 ## Current operating environment
 
@@ -109,6 +111,11 @@ The command centre provides one place for status, discovery, control, and
 cross-tool workflows. It calls modular capabilities through stable CLI or API
 interfaces. It does not copy all organisational data or require every domain
 tool to share one runtime and release cycle.
+
+The local workspace uses a short-lived repository-owned launcher. It
+reconciles independently owned services, opens selected views, records an
+aggregate result, and then exits. Startup choices are local settings; they do
+not change authoritative vault data or merge the tools into one process.
 
 ### Web-only collaborators are first-class users
 

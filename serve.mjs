@@ -25,6 +25,8 @@ const OBSIDIAN_ACTIONS_ENABLED =
   String(process.env.NICA_OBSIDIAN_ACTIONS_ENABLED || "").trim().toLowerCase() === "true";
 const PROJECT_CREATE_ENABLED =
   String(process.env.NICA_PROJECT_CREATE_ENABLED || "").trim().toLowerCase() === "true";
+const SETTINGS_MANAGE_ENABLED =
+  String(process.env.NICA_SETTINGS_MANAGE_ENABLED || "").trim().toLowerCase() === "true";
 const PROJECT_ACTION_TOKEN = PROJECT_CREATE_ENABLED ? randomBytes(32).toString("hex") : "";
 const BEANTIME_CAPABILITY_NAMES = new Set([
   "beantime.read",
@@ -74,7 +76,7 @@ const MIME_TYPES = {
 };
 
 const DEFAULT_SETTINGS_FALLBACK = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   ui: {
     title: "Workspace Homepage",
     titleSize: 38,
@@ -86,6 +88,18 @@ const DEFAULT_SETTINGS_FALLBACK = {
       mode: "preset",
       preset: "soft",
       shape: "rounded"
+    }
+  },
+  startup: {
+    openObsidian: true,
+    openHomepage: true,
+    openCalendar: true,
+    services: {
+      calendar: true,
+      email: true,
+      vaultGraph: true,
+      financeNica: true,
+      financeTohu: true
     }
   },
   modules: {
@@ -111,7 +125,7 @@ const DEFAULT_SETTINGS_FALLBACK = {
     beantime: {
       enabled: true,
       title: "Beantime",
-      file: "data/beantime/zeit.beancount",
+      file: "1. Vereinsverwaltung/Buchhaltung/Zeiterfassung/zeit.beancount",
       personAccount: "Zeit:Example",
       stateFile: "data/beantime/state.json",
       bookableAccountPrefix: "Projekte:"
@@ -124,7 +138,7 @@ const DEFAULT_SETTINGS_FALLBACK = {
     email: {
       enabled: true,
       title: "Email",
-      url: "http://127.0.0.1:4176/email.html"
+      url: "http://127.0.0.1:4276/email.html"
     },
     updo: {
       enabled: true,
@@ -1347,7 +1361,7 @@ function normalizeSettings(input) {
   const merged = deepMerge(DEFAULT_SETTINGS_FALLBACK, input);
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     ui: {
       title: toCleanString(merged?.ui?.title, DEFAULT_SETTINGS_FALLBACK.ui.title),
       titleSize: toIntInRange(merged?.ui?.titleSize, DEFAULT_SETTINGS_FALLBACK.ui.titleSize, 18, 72),
@@ -1374,6 +1388,18 @@ function normalizeSettings(input) {
           ["rounded", "comfortable", "sharp"],
           DEFAULT_SETTINGS_FALLBACK.ui.theme.shape
         )
+      }
+    },
+    startup: {
+      openObsidian: toBool(merged?.startup?.openObsidian, DEFAULT_SETTINGS_FALLBACK.startup.openObsidian),
+      openHomepage: toBool(merged?.startup?.openHomepage, DEFAULT_SETTINGS_FALLBACK.startup.openHomepage),
+      openCalendar: toBool(merged?.startup?.openCalendar, DEFAULT_SETTINGS_FALLBACK.startup.openCalendar),
+      services: {
+        calendar: toBool(merged?.startup?.services?.calendar, DEFAULT_SETTINGS_FALLBACK.startup.services.calendar),
+        email: toBool(merged?.startup?.services?.email, DEFAULT_SETTINGS_FALLBACK.startup.services.email),
+        vaultGraph: toBool(merged?.startup?.services?.vaultGraph, DEFAULT_SETTINGS_FALLBACK.startup.services.vaultGraph),
+        financeNica: toBool(merged?.startup?.services?.financeNica, DEFAULT_SETTINGS_FALLBACK.startup.services.financeNica),
+        financeTohu: toBool(merged?.startup?.services?.financeTohu, DEFAULT_SETTINGS_FALLBACK.startup.services.financeTohu)
       }
     },
     modules: {
@@ -3449,7 +3475,7 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "GET" && pathname === "/api/ping") {
     const health = runtimeHealth("homepage", VAULT_ROOT, STATE_DIR);
-    const limitedWriteEnabled = PROJECT_CREATE_ENABLED || hasBeantimeWriteCapability();
+    const limitedWriteEnabled = PROJECT_CREATE_ENABLED || SETTINGS_MANAGE_ENABLED || hasBeantimeWriteCapability();
     sendJson(res, 200, {
       ok: true,
       ...health,
@@ -3457,6 +3483,8 @@ const server = http.createServer((req, res) => {
       writesEnabled: health.writesEnabled || limitedWriteEnabled,
       writeCapabilities: {
         projectCreate: PROJECT_CREATE_ENABLED,
+        settingsManage: SETTINGS_MANAGE_ENABLED,
+        obsidianOpen: OBSIDIAN_ACTIONS_ENABLED,
         beantimeRead: hasBeantimeCapability("beantime.read"),
         beantimeTimer: hasBeantimeCapability("beantime.timer"),
         beantimeAppend: hasBeantimeCapability("beantime.append"),
@@ -3500,12 +3528,24 @@ const server = http.createServer((req, res) => {
   }
 
   const scopedProjectApply = pathname === "/api/projects/create" && PROJECT_CREATE_ENABLED;
+  const scopedSettingsApply = pathname === "/api/settings" && SETTINGS_MANAGE_ENABLED;
+  const scopedObsidianAction = OBSIDIAN_ACTIONS_ENABLED && new Set([
+    "/api/bookmarks/open",
+    "/api/search/open"
+  ]).has(pathname);
   const beantimePostRoute = new Set([
     "/api/beantime/start",
     "/api/beantime/stop",
     "/api/beantime/show"
   ]).has(pathname);
-  if (req.method === "POST" && !isWriteEnabled() && !scopedProjectApply && !beantimePostRoute) {
+  if (
+    req.method === "POST" &&
+    !isWriteEnabled() &&
+    !scopedProjectApply &&
+    !scopedSettingsApply &&
+    !scopedObsidianAction &&
+    !beantimePostRoute
+  ) {
     sendJson(res, 403, {
       ok: false,
       code: "NICA_READ_ONLY",
@@ -3528,6 +3568,18 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "POST" && pathname === "/api/settings") {
+    const contentType = String(req.headers["content-type"] || "")
+      .split(";", 1)[0]
+      .trim()
+      .toLowerCase();
+    if (contentType !== "application/json") {
+      sendJson(res, 415, { ok: false, message: "Content-Type must be application/json" });
+      return;
+    }
+    if (String(req.headers.origin || "").trim() !== `http://${HOST}:${PORT}`) {
+      sendJson(res, 403, { ok: false, message: "Origin is not allowed" });
+      return;
+    }
     readRequestBody(req)
       .then((rawBody) => {
         let payload;
