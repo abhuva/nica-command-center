@@ -136,7 +136,7 @@ async function stopServer(child) {
 
 /** @returns {string[]} Staging folders currently left in the project authority. */
 function stagingFolders() {
-  return fs.readdirSync(projectsRoot).filter((name) => name.startsWith(".nica-project-staging-"));
+  return fs.readdirSync(projectsRoot).filter((name) => name.startsWith("_nica-project-staging-"));
 }
 
 /** @returns {Promise<void>} Removes the synthetic sandbox after Windows releases child-process directory handles. */

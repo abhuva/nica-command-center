@@ -3173,7 +3173,8 @@ function createProject(payload) {
 
   const projectFolderAbs = path.join(VAULT_ROOT, plan.paths.folder);
   const projectFileAbs = path.join(VAULT_ROOT, plan.paths.file);
-  const stagingFolderName = `.nica-project-staging-${randomUUID()}`;
+  // Obsidian intentionally excludes dot-prefixed folders from its vault index.
+  const stagingFolderName = `_nica-project-staging-${randomUUID()}`;
   const stagingFolderAbs = path.join(PROJECTS_ROOT, stagingFolderName);
   const stagingFolderRel = sanitizePathSeparators(path.relative(VAULT_ROOT, stagingFolderAbs));
   const stagingFileAbs = path.join(stagingFolderAbs, plan.fileName);
