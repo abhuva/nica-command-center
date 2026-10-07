@@ -1,6 +1,6 @@
 # Gate 5: Email read-only shadow
 
-**Status:** live read-only shadow active; awaiting normal-workflow acceptance
+**Status:** read-only shadow accepted; Email writes remain legacy-only
 
 **Date:** 2026-10-07
 
@@ -96,6 +96,6 @@ verified snapshot by omitting `-RefreshSnapshot`.
   changing a process.
 - [x] Apply the read-only shadow on `4276` with a fresh consistent snapshot.
 - [x] Confirm aggregate counts without recording email payloads.
-- [ ] Confirm the normal read workflow without recording email payloads.
+- [x] Confirm the normal read workflow without recording email payloads.
 - [x] Rehearse stop/restart while legacy `4176` remains available.
-- [ ] Marc confirms the normal read-only workflow is usable.
+- [x] Marc confirms the normal read-only workflow is usable.
