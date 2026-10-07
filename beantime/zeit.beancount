@@ -1,5 +1,7 @@
 option "title" "Beantime Template"
 option "operating_currency" "HR"
+option "name_assets" "Zeit"
+option "name_expenses" "Projekte"
 
 2023-01-01 commodity HR
   name: "Stunde"

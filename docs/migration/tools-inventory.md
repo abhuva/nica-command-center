@@ -88,13 +88,13 @@ repository; the production checkout remains in place and independent.
 - Source: `modules/beantime.js`, Beantime helpers in `serve.mjs`, and
   `beantime/zeit.beancount`
 - Production Fava endpoint: `127.0.0.1:3464`
-- Port configuration: currently hard-coded
+- Port configuration: `BEANTIME_FAVA_PORT`; the synthetic shadow uses `4464`
 - Writes: timer state and Beancount transactions
 - Authority: the configured ledger, not the UI or timer state
 - Migration risk: critical; two installations must never write the same ledger
 - Initial candidate mode: disabled or connected only to a synthetic ledger
-- Required preparation: make the managed Fava port and ledger/state roots
-  explicit configuration
+- Current preparation: managed Fava port and isolated state root are explicit;
+  the live-ledger authority and transfer procedure remain a later cutover decision
 
 ### Website monitoring (`updo`)
 
@@ -164,13 +164,13 @@ candidate launcher will be used during shadow testing.
 - Calendar and VaultGraph derive the vault from two parent directories.
 - Email defaults `vaultRoot` to `../..`.
 - The launchers invoke `./Tools` relative to the vault root.
-- Beantime's managed Fava port is hard-coded to `3464`.
 - `Calendar/.env.example` exists locally but is ignored by the broad `.env.*`
   rule, so a fresh checkout lacks the documented template.
-- Root defaults contain a personal Beantime account and must be generalized.
 
 These gaps must be resolved through explicit configuration such as
 `NICA_VAULT_ROOT` and separate runtime-state roots before production cutover.
+The former Beantime port and personal-default gaps are resolved: the port is
+configurable, and root defaults plus the tracked template use synthetic accounts.
 
 ## Security/history findings
 

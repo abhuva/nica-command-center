@@ -45,8 +45,9 @@ window of up to five minutes when immediate rollback is available.
 - UI: visibly labelled as a migration candidate
 
 Suggested shadow ports are `4273` for Calendar, `4274` for Homepage, `4275` for
-VaultGraph, and `4276` for Email. These are planning defaults, not accepted
-interfaces. Beantime remains disabled until its Fava port is configurable.
+VaultGraph, and `4276` for Email. Beantime uses an isolated Homepage on `4374`
+and managed Fava on `4464` for its synthetic shadow. These are planning defaults,
+not accepted production interfaces.
 
 ## Gate 0 - baseline and planning
 
@@ -271,6 +272,14 @@ preview contains 515 new, one unchanged, 4,125 existing-archive, and zero
 conflicting notes and has not been applied; it requires separate approval.
 Legacy Email `4176` remains the warm fallback. See [Gate 5 Email bounded-export
 shadow record](gate-5-email-export-shadow.md).
+
+The Beantime synthetic shadow is technically verified with separate read,
+timer-state, ledger-append, and managed-Fava capabilities. It provisions only an
+isolated synthetic ledger and leaves the accepted Homepage, legacy Homepage, and
+all production finance services unchanged. Automated checks, Playwright MCP,
+Fava ledger validation, and stop/restart passed on 2026-10-07; Marc's workflow
+confirmation is still required before this slice is accepted. See [Gate 5
+Beantime synthetic shadow record](gate-5-beantime-shadow.md).
 
 Use the following sequence for each capability:
 
