@@ -10,6 +10,9 @@ export async function renderBeantimeModule(shell) {
   let isShowing = false;
   let runningMeta = null;
   let elapsedTickerId = 0;
+  let canChangeTimer = false;
+  let canAppendLedger = false;
+  let canLaunchFava = false;
 
   const controls = document.createElement("div");
   controls.className = "beantime-controls";
@@ -202,9 +205,9 @@ export async function renderBeantimeModule(shell) {
   function syncUiState() {
     const busy = isStarting || isStopping || isShowing;
     const showRunningPanel = Boolean(running && String(runningMeta?.startedAt || "").trim());
-    startBtn.disabled = running || busy;
-    stopBtn.disabled = !running || busy;
-    showBtn.disabled = busy;
+    startBtn.disabled = !canChangeTimer || running || busy;
+    stopBtn.disabled = !canChangeTimer || !canAppendLedger || !running || busy;
+    showBtn.disabled = !canLaunchFava || busy;
     accountSelect.disabled = running || isShowing;
     personSelect.disabled = running || isShowing;
     summaryInput.disabled = running || isShowing;
@@ -282,6 +285,9 @@ export async function renderBeantimeModule(shell) {
       throw new Error(text || "Konnte Beantime-Meta nicht laden");
     }
     const meta = await response.json();
+    canChangeTimer = Boolean(meta?.capabilities?.timer);
+    canAppendLedger = Boolean(meta?.capabilities?.append);
+    canLaunchFava = Boolean(meta?.capabilities?.fava);
     const accounts = Array.isArray(meta?.accounts) ? meta.accounts.map((v) => String(v || "").trim()).filter(Boolean) : [];
     const people = Array.isArray(meta?.personAccounts)
       ? meta.personAccounts.map((v) => String(v || "").trim()).filter(Boolean)
@@ -419,8 +425,9 @@ export async function renderBeantimeModule(shell) {
         throw new Error(text || "Fava konnte nicht geoeffnet werden");
       }
       const payload = await response.json().catch(() => ({}));
-      const file = String(payload?.file || "Tools/data/beantime/zeit.beancount").trim();
-      setStatus(`Fava geoeffnet (${file}).`, "ok");
+      const file = String(payload?.file || "beantime/zeit.beancount").trim();
+      const verb = payload?.opened ? "geoeffnet" : "gestartet";
+      setStatus(`Fava ${verb} (${file}).`, "ok");
     } finally {
       isShowing = false;
       syncUiState();
@@ -443,6 +450,7 @@ export async function renderBeantimeModule(shell) {
       .catch((error) => setStatus(error?.message || String(error), "err"));
   });
 
+  syncUiState();
   try {
     await loadMeta();
   } catch (error) {

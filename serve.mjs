@@ -26,6 +26,15 @@ const OBSIDIAN_ACTIONS_ENABLED =
 const PROJECT_CREATE_ENABLED =
   String(process.env.NICA_PROJECT_CREATE_ENABLED || "").trim().toLowerCase() === "true";
 const PROJECT_ACTION_TOKEN = PROJECT_CREATE_ENABLED ? randomBytes(32).toString("hex") : "";
+const BEANTIME_CAPABILITY_NAMES = new Set([
+  "beantime.read",
+  "beantime.timer",
+  "beantime.append",
+  "beantime.fava"
+]);
+const BEANTIME_CAPABILITIES = parseBeantimeCapabilities(
+  process.env.NICA_BEANTIME_CAPABILITIES || ""
+);
 const OBSIDIAN_BIN = resolveObsidianBin();
 
 const BOOKMARKS_FILE = path.join(VAULT_ROOT, ".obsidian", "bookmarks.json");
@@ -38,7 +47,6 @@ const UPDO_LONGTERM_FILE = path.join(DATA_DIR, "longterm.jsonl");
 const UPDO_INCIDENTS_FILE = path.join(DATA_DIR, "incidents.jsonl");
 const UPDO_STATE_FILE = path.join(DATA_DIR, "state.json");
 const BEANTIME_STATE_FILE = path.join(STATE_DIR, "beantime", "state.json");
-const BEANTIME_TEMPLATE_FILE = path.join(ROOT, "beantime", "zeit.beancount");
 const BEANTIME_FAVA_HOST = "127.0.0.1";
 const BEANTIME_FAVA_PORT = Number(process.env.BEANTIME_FAVA_PORT || 3464);
 const BEANTIME_FAVA_READY_TIMEOUT_MS = 12000;
@@ -183,6 +191,42 @@ const beantimeFavaState = {
   startedAt: "",
   startedLedgerPath: ""
 };
+
+/**
+ * Parses and validates the explicitly enabled Beantime capabilities.
+ * @param {string} raw - Comma-separated capability names.
+ * @returns {Set<string>} Validated capability set.
+ */
+function parseBeantimeCapabilities(raw) {
+  const capabilities = new Set(
+    String(raw || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+  );
+  for (const capability of capabilities) {
+    if (!BEANTIME_CAPABILITY_NAMES.has(capability)) {
+      throw new Error(`Unknown NICA_BEANTIME_CAPABILITIES value: ${capability}`);
+    }
+  }
+  return capabilities;
+}
+
+/**
+ * Returns whether a Beantime operation is enabled explicitly or globally.
+ * @param {string} capability - Capability name.
+ * @returns {boolean} Whether the operation is enabled.
+ */
+function hasBeantimeCapability(capability) {
+  return isWriteEnabled() || BEANTIME_CAPABILITIES.has(capability);
+}
+
+/** @returns {boolean} Whether this runtime exposes a bounded Beantime mutation. */
+function hasBeantimeWriteCapability() {
+  return ["beantime.timer", "beantime.append", "beantime.fava"].some((capability) =>
+    hasBeantimeCapability(capability)
+  );
+}
 
 /**
  * Builds candidate executable names/paths for the Obsidian CLI.
@@ -604,7 +648,7 @@ async function waitForHttpUrl(urlText, timeoutMs = BEANTIME_FAVA_READY_TIMEOUT_M
  * @returns {{startupFailed: Promise<never>, cleanupStartupWatchers: () => void}|null} Startup failure watcher handles.
  */
 function startBeantimeFavaServer(config) {
-  ensureBeantimeLedgerExists(config.filePath);
+  requireBeantimeLedger(config.filePath);
   if (isBeantimeFavaRunning()) return null;
 
   beantimeFavaState.lastError = "";
@@ -686,7 +730,7 @@ function startBeantimeFavaServer(config) {
 }
 
 /**
- * Opens the Beantime Fava URL in Obsidian webviewer.
+ * Opens the Beantime Fava URL in Obsidian webviewer when actions are enabled.
  * @returns {void}
  */
 function openBeantimeFavaWebviewer() {
@@ -694,9 +738,9 @@ function openBeantimeFavaWebviewer() {
 }
 
 /**
- * Ensures a Beantime Fava server is available on port 3464 and opens webviewer.
+ * Ensures a Beantime Fava server is available and optionally opens webviewer.
  * @param {object} settings - Effective settings object.
- * @returns {Promise<{url: string, started: boolean}>} Result payload.
+ * @returns {Promise<{url: string, started: boolean, opened: boolean, file: string}>} Result payload.
  */
 async function showBeantimeFava(settings) {
   const config = getBeantimeConfigFromSettings(settings);
@@ -749,24 +793,24 @@ async function showBeantimeFava(settings) {
     );
   }
 
-  openBeantimeFavaWebviewer();
+  const opened = OBSIDIAN_ACTIONS_ENABLED;
+  if (opened) openBeantimeFavaWebviewer();
   return {
     url,
     started,
-    file: path.relative(VAULT_ROOT, config.filePath).replace(/\\/g, "/")
+    opened,
+    file: path.relative(STATE_DIR, config.filePath).replace(/\\/g, "/")
   };
 }
 
 /**
- * Ensures a Beancount file exists for Beantime writes.
+ * Verifies that the explicitly provisioned Beantime ledger exists.
  * @param {string} filePath - Absolute path to Beancount ledger.
  * @returns {void}
  */
-function ensureBeantimeLedgerExists(filePath) {
-  ensureParentDir(filePath);
-  if (!fs.existsSync(filePath)) {
-    const template = fs.readFileSync(BEANTIME_TEMPLATE_FILE, "utf8");
-    fs.writeFileSync(filePath, template, "utf8");
+function requireBeantimeLedger(filePath) {
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    throw new Error("Configured Beantime ledger does not exist; provision it before startup");
   }
 }
 
@@ -822,7 +866,7 @@ function readBeantimePersonAccounts(filePath) {
  * @returns {string[]} Sorted list of account names.
  */
 function readBeantimeBookableAccounts(filePath, prefix) {
-  ensureBeantimeLedgerExists(filePath);
+  requireBeantimeLedger(filePath);
   const raw = fs.readFileSync(filePath, "utf8");
   const out = new Set();
   const cleanPrefix = String(prefix || "").trim();
@@ -878,7 +922,7 @@ function minutesToHourAmount(minutes) {
  * @returns {{date: string, durationMinutes: number, amountHours: string}} Append summary.
  */
 function appendBeantimeTransaction(cfg, state) {
-  ensureBeantimeLedgerExists(cfg.filePath);
+  requireBeantimeLedger(cfg.filePath);
   const startMs = Date.parse(state.startedAt);
   if (!Number.isFinite(startMs)) {
     throw new Error("Invalid start timestamp in state");
@@ -3353,13 +3397,18 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "GET" && pathname === "/api/ping") {
     const health = runtimeHealth("homepage", VAULT_ROOT, STATE_DIR);
+    const limitedWriteEnabled = PROJECT_CREATE_ENABLED || hasBeantimeWriteCapability();
     sendJson(res, 200, {
       ok: true,
       ...health,
-      mode: PROJECT_CREATE_ENABLED ? "limited-write" : health.mode,
-      writesEnabled: health.writesEnabled || PROJECT_CREATE_ENABLED,
+      mode: health.writesEnabled ? health.mode : limitedWriteEnabled ? "limited-write" : health.mode,
+      writesEnabled: health.writesEnabled || limitedWriteEnabled,
       writeCapabilities: {
         projectCreate: PROJECT_CREATE_ENABLED,
+        beantimeRead: hasBeantimeCapability("beantime.read"),
+        beantimeTimer: hasBeantimeCapability("beantime.timer"),
+        beantimeAppend: hasBeantimeCapability("beantime.append"),
+        beantimeFava: hasBeantimeCapability("beantime.fava"),
         unrestricted: health.writesEnabled
       }
     });
@@ -3398,7 +3447,12 @@ const server = http.createServer((req, res) => {
   }
 
   const scopedProjectApply = pathname === "/api/projects/create" && PROJECT_CREATE_ENABLED;
-  if (req.method === "POST" && !isWriteEnabled() && !scopedProjectApply) {
+  const beantimePostRoute = new Set([
+    "/api/beantime/start",
+    "/api/beantime/stop",
+    "/api/beantime/show"
+  ]).has(pathname);
+  if (req.method === "POST" && !isWriteEnabled() && !scopedProjectApply && !beantimePostRoute) {
     sendJson(res, 403, {
       ok: false,
       code: "NICA_READ_ONLY",
@@ -3521,6 +3575,14 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "GET" && pathname === "/api/beantime/meta") {
+    if (!hasBeantimeCapability("beantime.read")) {
+      sendJson(res, 403, {
+        ok: false,
+        code: "NICA_BEANTIME_READ_DISABLED",
+        message: "Beantime metadata access is not enabled for this runtime"
+      });
+      return;
+    }
     try {
       const settings = getEffectiveSettings();
       const config = getBeantimeConfigFromSettings(settings);
@@ -3530,12 +3592,17 @@ const server = http.createServer((req, res) => {
       const activePerson = running?.personAccount || config.personAccount;
       sendJson(res, 200, {
         ok: true,
-        file: path.relative(VAULT_ROOT, config.filePath).replace(/\\/g, "/"),
+        file: path.relative(STATE_DIR, config.filePath).replace(/\\/g, "/"),
         personAccount: activePerson,
         accountPrefix: config.bookableAccountPrefix,
         accounts,
         personAccounts,
-        running
+        running,
+        capabilities: {
+          timer: hasBeantimeCapability("beantime.timer"),
+          append: hasBeantimeCapability("beantime.append"),
+          fava: hasBeantimeCapability("beantime.fava")
+        }
       });
     } catch (error) {
       sendText(res, 500, error.message || "Could not load Beantime meta");
@@ -3544,6 +3611,14 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "POST" && pathname === "/api/beantime/start") {
+    if (!hasBeantimeCapability("beantime.timer")) {
+      sendJson(res, 403, {
+        ok: false,
+        code: "NICA_BEANTIME_TIMER_DISABLED",
+        message: "Beantime timer changes are not enabled for this runtime"
+      });
+      return;
+    }
     readRequestBody(req)
       .then((rawBody) => {
         let payload;
@@ -3606,6 +3681,17 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "POST" && pathname === "/api/beantime/stop") {
+    if (
+      !hasBeantimeCapability("beantime.timer") ||
+      !hasBeantimeCapability("beantime.append")
+    ) {
+      sendJson(res, 403, {
+        ok: false,
+        code: "NICA_BEANTIME_APPEND_DISABLED",
+        message: "Stopping Beantime requires timer and ledger-append capabilities"
+      });
+      return;
+    }
     readRequestBody(req)
       .then((rawBody) => {
         let payload;
@@ -3634,7 +3720,7 @@ const server = http.createServer((req, res) => {
           sendJson(res, 200, {
             ok: true,
             appended: appendResult,
-            file: path.relative(VAULT_ROOT, config.filePath).replace(/\\/g, "/")
+            file: path.relative(STATE_DIR, config.filePath).replace(/\\/g, "/")
           });
         } catch (error) {
           sendText(res, 422, error.message || "Could not stop Beantime");
@@ -3647,6 +3733,14 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "POST" && pathname === "/api/beantime/show") {
+    if (!hasBeantimeCapability("beantime.fava")) {
+      sendJson(res, 403, {
+        ok: false,
+        code: "NICA_BEANTIME_FAVA_DISABLED",
+        message: "Managed Beantime Fava launch is not enabled for this runtime"
+      });
+      return;
+    }
     Promise.resolve()
       .then(async () => {
         const settings = getEffectiveSettings();
@@ -3795,8 +3889,16 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, HOST, () => {
   ensureUpdoMonitor();
   console.log(`Homepage preview server: http://${HOST}:${PORT}/home.html`);
-  const runtimeMode = PROJECT_CREATE_ENABLED ? "limited-write (project-create)" : isWriteEnabled() ? "read-write" : "read-only";
+  const boundedCapabilities = Array.from(BEANTIME_CAPABILITIES).sort();
+  const runtimeMode = isWriteEnabled()
+    ? "read-write"
+    : PROJECT_CREATE_ENABLED || hasBeantimeWriteCapability()
+      ? "limited-write"
+      : "read-only";
   console.log(`Runtime mode: ${runtimeMode}; vault authority: ${VAULT_ROOT}`);
+  if (boundedCapabilities.length) {
+    console.log(`Beantime capabilities: ${boundedCapabilities.join(", ")}`);
+  }
   console.log(
     "Homepage API endpoints ready: GET /api/ping, GET/POST /api/settings, GET /api/bookmarks, GET /api/obsidian/theme, POST /api/bookmarks/open, POST /api/search/open, GET /api/beantime/meta, POST /api/beantime/start, POST /api/beantime/stop, POST /api/beantime/show, GET /api/projects/meta, POST /api/projects/plan, POST /api/projects/create, GET /api/updo/snapshot, GET /api/updo/history, POST /api/updo/restart"
   );
