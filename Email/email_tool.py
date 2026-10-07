@@ -916,16 +916,16 @@ class EmailTool:
         if not account:
             raise ValueError(f"Unknown account: {account_id}")
         token_path = self.resolve_state_path(account.get("oauthTokenPath") or f"{account_id}.json")
-        existing_tokens: dict[str, Any] = {}
-        if token_path.exists():
-            existing_tokens = json.loads(token_path.read_text(encoding="utf-8"))
         tokens = oauth_payload_to_tokens(payload)
-        tokens["refresh_token"] = tokens.get("refresh_token") or existing_tokens.get("refresh_token")
         if not str(tokens.get("access_token") or "").strip():
             raise ValueError("OAuth login response did not include an access token")
-        if not str(tokens.get("refresh_token") or "").strip():
-            raise ValueError("OAuth login response did not include a refresh token")
-        write_json_atomic(token_path, tokens)
+        with self._lock:
+            if not str(tokens.get("refresh_token") or "").strip() and token_path.exists():
+                existing_tokens = json.loads(token_path.read_text(encoding="utf-8"))
+                tokens["refresh_token"] = existing_tokens.get("refresh_token")
+            if not str(tokens.get("refresh_token") or "").strip():
+                raise ValueError("OAuth login response did not include a refresh token")
+            write_json_atomic(token_path, tokens)
         self.oauth_flows.pop(account_id, None)
         return {"ok": True, "pending": False, "accountId": account_id}
 

@@ -34,10 +34,14 @@ rollback target.
   state.
 - Token files are published through an exclusive staging file and atomic
   replacement. A provider response that omits a replacement refresh token keeps
-  the existing refresh token; a login without any refresh token is rejected.
-- `-BackupOAuthTokens` creates only missing recovery copies below
-  `email/backups/oauth-before-management/` in local runtime state. Existing
-  backups are never replaced by a normal activation or restart.
+  the latest existing refresh token; a login without any refresh token is
+  rejected. The merge and publication share the fetch lock so reauthorization
+  cannot overwrite a concurrent fetch-time refresh. A complete new response
+  does not depend on parsing obsolete token state.
+- OAuth startup automatically creates missing recovery copies for existing
+  token files below `email/backups/oauth-before-management/` in local runtime
+  state. Existing backups are never replaced by a normal activation or restart;
+  an account without a token remains available for first-time login.
 - No OAuth secret, token, authorization code, or live Email payload is copied
   into the repository or test fixtures.
 
@@ -47,7 +51,7 @@ Preview the transition and token-backup action without changing files or
 processes:
 
 ```powershell
-.\scripts\start-email-oauth-shadow.ps1 -VaultRoot "C:\path\to\vault" -BackupOAuthTokens
+.\scripts\start-email-oauth-shadow.ps1 -VaultRoot "C:\path\to\vault"
 ```
 
 After reviewing the plan, stop only migrated Email `4276` and activate the
@@ -55,7 +59,7 @@ bounded profile:
 
 ```powershell
 .\scripts\stop-email-read.ps1
-.\scripts\start-email-oauth-shadow.ps1 -VaultRoot "C:\path\to\vault" -BackupOAuthTokens -Apply
+.\scripts\start-email-oauth-shadow.ps1 -VaultRoot "C:\path\to\vault" -Apply
 ```
 
 The authorization link is opened from the Email Account view. Do not copy its
@@ -81,8 +85,10 @@ classification profile.
 
 - `npm run check:email-oauth-shadow` passed with synthetic Microsoft OAuth
   state, exact capability health, callback-state validation, query-free callback
-  logging, atomic token publication, refresh-token preservation, immutable token
-  backup, launcher plan/apply/stop, and rollback to classification.
+  logging, atomic token publication, malformed-old-token replacement,
+  concurrent refresh serialization, refresh-token preservation, automatic
+  immutable token backup, tokenless first-time login, launcher plan/apply/stop,
+  and rollback to classification.
 - Playwright MCP verified the synthetic UI on `4476`: the page reported
   `Ready · bounded Email OAuth`; Count, Fetch, classification, rules, and OAuth
   were enabled; Export was disabled; the OAuth action created a Microsoft login

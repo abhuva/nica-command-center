@@ -10,6 +10,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -117,6 +118,83 @@ def atomic_token_smoke() -> None:
         assert written["access_token"] == "synthetic-new-access"
         assert written["refresh_token"] == "synthetic-old-refresh"
         assert not list(token_path.parent.glob(".fixture.json.stage-*"))
+
+        token_path.write_text("{invalid-old-token-json", encoding="utf-8")
+        tool.oauth_flows["fixture-oauth"] = {
+            "account_id": "fixture-oauth",
+            "provider": "microsoft",
+            "token_url": "https://example.test/token",
+            "client_id": "synthetic-client",
+            "redirect_uri": "http://localhost/callback",
+            "state": "synthetic-state-complete-response",
+            "created_at": time.time(),
+            "expires_in": 900,
+            "pending": False,
+            "code": "synthetic-code-complete-response",
+        }
+        email_tool.exchange_oauth_code = lambda _flow: {
+            "access_token": "synthetic-complete-access",
+            "refresh_token": "synthetic-complete-refresh",
+            "expires_in": 3600,
+        }
+        try:
+            result = tool.poll_oauth_login({"accountId": "fixture-oauth"})
+        finally:
+            email_tool.exchange_oauth_code = original_exchange
+        assert result["ok"] is True
+        written = json.loads(token_path.read_text(encoding="utf-8"))
+        assert written["access_token"] == "synthetic-complete-access"
+        assert written["refresh_token"] == "synthetic-complete-refresh"
+
+        email_tool.write_json_atomic(token_path, token_payload())
+        tool.oauth_flows["fixture-oauth"] = {
+            "account_id": "fixture-oauth",
+            "provider": "microsoft",
+            "token_url": "https://example.test/token",
+            "client_id": "synthetic-client",
+            "redirect_uri": "http://localhost/callback",
+            "state": "synthetic-state-concurrent-refresh",
+            "created_at": time.time(),
+            "expires_in": 900,
+            "pending": False,
+            "code": "synthetic-code-concurrent-refresh",
+        }
+        exchange_started = threading.Event()
+        poll_result: dict[str, Any] = {}
+        poll_errors: list[Exception] = []
+
+        def exchange_without_refresh(_flow: dict[str, Any]) -> dict[str, Any]:
+            exchange_started.set()
+            return {"access_token": "synthetic-reauthorized-access", "expires_in": 3600}
+
+        def poll_in_thread() -> None:
+            try:
+                poll_result.update(tool.poll_oauth_login({"accountId": "fixture-oauth"}))
+            except Exception as error:  # pragma: no cover - asserted below
+                poll_errors.append(error)
+
+        email_tool.exchange_oauth_code = exchange_without_refresh
+        poll_thread = threading.Thread(target=poll_in_thread)
+        try:
+            with tool._lock:
+                poll_thread.start()
+                assert exchange_started.wait(timeout=1)
+                poll_thread.join(timeout=0.2)
+                assert poll_thread.is_alive(), "OAuth publication did not wait for the fetch lock"
+                email_tool.write_json_atomic(token_path, {
+                    "access_token": "synthetic-fetch-access",
+                    "refresh_token": "synthetic-fetch-refresh",
+                    "expires_at": "2099-01-01T00:00:00+00:00",
+                })
+            poll_thread.join(timeout=2)
+        finally:
+            email_tool.exchange_oauth_code = original_exchange
+        assert not poll_thread.is_alive()
+        assert not poll_errors
+        assert poll_result["ok"] is True
+        written = json.loads(token_path.read_text(encoding="utf-8"))
+        assert written["access_token"] == "synthetic-reauthorized-access"
+        assert written["refresh_token"] == "synthetic-fetch-refresh"
 
         email_tool.write_json_atomic(token_path, {"access_token": "synthetic-unchanged"})
         original_bytes = token_path.read_bytes()
@@ -279,12 +357,13 @@ def launcher_and_rollback_smoke() -> None:
             str(port),
             "-OAuthCallbackPort",
             str(callback_port),
-            "-BackupOAuthTokens",
         ]
         plan = run_powershell(common, timeout=20)
         assert plan.returncode == 0, plan.stderr
-        assert '"component":  "email-oauth-shadow"' in plan.stdout or '"component": "email-oauth-shadow"' in plan.stdout
-        assert '"oauthSetupEnabled":  true' in plan.stdout or '"oauthSetupEnabled": true' in plan.stdout
+        planned = json.loads(plan.stdout.split("Plan only.", 1)[0])
+        assert planned["component"] == "email-oauth-shadow"
+        assert planned["oauthSetupEnabled"] is True
+        assert planned["oauthTokenBackupAction"] == "create-missing"
         backup_path = candidate / "backups" / "oauth-before-management" / "oauth" / "fixture.json"
         assert not backup_path.exists()
 
@@ -342,11 +421,30 @@ def launcher_and_rollback_smoke() -> None:
             final_stop = run_powershell(stop_arguments, timeout=20, capture=False)
         assert final_stop.returncode == 0, final_stop.stderr
 
-        token_path.unlink()
-        missing_token = run_powershell(common + ["-Apply"], timeout=20)
-        assert missing_token.returncode != 0
-        assert "Candidate OAuth token was not found" in (missing_token.stdout + missing_token.stderr)
-        assert not (candidate / "email-read-process.json").exists()
+        first_time_account = oauth_account()
+        first_time_account.update({
+            "id": "fixture-first-time",
+            "email": "first-time@example.test",
+            "username": "first-time@example.test",
+            "oauthTokenPath": "oauth/first-time.json",
+        })
+        config["accounts"].append(first_time_account)
+        (candidate / "config.local.json").write_text(json.dumps(config), encoding="utf-8")
+        first_time_token = candidate / "oauth" / "first-time.json"
+        first_time_backup = candidate / "backups" / "oauth-before-management" / "oauth" / "first-time.json"
+        assert not first_time_token.exists()
+        assert not first_time_backup.exists()
+
+        first_time_start = run_powershell(common + ["-Apply"], capture=False)
+        assert first_time_start.returncode == 0, first_time_start.stderr + first_time_start.stdout
+        try:
+            first_time_health = wait_for_ping(f"http://127.0.0.1:{port}/api/ping")
+            assert first_time_health["writeCapabilities"] == OAUTH_CAPABILITIES
+            assert not first_time_token.exists()
+            assert not first_time_backup.exists()
+        finally:
+            first_time_stop = run_powershell(stop_arguments, timeout=20, capture=False)
+        assert first_time_stop.returncode == 0, first_time_stop.stderr
 
 
 def serve_ui_fixture(port: int, callback_port: int) -> None:

@@ -143,20 +143,22 @@ access-token refresh during fetch already belongs to `mail.fetch`. Preview the
 profile and immutable token-backup action first:
 
 ```powershell
-.\scripts\start-email-oauth-shadow.ps1 -VaultRoot "C:\path\to\vault" -BackupOAuthTokens
+.\scripts\start-email-oauth-shadow.ps1 -VaultRoot "C:\path\to\vault"
 ```
 
 After review, stop only migrated `4276` and apply the profile:
 
 ```powershell
 .\scripts\stop-email-read.ps1
-.\scripts\start-email-oauth-shadow.ps1 -VaultRoot "C:\path\to\vault" -BackupOAuthTokens -Apply
+.\scripts\start-email-oauth-shadow.ps1 -VaultRoot "C:\path\to\vault" -Apply
 ```
 
 The loopback callback port defaults to `8080` and can be changed with
 `-OAuthCallbackPort` or `EMAIL_OAUTH_CALLBACK_PORT` when the provider's
 registered redirect URI permits it. Token recovery copies live under
-`email/backups/oauth-before-management/` in local runtime state and are not
-overwritten by normal restarts. Vault export remains disabled. Roll back by
+`email/backups/oauth-before-management/` in local runtime state. OAuth startup
+creates missing copies automatically for existing tokens and never overwrites
+them during normal restarts; tokenless accounts remain available for first-time
+login. Vault export remains disabled. Roll back by
 stopping the process and starting `start-email-classification-shadow.ps1` with
 `-Apply` and no profile or database refresh.

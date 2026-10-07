@@ -5,7 +5,6 @@ param(
   [string]$LegacyToolsRoot = "",
   [int]$Port = 4276,
   [int]$OAuthCallbackPort = 8080,
-  [switch]$BackupOAuthTokens,
   [switch]$Apply
 )
 
@@ -21,7 +20,6 @@ $parameters = @{
 if (-not [string]::IsNullOrWhiteSpace($LegacyToolsRoot)) {
   $parameters.LegacyToolsRoot = $LegacyToolsRoot
 }
-if ($BackupOAuthTokens) { $parameters.BackupOAuthTokens = $true }
 if ($Apply) { $parameters.Apply = $true }
 
 & (Join-Path $PSScriptRoot "start-email-fetch-shadow.ps1") @parameters

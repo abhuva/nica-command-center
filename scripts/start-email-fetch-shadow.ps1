@@ -10,7 +10,6 @@ param(
   [switch]$EnableOAuth,
   [switch]$BackupCandidate,
   [switch]$RefreshCandidateBackup,
-  [switch]$BackupOAuthTokens,
   [int]$OAuthCallbackPort = 8080,
   [switch]$Apply
 )
@@ -45,9 +44,6 @@ if ($EnableOAuth -and -not $EnableClassification) {
 }
 if (($BackupCandidate -or $RefreshCandidateBackup) -and -not $EnableClassification) {
   throw "Candidate backup is supported only for the classification profile."
-}
-if ($BackupOAuthTokens -and -not $EnableOAuth) {
-  throw "OAuth token backup is supported only for the OAuth profile."
 }
 if ($EnableOAuth -and $Port -eq $OAuthCallbackPort) {
   throw "Email and OAuth callback ports must be different."
@@ -214,7 +210,17 @@ $oauthBackupRoot = Join-Path $componentState "backups\oauth-before-management"
 $oauthTokenBackupReadyCount = 0
 foreach ($token in $candidateOauthTokens) {
   $backupPath = Resolve-ContainedFile -Root $oauthBackupRoot -RelativePath $token.relative -Label "Candidate OAuth token backup"
-  if (Test-Path -LiteralPath $backupPath -PathType Leaf) { $oauthTokenBackupReadyCount++ }
+  $tokenWillExist = $PrepareFetchProfile -or (Test-Path -LiteralPath $token.path -PathType Leaf)
+  if ($tokenWillExist -and (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
+    $oauthTokenBackupReadyCount++
+  }
+}
+$oauthTokenBackupAction = if ($EnableOAuth -and $oauthTokenFileCount -gt $oauthTokenBackupReadyCount) {
+  "create-missing"
+} elseif ($EnableOAuth -and $oauthTokenFileCount -gt 0) {
+  "retain-existing"
+} else {
+  "none"
 }
 
 $sourceInfo = Get-Item -LiteralPath $sourceDatabase
@@ -236,7 +242,7 @@ $plan = [ordered]@{
   configuredAccountCount = $accountCount
   credentialEnvironmentFileCount = $credentialEnvironmentFileCount
   oauthTokenFileCount = $oauthTokenFileCount
-  oauthTokenBackupAction = if ($BackupOAuthTokens) { "create-missing" } else { "none" }
+  oauthTokenBackupAction = $oauthTokenBackupAction
   oauthTokenBackupReadyCount = $oauthTokenBackupReadyCount
   writeCapabilities = $writeCapabilities
   oauthSetupEnabled = [bool]$EnableOAuth
@@ -301,10 +307,10 @@ if ($PrepareFetchProfile) {
   Get-Content -LiteralPath $candidateConfigPath -Raw | ConvertFrom-Json | Out-Null
 }
 $oauthTokenBackupsCreated = 0
-if ($BackupOAuthTokens) {
+if ($EnableOAuth) {
   foreach ($token in $candidateOauthTokens) {
     if (-not (Test-Path -LiteralPath $token.path -PathType Leaf)) {
-      throw "Candidate OAuth token was not found; no OAuth management profile was started."
+      continue
     }
     $backupPath = Resolve-ContainedFile -Root $oauthBackupRoot -RelativePath $token.relative -Label "Candidate OAuth token backup"
     if (-not (Test-Path -LiteralPath $backupPath -PathType Leaf)) {

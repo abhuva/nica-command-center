@@ -212,7 +212,7 @@ Microsoft login and reauthorization. Preview the activation and immutable local
 token backup first:
 
 ```powershell
-.\scripts\start-email-oauth-shadow.ps1 -VaultRoot "C:\path\to\vault" -BackupOAuthTokens
+.\scripts\start-email-oauth-shadow.ps1 -VaultRoot "C:\path\to\vault"
 ```
 
 After review, stop only migrated `4276` and repeat the command with `-Apply`.
