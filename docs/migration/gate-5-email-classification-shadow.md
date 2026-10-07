@@ -1,6 +1,6 @@
 # Gate 5: Email bounded-classification shadow
 
-**Status:** synthetic and browser verification complete; live activation not started
+**Status:** live bounded-classification shadow active; awaiting normal-workflow acceptance
 
 **Date:** 2026-10-07
 
@@ -87,6 +87,38 @@ restore `email/backups/email-before-classification.db` to the candidate
 - The live candidate remained on the accepted fetch-only profile throughout
   implementation and synthetic verification.
 
+## Live activation evidence
+
+- The reviewed plan retained the accepted candidate database and profile. It
+  proposed no legacy snapshot refresh and no credential copy.
+- Before activation, `4276` was healthy in the accepted fetch-only profile with
+  12,806 messages, 236 rules, and 11 tags. Legacy `4176` was healthy.
+- The vault projection baseline contained 11,757 files and had a latest write
+  time of `2026-06-25T11:25:00Z`.
+- Stopping fetch-only `4276`, creating the rollback snapshot, and starting the
+  classification profile completed successfully. The rollback snapshot and a
+  separate verification both reported SQLite `quick_check: ok`.
+- Live health reported exactly Count, Fetch, message tagging, rule application,
+  and rule management. OAuth management and vault export returned HTTP 403.
+- A temporary disabled synthetic rule was created and removed, and a no-op
+  message-tag request succeeded without logging a message identifier or
+  content.
+- Applying the 236 existing rules completed with 8,362 aggregate matches and
+  updates. The candidate retained 12,806 messages, 236 rules, and 11 tags.
+- Rollback to the accepted fetch-only profile disabled classification while
+  preserving the aggregate message state: 5,732 candidate, 4,645 included,
+  2,429 excluded, and zero exported. Classification was then restored without
+  refreshing candidate state or overwriting the recovery snapshot.
+- Live Playwright MCP verification showed the bounded-classification status;
+  Count, Fetch, Apply Rules, and rule management were enabled; OAuth and Export
+  were disabled; observed API calls returned HTTP 200; the console had no
+  warnings or errors; and the page had no horizontal overflow.
+- Legacy `4176` remained healthy. The vault projection file count and latest
+  write time remained identical to the baseline.
+- One rapid startup health request disconnected before the response completed,
+  producing a client-abort traceback without message content. Subsequent health,
+  API, and browser checks were clean.
+
 ## Acceptance checklist
 
 - [x] Capability gates are enforced server-side.
@@ -96,8 +128,8 @@ restore `email/backups/email-before-classification.db` to the candidate
 - [x] A consistent pre-classification rollback snapshot is available.
 - [x] Synthetic classification and fetch-profile regression checks pass.
 - [x] Playwright MCP verifies the bounded UI and rule workflow.
-- [ ] Review the live plan and current candidate-state baseline.
-- [ ] Activate the profile on `4276` without refreshing accepted candidate state.
-- [ ] Verify a bounded live classification workflow without logging payloads.
-- [ ] Rehearse rollback to the accepted fetch-only profile.
+- [x] Review the live plan and current candidate-state baseline.
+- [x] Activate the profile on `4276` without refreshing accepted candidate state.
+- [x] Verify a bounded live classification workflow without logging payloads.
+- [x] Rehearse rollback to the accepted fetch-only profile.
 - [ ] Marc confirms the normal classification workflow is usable.
