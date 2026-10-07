@@ -139,8 +139,19 @@ For every change in the meantime:
 - test failure behavior, not only the successful path;
 - verify that examples and fixtures contain no live or sensitive data;
 - run credential and generated-file checks before committing;
+- run Gitleaks before every commit and push: use
+  `gitleaks git --pre-commit --no-banner --redact` for unstaged/staged working
+  changes, `gitleaks git --staged --no-banner --redact` after staging, and
+  `gitleaks git --no-banner --redact` to scan reachable history before pushing;
+  stop and resolve every finding rather than committing an unreviewed bypass;
 - update architecture documentation when a boundary or source of truth changes;
-- use browser-level checks for user-interface changes once a UI exists.
+- use the installed Playwright MCP for browser-level verification whenever a
+  UI exists or a change can affect UI behavior; check relevant interactions,
+  responsive layout where applicable, and browser console errors rather than
+  relying only on syntax or HTTP health checks;
+- keep Playwright verification read-only against live society data unless the
+  task explicitly authorizes a controlled write; use candidate services and
+  synthetic fixtures for mutating UI workflows.
 
 ## Migration rules for the former vault `Tools` repository
 

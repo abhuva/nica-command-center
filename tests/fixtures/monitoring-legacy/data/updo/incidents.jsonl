@@ -1,0 +1,1 @@
+{"version":1,"targetId":"fixture","targetUrl":"http://127.0.0.1:4399","type":"spike","start":"2030-01-01T10:00:00.000Z","end":"2030-01-01T10:00:03.000Z","durationSec":3,"peakMs":12,"thresholdMs":10}

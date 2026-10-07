@@ -1,0 +1,8 @@
+﻿*.db
+*.db-*
+*.pid
+*.token.json
+tohuwabohu.halle.outlook.json
+.env
+.env.*
+config.local.json

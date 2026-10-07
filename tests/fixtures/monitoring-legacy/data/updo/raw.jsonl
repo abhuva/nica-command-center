@@ -1,0 +1,2 @@
+{"ts":"2030-01-01T10:00:00.000Z","targetId":"fixture","targetUrl":"http://127.0.0.1:4399","success":true,"statusCode":200,"responseTimeMs":12,"sslIssueCode":null,"sslIssueMessage":null}
+{"ts":"2030-01-01T10:00:03.000Z","targetId":"fixture","targetUrl":"http://127.0.0.1:4399","success":true,"statusCode":200,"responseTimeMs":11,"sslIssueCode":null,"sslIssueMessage":null}

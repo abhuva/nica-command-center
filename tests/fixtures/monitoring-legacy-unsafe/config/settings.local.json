@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "modules": {
+    "updo": {
+      "enabled": true,
+      "persistence": {
+        "enabled": true,
+        "rawFile": "data/updo/raw.jsonl",
+        "longtermFile": "data/updo/longterm.jsonl",
+        "incidentsFile": "data/updo/incidents.jsonl",
+        "stateFile": "data/updo/state.json"
+      },
+      "targets": [
+        {
+          "id": "unsafe-fixture",
+          "name": "Synthetic query-string target",
+          "url": "http://127.0.0.1:4399/?probe=synthetic"
+        }
+      ]
+    }
+  }
+}

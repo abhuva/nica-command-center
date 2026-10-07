@@ -1,0 +1,532 @@
+﻿/**
+ * Normalizes free-text form input by trimming and collapsing internal whitespace.
+ * @param {unknown} value - Raw field value.
+ * @returns {string} Sanitized text.
+ */
+function cleanText(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+/**
+ * Builds the final folder/file name preview according to project naming rules.
+ * @param {{year: string|number, society: string, fundingCode: string, title: string, projectType: string}} input - Form values.
+ * @returns {string} Preview folder name or an empty string when mandatory parts are missing.
+ */
+function buildFolderPreview({ year, society, fundingCode, title, projectType }) {
+  const cleanYear = String(year || "").trim();
+  const cleanSociety = cleanText(society).toUpperCase();
+  const cleanTitle = cleanText(title);
+  const cleanFunding = cleanText(fundingCode);
+  const cleanType = String(projectType || "").trim().toLowerCase();
+  if (!cleanYear || !cleanSociety || !cleanTitle) return "";
+  if (cleanType === "funding") {
+    if (!cleanFunding || cleanFunding === "-") return "";
+    return `${cleanYear} ${cleanSociety} ${cleanFunding} - ${cleanTitle}`;
+  }
+  return `${cleanYear} ${cleanSociety} - ${cleanTitle}`;
+}
+
+/**
+ * Renders the "new project" module with modal form, metadata hydration, and create action.
+ * @param {{body: HTMLElement}} shell - Module shell returned by homepage renderer.
+ * @param {{openInNewTab?: boolean}} moduleSettings - Module settings from effective config.
+ * @returns {Promise<() => void>} Cleanup callback for event listeners and modal nodes.
+ */
+export async function renderNewProjectModule(shell, moduleSettings) {
+  let meta = null;
+  let activePlan = null;
+  let actionToken = "";
+  const openInNewTab = moduleSettings?.openInNewTab !== false;
+
+  const intro = document.createElement("p");
+  intro.className = "module-copy";
+  intro.textContent = "Neues Projekt mit Template, Frontmatter und korrektem Ordnernamen anlegen.";
+
+  const openBtn = document.createElement("button");
+  openBtn.type = "button";
+  openBtn.className = "btn btn-primary";
+  openBtn.textContent = "Neues Projekt anlegen";
+
+  const status = document.createElement("div");
+  status.className = "status";
+
+  shell.body.appendChild(intro);
+  shell.body.appendChild(openBtn);
+  shell.body.appendChild(status);
+
+  /**
+   * Updates the module-level status message.
+   * @param {string} text - Status text.
+   * @param {"ok"|"err"|""} [state] - Optional visual state.
+   * @returns {void}
+   */
+  function setStatus(text, state) {
+    status.textContent = text || "";
+    status.classList.remove("ok", "err");
+    if (state === "ok") status.classList.add("ok");
+    if (state === "err") status.classList.add("err");
+  }
+
+  /**
+   * Loads project suggestion metadata from the server.
+   * @returns {Promise<object>} Metadata payload for year/society/type/funding defaults.
+   */
+  async function fetchMeta() {
+    const response = await fetch("/api/projects/meta");
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || "Projekt-Metadaten konnten nicht geladen werden");
+    }
+    const payload = await response.json();
+    return payload || {};
+  }
+
+  /**
+   * Sends a project payload to one backend workflow endpoint.
+   * @param {"plan"|"create"} operation - Project workflow operation.
+   * @param {object} payload - Normalized project payload.
+   * @returns {Promise<object>} Parsed API response.
+   */
+  async function requestProjectOperation(operation, payload) {
+    const headers = { "Content-Type": "application/json" };
+    if (operation === "create") {
+      if (!actionToken) throw new Error("Projekt-Aktionsfreigabe fehlt. Bitte Modul neu laden.");
+      headers["X-NICA-Action-Token"] = actionToken;
+    }
+    const response = await fetch(`/api/projects/${operation}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || "Projekt-Aktion ist fehlgeschlagen");
+    }
+    return response.json();
+  }
+
+  /**
+   * Refreshes the ephemeral apply token from the same-origin server.
+   * @returns {Promise<void>} Resolves when project apply is authorized for this page.
+   */
+  async function refreshProjectSession() {
+    const response = await fetch("/api/projects/session", { cache: "no-store" });
+    if (!response.ok) throw new Error("Projekt-Aktionsfreigabe konnte nicht geladen werden");
+    const payload = await response.json();
+    if (!payload?.enabled || !payload?.actionToken) {
+      throw new Error("Projekterstellung ist in diesem Prozess nicht freigeschaltet");
+    }
+    actionToken = String(payload.actionToken);
+  }
+
+  /**
+   * Wraps an input element in the module's labeled-field layout.
+   * @param {string} labelText - Visible field label.
+   * @param {HTMLElement} inputEl - Input/select element to place in the field.
+   * @returns {HTMLLabelElement} Labeled field wrapper.
+   */
+  function createLabeledField(labelText, inputEl) {
+    const wrap = document.createElement("label");
+    wrap.className = "new-project-field";
+    const label = document.createElement("span");
+    label.className = "new-project-label";
+    label.textContent = labelText;
+    wrap.appendChild(label);
+    wrap.appendChild(inputEl);
+    return wrap;
+  }
+
+  /**
+   * Builds modal DOM, wires handlers, and returns an imperative modal controller.
+   * @returns {{show: () => void, hide: () => void, hydrateFromMeta: (data: object) => void, destroy: () => void}} Modal controller.
+   */
+  function buildModal() {
+    const overlay = document.createElement("div");
+    overlay.className = "new-project-modal-overlay";
+    overlay.hidden = true;
+    overlay.setAttribute("aria-hidden", "true");
+
+    const dialog = document.createElement("div");
+    dialog.className = "new-project-modal";
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+
+    const head = document.createElement("div");
+    head.className = "new-project-head";
+    const title = document.createElement("h3");
+    const titleId = `new-project-modal-title-${Math.random().toString(36).slice(2, 10)}`;
+    title.id = titleId;
+    title.textContent = "Neues Projekt erstellen";
+    dialog.setAttribute("aria-labelledby", titleId);
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "module-head-icon-btn";
+    closeBtn.textContent = "x";
+    closeBtn.setAttribute("aria-label", "Schliessen");
+    head.appendChild(title);
+    head.appendChild(closeBtn);
+
+    const body = document.createElement("div");
+    body.className = "new-project-body";
+    const formGrid = document.createElement("div");
+    formGrid.className = "new-project-grid";
+
+    const yearInput = document.createElement("input");
+    yearInput.className = "input";
+    yearInput.type = "number";
+    yearInput.min = "2000";
+    yearInput.max = "2100";
+    yearInput.step = "1";
+
+    const societySelect = document.createElement("select");
+    societySelect.className = "input";
+
+    const typeSelect = document.createElement("select");
+    typeSelect.className = "input";
+
+    const templateSelect = document.createElement("select");
+    templateSelect.className = "input";
+
+    const fundingInput = document.createElement("input");
+    fundingInput.className = "input";
+    fundingInput.type = "text";
+    fundingInput.placeholder = "z. B. BKJ";
+    fundingInput.setAttribute("list", "projectFundingHints");
+    const fundingHints = document.createElement("datalist");
+    fundingHints.id = "projectFundingHints";
+
+    const titleInput = document.createElement("input");
+    titleInput.className = "input";
+    titleInput.type = "text";
+    titleInput.placeholder = "Projektname";
+
+    const preview = document.createElement("div");
+    preview.className = "new-project-preview";
+
+    const formStatus = document.createElement("div");
+    formStatus.className = "status";
+
+    const actions = document.createElement("div");
+    actions.className = "new-project-actions";
+    const planBtn = document.createElement("button");
+    planBtn.type = "button";
+    planBtn.className = "btn btn-primary";
+    planBtn.textContent = "Vorschau pr\u00fcfen";
+    const createBtn = document.createElement("button");
+    createBtn.type = "button";
+    createBtn.className = "btn btn-ghost";
+    createBtn.textContent = "Projekt erstellen";
+    createBtn.disabled = true;
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "btn btn-ghost";
+    cancelBtn.textContent = "Abbrechen";
+    actions.appendChild(planBtn);
+    actions.appendChild(createBtn);
+    actions.appendChild(cancelBtn);
+
+    formGrid.appendChild(createLabeledField("Jahr", yearInput));
+    formGrid.appendChild(createLabeledField("Verein", societySelect));
+    formGrid.appendChild(createLabeledField("Projektart", typeSelect));
+    formGrid.appendChild(createLabeledField("Template", templateSelect));
+    formGrid.appendChild(createLabeledField("Foerderkuerzel", fundingInput));
+    const titleField = createLabeledField("Projekt-Titel", titleInput);
+    titleField.classList.add("new-project-field-full");
+    formGrid.appendChild(titleField);
+    body.appendChild(formGrid);
+    body.appendChild(preview);
+    body.appendChild(formStatus);
+    body.appendChild(actions);
+
+    dialog.appendChild(head);
+    dialog.appendChild(body);
+    overlay.appendChild(dialog);
+    overlay.appendChild(fundingHints);
+
+    document.body.appendChild(overlay);
+
+    /**
+     * Enables/disables the funding field based on selected project type.
+     * @returns {void}
+     */
+    function updateFundingState() {
+      const funding = String(typeSelect.value || "").toLowerCase() === "funding";
+      fundingInput.disabled = !funding;
+      if (!funding) fundingInput.value = "-";
+      if (funding && fundingInput.value === "-") fundingInput.value = "";
+    }
+
+    /**
+     * Recomputes and displays the folder/file naming preview.
+     * @returns {void}
+     */
+    function updatePreview() {
+      const folderName = buildFolderPreview({
+        year: yearInput.value,
+        society: societySelect.value,
+        fundingCode: fundingInput.value,
+        title: titleInput.value,
+        projectType: typeSelect.value
+      });
+      preview.textContent = folderName
+        ? `Ordner/Datei: ${folderName}`
+        : "Ordner/Datei: Bitte Pflichtfelder ausfuellen";
+    }
+
+    /**
+     * Invalidates a prior server-side preview after any input change.
+     * @returns {void}
+     */
+    function invalidatePlan() {
+      activePlan = null;
+      createBtn.disabled = true;
+      createBtn.classList.remove("btn-primary");
+      createBtn.classList.add("btn-ghost");
+    }
+
+    /**
+     * Reads and validates the current form values.
+     * @returns {object} Normalized project payload.
+     */
+    function getPayload() {
+      const payload = {
+        year: Number.parseInt(String(yearInput.value || ""), 10),
+        society: cleanText(societySelect.value).toUpperCase(),
+        fundingCode: cleanText(fundingInput.value),
+        title: cleanText(titleInput.value),
+        projectType: cleanText(typeSelect.value).toLowerCase(),
+        templatePath: cleanText(templateSelect.value),
+        openInNewTab
+      };
+
+      if (!payload.title) throw new Error("Projekt-Titel fehlt.");
+      if (!payload.year || payload.year < 2000 || payload.year > 2100) {
+        throw new Error("Jahr ist ungueltig.");
+      }
+      if (payload.projectType === "funding" && (!payload.fundingCode || payload.fundingCode === "-")) {
+        throw new Error("Foerderkuerzel fehlt.");
+      }
+      if (!payload.templatePath) throw new Error("Template fehlt.");
+      return payload;
+    }
+
+    /**
+     * Updates the status message inside the modal form.
+     * @param {string} text - Status text.
+     * @param {"ok"|"err"|""} [state] - Optional visual state.
+     * @returns {void}
+     */
+    function setFormStatus(text, state) {
+      formStatus.textContent = text || "";
+      formStatus.classList.remove("ok", "err");
+      if (state === "ok") formStatus.classList.add("ok");
+      if (state === "err") formStatus.classList.add("err");
+    }
+
+    /**
+     * Opens the modal and focuses the title field.
+     * @returns {void}
+     */
+    function show() {
+      overlay.hidden = false;
+      overlay.setAttribute("aria-hidden", "false");
+      setFormStatus("");
+      invalidatePlan();
+      updatePreview();
+      titleInput.focus();
+    }
+
+    /**
+     * Closes the modal.
+     * @returns {void}
+     */
+    function hide() {
+      overlay.hidden = true;
+      overlay.setAttribute("aria-hidden", "true");
+    }
+
+    /**
+     * Hydrates select options and defaults from backend project metadata.
+     * @param {object} data - Metadata payload returned by `/api/projects/meta`.
+     * @returns {void}
+     */
+    function hydrateFromMeta(data) {
+      const now = new Date();
+      const years = Array.isArray(data?.options?.years) ? data.options.years : [];
+      const societies = Array.isArray(data?.options?.societies) ? data.options.societies : [];
+      const types = Array.isArray(data?.options?.types) ? data.options.types : [];
+      const fundingCodes = Array.isArray(data?.options?.fundingCodes) ? data.options.fundingCodes : [];
+      const templates = Array.isArray(data?.templates) ? data.templates : [];
+
+      yearInput.value = String((years[0] && years[0].value) || now.getFullYear());
+
+      societySelect.innerHTML = "";
+      for (const item of societies) {
+        const option = document.createElement("option");
+        option.value = item.value;
+        option.textContent = item.value;
+        societySelect.appendChild(option);
+      }
+      if (!societySelect.options.length) {
+        const option = document.createElement("option");
+        option.value = "NICA";
+        option.textContent = "NICA";
+        societySelect.appendChild(option);
+      }
+
+      typeSelect.innerHTML = "";
+      for (const item of types) {
+        const option = document.createElement("option");
+        option.value = item.value;
+        option.textContent = item.value;
+        typeSelect.appendChild(option);
+      }
+      if (!typeSelect.options.length) {
+        const option = document.createElement("option");
+        option.value = "funding";
+        option.textContent = "funding";
+        typeSelect.appendChild(option);
+      }
+
+      templateSelect.innerHTML = "";
+      for (const item of templates) {
+        const option = document.createElement("option");
+        option.value = item.path;
+        option.textContent = item.label || item.path;
+        templateSelect.appendChild(option);
+      }
+
+      fundingHints.innerHTML = "";
+      for (const item of fundingCodes) {
+        const option = document.createElement("option");
+        option.value = item.value;
+        fundingHints.appendChild(option);
+      }
+
+      typeSelect.value = "funding";
+      fundingInput.value = "";
+      updateFundingState();
+      updatePreview();
+    }
+
+    closeBtn.addEventListener("click", hide);
+    cancelBtn.addEventListener("click", hide);
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) hide();
+    });
+    const onKeyDown = (event) => {
+      if (overlay.hidden) return;
+      if (event.key === "Escape") hide();
+    };
+    document.addEventListener("keydown", onKeyDown);
+
+    const onProjectInput = () => {
+      const hadPlan = Boolean(activePlan);
+      invalidatePlan();
+      updatePreview();
+      if (hadPlan) setFormStatus("Eingaben wurden geaendert. Bitte Vorschau erneut pruefen.");
+    };
+    yearInput.addEventListener("input", onProjectInput);
+    societySelect.addEventListener("change", onProjectInput);
+    typeSelect.addEventListener("change", () => {
+      updateFundingState();
+      onProjectInput();
+    });
+    templateSelect.addEventListener("change", onProjectInput);
+    fundingInput.addEventListener("input", onProjectInput);
+    titleInput.addEventListener("input", onProjectInput);
+
+    planBtn.addEventListener("click", async () => {
+      invalidatePlan();
+      let payload;
+      try {
+        payload = getPayload();
+      } catch (error) {
+        setFormStatus(error.message || String(error), "err");
+        return;
+      }
+
+      setFormStatus("Pr\u00fcfe Projektplan...");
+      planBtn.disabled = true;
+      try {
+        await refreshProjectSession();
+        activePlan = await requestProjectOperation("plan", payload);
+        preview.textContent = `Geplant: ${activePlan.paths.folder} mit ${activePlan.template.label}`;
+        createBtn.disabled = false;
+        createBtn.classList.remove("btn-ghost");
+        createBtn.classList.add("btn-primary");
+        setFormStatus("Vorschau ist g\u00fcltig. Erst der n\u00e4chste Schritt legt das Projekt an.", "ok");
+      } catch (error) {
+        setFormStatus(error.message || String(error), "err");
+      } finally {
+        planBtn.disabled = false;
+      }
+    });
+
+    createBtn.addEventListener("click", async () => {
+      if (!activePlan?.planId) {
+        setFormStatus("Bitte zuerst die Vorschau pr\u00fcfen.", "err");
+        return;
+      }
+      let payload;
+      try {
+        payload = { ...getPayload(), planId: activePlan.planId };
+      } catch (error) {
+        invalidatePlan();
+        setFormStatus(error.message || String(error), "err");
+        return;
+      }
+
+      setFormStatus("Projekt wird jetzt erstellt...");
+      createBtn.disabled = true;
+      planBtn.disabled = true;
+      try {
+        const result = await requestProjectOperation("create", payload);
+        const suffix = result.warning ? ` (${result.warning})` : "";
+        setFormStatus(`Erstellt: ${result.folderName}${suffix}`, "ok");
+        setStatus(`Projekt erstellt: ${result.folderName}${suffix}`, "ok");
+        hide();
+      } catch (error) {
+        invalidatePlan();
+        setFormStatus(error.message || String(error), "err");
+      } finally {
+        planBtn.disabled = false;
+      }
+    });
+
+    return {
+      show,
+      hide,
+      hydrateFromMeta,
+      destroy() {
+        document.removeEventListener("keydown", onKeyDown);
+        overlay.remove();
+      }
+    };
+  }
+
+  const modal = buildModal();
+
+  setStatus("Lade Projekt-Metadaten...");
+  try {
+    [meta] = await Promise.all([fetchMeta(), refreshProjectSession()]);
+    modal.hydrateFromMeta(meta);
+    setStatus("");
+  } catch (error) {
+    setStatus(`Konnte Metadaten nicht laden: ${error.message || error}`, "err");
+  }
+
+  openBtn.addEventListener("click", () => {
+    if (!meta) {
+      setStatus("Metadaten fehlen. Bitte Modul neu laden.", "err");
+      return;
+    }
+    modal.show();
+  });
+
+  return () => {
+    modal.destroy();
+  };
+}
+
+

@@ -1,0 +1,33 @@
+{
+	"nodes":[
+		{"id":"e2644b8b4efd7d91","type":"group","x":-240,"y":-240,"width":1100,"height":940,"label":"Tools"},
+		{"id":"ea18d9555eb6af1a","type":"group","x":940,"y":-240,"width":650,"height":840,"label":"Vault / Data"},
+		{"id":"8c05d1e2dcffc499","x":-1060,"y":-240,"width":560,"height":940,"type":"group","label":"Domains"},
+		{"id":"0e08036d0ffe6993","x":-160,"y":260,"width":593,"height":190,"type":"group","label":"Technical"},
+		{"id":"c55f009fde04599f","x":-160,"y":-180,"width":290,"height":360,"type":"group","label":"Operational"},
+		{"id":"15f5dc546a1b8b59","type":"text","text":"Calender (markdown events based)","x":-140,"y":-160,"width":250,"height":60},
+		{"id":"cea3a35667045c6f","type":"text","text":"E-Mail","x":-140,"y":-80,"width":250,"height":60},
+		{"id":"03b6fde3ca207d57","type":"text","text":"Project Creation (UX)","x":-140,"y":10,"width":250,"height":60},
+		{"id":"87763b4ef0feeff6","type":"text","text":"Research Agent","x":-140,"y":100,"width":250,"height":60},
+		{"id":"5efa63cd3c362c91","x":208,"y":-80,"width":250,"height":60,"type":"text","text":"JEV zur Klassifizierung"},
+		{"id":"fcaa29201abd8000","type":"text","text":"Nextcloud based File System","x":990,"y":-180,"width":250,"height":60},
+		{"id":"f0183373d713268a","type":"text","text":"Obsidian","x":990,"y":-80,"width":250,"height":60},
+		{"id":"a4081a9b3281b366","type":"text","text":"Beancount Finance Data - these are the only exception as its technical Data, but also needs Git Control. Those live in Nextcloud - but are also in a git repo (wich is ignored by nextcloud to prevent sync issues)","x":998,"y":20,"width":484,"height":183},
+		{"id":"b3fff5c7dd6ca458","type":"text","text":"Command Center\n","x":490,"y":-180,"width":250,"height":60},
+		{"id":"6d373d955e3a4542","type":"text","text":"Monitoring","x":-140,"y":290,"width":250,"height":60},
+		{"id":"609cd4564efe496d","type":"text","text":"Website build/deploy (Zensical)\n","x":-140,"y":370,"width":250,"height":60},
+		{"id":"a2365f024e59c4c6","type":"text","text":"Beantime - Zeiterfassung\n","x":163,"y":370,"width":250,"height":60},
+		{"id":"d887e56fc1f3dc60","type":"text","text":"Vault Graph","x":163,"y":290,"width":250,"height":60},
+		{"id":"d6db53111881bdea","type":"text","text":"Tools are managed in a repo under Git / Github control. They live independendly from the Data / Obsidian Vault","x":208,"y":46,"width":564,"height":157},
+		{"id":"768f0a7d99016a0c","x":-188,"y":860,"width":702,"height":161,"type":"text","text":"## CircusWiki\nCircusWiki - is its own seperate Project, but some things overlap like website building, translation, data handling\n\nAlso: NICA is stewarding the project"},
+		{"id":"60d4e311d873eb05","x":-165,"y":500,"width":598,"height":143,"type":"text","text":"TTS - for Video creation\nhttps://www.youtube.com/watch?v=eC8mZceIy5k&list=PLtxYzWHqo6sgUcvMoBGY3WRbcvl8qvm83&index=32"},
+		{"id":"91bd86a8ead7e7b6","x":-984,"y":250,"width":304,"height":130,"type":"text","text":"## calendar.nica.network\nstatic calendar view, rendered from Base events in Obsidian\n (fullcalendar.io)"},
+		{"id":"025e2b3f25d0346f","x":-984,"y":410,"width":304,"height":140,"type":"text","text":"## inventory.nica.network\nInventarverwaltung\nPostgreSQL\neigene Softwarelösung"},
+		{"id":"864a7361e04c1f45","x":-984,"y":-194,"width":304,"height":124,"type":"text","text":"## nica.network\n\nWebsite, Aussenauftritt\nstatisch, Zensical"},
+		{"id":"7427558a9a0167fc","x":-984,"y":-40,"width":304,"height":110,"type":"text","text":"## cloud.nica.network\nNextcloud, mainly for file-transfer and web-editing"},
+		{"id":"4dac1dbd5947a210","x":-984,"y":106,"width":304,"height":114,"type":"text","text":"## campus.nica.network\nLernplattform (paid, propriotary software, full license)"}
+	],
+	"edges":[
+		{"id":"7cd232099e55d161","fromNode":"cea3a35667045c6f","fromSide":"right","toNode":"5efa63cd3c362c91","toSide":"left"}
+	]
+}

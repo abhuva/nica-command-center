@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "ui": {
+    "title": "Synthetic Project Command Centre",
+    "titleSize": 34,
+    "search": {
+      "provider": "omnisearch",
+      "openInNewTab": false
+    },
+    "theme": {
+      "mode": "preset",
+      "preset": "soft",
+      "shape": "rounded"
+    }
+  },
+  "modules": {
+    "bookmarks": {
+      "enabled": false
+    },
+    "clock": {
+      "enabled": true,
+      "title": "Synthetic Clock",
+      "showSeconds": false,
+      "hour12": false
+    },
+    "newProject": {
+      "enabled": true,
+      "title": "Synthetic Project Creation",
+      "openInNewTab": false
+    },
+    "beantime": {
+      "enabled": false
+    },
+    "vaultGraph": {
+      "enabled": false
+    },
+    "email": {
+      "enabled": false
+    },
+    "updo": {
+      "enabled": false
+    }
+  }
+}

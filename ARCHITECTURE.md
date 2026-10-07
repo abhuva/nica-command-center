@@ -1,8 +1,8 @@
 # NICA command-centre architecture
 
-**Status**: Foundation; implementation not started
+**Status**: Foundation established; Gate 5 capability cutovers in progress
 
-**Date**: 2026-10-06
+**Date**: 2026-10-07
 
 ## Purpose
 
@@ -200,6 +200,11 @@ speculative abstraction.
 
 ## Migration approach
 
+The operational working plan for migrating the former vault `Tools` checkout
+without interrupting daily use is maintained in
+[docs/migration/](docs/migration/README.md). It supplements this architecture;
+accepted boundary decisions remain in ADRs.
+
 ### Phase 1: Inventory and classification
 
 - [ ] List every known repository, script, service, homepage module, and
@@ -216,9 +221,9 @@ speculative abstraction.
 - [x] Create the repository outside the synchronized vault.
 - [x] Add the initial architecture overview, agent rules, and ADR directory.
 - [ ] Decide the repository's private remote and backup arrangement.
-- [ ] Define configuration for locating the vault without committing a
+- [x] Define configuration for locating the vault without committing a
   machine-specific path.
-- [ ] Define security, privacy, logging, and test-fixture rules before importing
+- [x] Define security, privacy, logging, and test-fixture rules before importing
   live integrations.
 - [ ] Add a capability registry containing metadata, not copied implementations.
 
@@ -264,7 +269,10 @@ speculative abstraction.
 8. Where will secrets be stored, rotated, and recovered?
 9. Which Beancount files form a repository, who may access its remote, and how
    are other financial documents excluded?
-10. Which tool should provide the initial proof of integration?
+10. How should Calendar write authority be divided between vault event notes,
+    Google Calendar, and Nextcloud CalDAV? Project creation has validated the
+    first controlled-write pattern; Calendar vault-event creation is the next
+    Gate 5 candidate.
 
 ## Success criteria
 
