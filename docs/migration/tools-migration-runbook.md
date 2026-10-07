@@ -237,13 +237,13 @@ rules, tags, and vault export remain blocked. Legacy Email `4176` remains the
 production workflow for those operations and the warm fallback. See [Gate 5
 Email bounded-fetch shadow record](gate-5-email-fetch-shadow.md).
 
-Bounded Email classification is the next slice. It retains Count/Fetch and adds
-only local message tags, rule application, and rule management; OAuth and vault
-export remain blocked. Synthetic API, launcher, rollback-snapshot, fetch-profile
-regression, and Playwright MCP verification are complete. Live `4276` now runs
-the bounded-classification profile after controlled rule application and a
-successful rollback rehearsal; normal-workflow acceptance remains pending. See
-[Gate 5 Email bounded-classification shadow
+Bounded Email classification is accepted after synthetic API and launcher
+checks, a consistent rollback snapshot, controlled live rule application,
+rollback rehearsal, Playwright MCP verification, and Marc's normal-workflow
+confirmation on 2026-10-07. Live `4276` retains Count/Fetch and enables only
+local message tags, rule application, and rule management; OAuth and vault
+export remain blocked. Legacy Email `4176` remains the production workflow for
+export and the warm fallback. See [Gate 5 Email bounded-classification shadow
 record](gate-5-email-classification-shadow.md).
 
 Use the following sequence for each capability:

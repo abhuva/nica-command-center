@@ -1,6 +1,6 @@
 # Gate 5: Email bounded-classification shadow
 
-**Status:** live bounded-classification shadow active; awaiting normal-workflow acceptance
+**Status:** bounded-classification shadow accepted; Email export remains legacy-only
 
 **Date:** 2026-10-07
 
@@ -118,6 +118,8 @@ restore `email/backups/email-before-classification.db` to the candidate
 - One rapid startup health request disconnected before the response completed,
   producing a client-abort traceback without message content. Subsequent health,
   API, and browser checks were clean.
+- Marc confirmed the normal tagging, include/exclude, and rule workflow on
+  `4276` on 2026-10-07.
 
 ## Acceptance checklist
 
@@ -132,4 +134,4 @@ restore `email/backups/email-before-classification.db` to the candidate
 - [x] Activate the profile on `4276` without refreshing accepted candidate state.
 - [x] Verify a bounded live classification workflow without logging payloads.
 - [x] Rehearse rollback to the accepted fetch-only profile.
-- [ ] Marc confirms the normal classification workflow is usable.
+- [x] Marc confirms the normal classification workflow is usable.
