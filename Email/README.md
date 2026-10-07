@@ -19,7 +19,7 @@ The tool fetches email into a local SQLite database, applies local rules/tags, a
 See
 [ADR-004](../docs/adr/ADR-004-treat-email-database-as-rebuildable-local-state.md).
 
-## Start the stable runtime candidate
+## Start the stable runtime
 
 Preview a normal start without changing files or processes:
 

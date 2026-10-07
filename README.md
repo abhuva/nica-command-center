@@ -243,7 +243,7 @@ after a verified one-note pilot and normal-workflow confirmation. The previously
 previewed 515-note batch is not a migration requirement and is not planned as
 part of the software cutover.
 
-### Email stable runtime candidate
+### Email stable runtime
 
 The Email database is rebuildable local state. A normal start retains the
 existing local database:

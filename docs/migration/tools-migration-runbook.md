@@ -312,6 +312,14 @@ project creation, Calendar writes, Email, then Beantime/Fava.
 
 ## Gate 6 - stable launcher switch
 
+Email's stable launcher is accepted on `4276`. It reuses the current local
+state, supports a fresh database without a legacy snapshot, points its optional
+theme integration at Homepage `4274`, and retains the bounded capability set.
+Aggregate database counts survived the launcher switch, all regression and
+browser checks passed, and Marc confirmed the normal interface. See [Gate 6
+Email stable runtime](gate-6-email-stable-runtime.md). Gate 6 remains open for
+the aggregate command-centre launcher.
+
 - Keep the legacy launcher available under an explicit name.
 - Change the stable entry point only after every included capability has passed
   Gate 5.
