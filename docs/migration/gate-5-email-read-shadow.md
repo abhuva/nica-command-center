@@ -1,6 +1,6 @@
 # Gate 5: Email read-only shadow
 
-**Status:** technical candidate verified; live shadow apply ready
+**Status:** live read-only shadow active; awaiting normal-workflow acceptance
 
 **Date:** 2026-10-07
 
@@ -74,6 +74,13 @@ verified snapshot by omitting `-RefreshSnapshot`.
 - The live plan-only preview found the expected WAL-backed source, selected
   isolated local state and port `4276`, excluded credentials and OAuth tokens,
   and changed no process or file.
+- The live apply created a verified consistent snapshot and started `4276` in
+  read-only mode. Aggregate message, account, and rule counts matched legacy
+  `4176` without logging or recording any mail payload.
+- Every live candidate POST route returned HTTP 403, no credential/config/token
+  file was present in candidate state, and legacy `4176` remained healthy.
+- Live stop/restart retained the candidate snapshot and restored `4276` without
+  refreshing or touching the legacy database.
 
 ## Acceptance checklist
 
@@ -87,7 +94,8 @@ verified snapshot by omitting `-RefreshSnapshot`.
 - [x] Pass synthetic API and Playwright MCP verification.
 - [x] Review a plan against the live authority without creating a snapshot or
   changing a process.
-- [ ] Apply the read-only shadow on `4276` with a fresh consistent snapshot.
-- [ ] Confirm counts and normal read workflow without recording email payloads.
+- [x] Apply the read-only shadow on `4276` with a fresh consistent snapshot.
+- [x] Confirm aggregate counts without recording email payloads.
+- [ ] Confirm the normal read workflow without recording email payloads.
 - [x] Rehearse stop/restart while legacy `4176` remains available.
 - [ ] Marc confirms the normal read-only workflow is usable.
