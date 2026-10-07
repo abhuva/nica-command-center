@@ -8,6 +8,7 @@
   ruleSort: { key: "", dir: "" },
   runtimeMode: "unknown",
   writesEnabled: false,
+  writeCapabilities: {},
 };
 
 const THEME_CACHE_KEY = "email-theme-bootstrap-v1";
@@ -93,54 +94,82 @@ const api = async (path, options = {}) => {
   return payload;
 };
 
-const WRITE_CONTROL_SELECTOR = [
-  "#applyRulesBtn",
-  "#exportBtn",
-  "#fetchNewAllBtn",
-  "#countAllBtn",
-  "#countBtn",
-  "#fetchNewBtn",
-  "#fetchBtn",
-  "#oauthBtn",
-  "#dashboardTagBtn",
-  "#tagBtn",
-  "#saveRuleBtn",
-  "#ruleName",
-  "#ruleScope",
-  "#ruleField",
-  "#ruleOperator",
-  "#rulePattern",
-  "#ruleAction",
-  "#ruleTag",
-  "[data-state]",
-  "[data-sender-rule]",
-  "[data-rule-delete]",
-  "[data-rule-table-delete]",
-  "[data-rule-toggle]",
-  "[data-rule-edit]",
-].join(",");
+const CAPABILITY_CONTROL_SELECTORS = {
+  mailCount: "#countAllBtn, #countBtn",
+  mailFetch: "#fetchNewAllBtn, #fetchNewBtn, #fetchBtn",
+  messageTag: "#dashboardTagBtn, #tagBtn, [data-state]",
+  oauthManage: "#oauthBtn",
+  rulesApply: "#applyRulesBtn",
+  rulesManage: [
+    "#saveRuleBtn",
+    "#ruleName",
+    "#ruleScope",
+    "#ruleField",
+    "#ruleOperator",
+    "#rulePattern",
+    "#ruleAction",
+    "#ruleTag",
+    "[data-rule-delete]",
+    "[data-rule-table-delete]",
+    "[data-rule-toggle]",
+    "[data-rule-edit]",
+  ].join(","),
+  vaultExport: "#exportBtn",
+};
+const ROUTE_CAPABILITIES = {
+  "/api/count": "mailCount",
+  "/api/count-all": "mailCount",
+  "/api/fetch": "mailFetch",
+  "/api/fetch-new": "mailFetch",
+  "/api/fetch-new-all": "mailFetch",
+  "/api/export": "vaultExport",
+  "/api/rules": "rulesManage",
+  "/api/rules/delete": "rulesManage",
+  "/api/rules/apply": "rulesApply",
+  "/api/messages/tag": "messageTag",
+  "/api/oauth/start": "oauthManage",
+  "/api/oauth/poll": "oauthManage",
+};
+
+const capabilityEnabled = (name) => state.writeCapabilities.unrestricted === true || state.writeCapabilities[name] === true;
+
+const setRuntimeControlState = (control, enabled, label) => {
+  if (!enabled && !control.disabled) {
+    control.dataset.runtimeDisabled = "true";
+    control.disabled = true;
+    control.title = `Disabled: ${label} capability is not enabled`;
+  } else if (enabled && control.dataset.runtimeDisabled === "true") {
+    control.disabled = false;
+    delete control.dataset.runtimeDisabled;
+    control.removeAttribute("title");
+  }
+};
 
 const applyRuntimeMode = () => {
   const readOnly = !state.writesEnabled;
   document.body.dataset.writesEnabled = String(state.writesEnabled);
   if (els.runtimeBadge) {
-    els.runtimeBadge.textContent = readOnly ? "Migration candidate · read-only" : "Migration candidate";
+    els.runtimeBadge.textContent = readOnly
+      ? "Migration candidate · read-only"
+      : state.runtimeMode === "limited-write"
+        ? "Migration candidate · limited write"
+        : "Migration candidate";
   }
-  document.querySelectorAll(WRITE_CONTROL_SELECTOR).forEach((control) => {
-    if (readOnly && !control.disabled) {
-      control.dataset.readOnlyDisabled = "true";
-      control.disabled = true;
-      control.title = "Disabled in read-only migration shadow";
-    } else if (!readOnly && control.dataset.readOnlyDisabled === "true") {
-      control.disabled = false;
-      delete control.dataset.readOnlyDisabled;
-      control.removeAttribute("title");
-    }
+  Object.entries(CAPABILITY_CONTROL_SELECTORS).forEach(([capability, selector]) => {
+    document.querySelectorAll(selector).forEach((control) => {
+      setRuntimeControlState(control, capabilityEnabled(capability), capability);
+    });
+  });
+  document.querySelectorAll("[data-sender-rule]").forEach((control) => {
+    setRuntimeControlState(control, capabilityEnabled("rulesManage") && capabilityEnabled("rulesApply"), "rulesManage + rulesApply");
   });
 };
 
 const post = (path, payload = {}) => {
-  if (!state.writesEnabled) return Promise.reject(new Error("Action disabled in read-only migration shadow"));
+  const capability = ROUTE_CAPABILITIES[path];
+  if (!capability || !capabilityEnabled(capability)) {
+    return Promise.reject(new Error(`Action disabled: ${capability || "unknown"} capability is not enabled`));
+  }
   return api(path, { method: "POST", body: JSON.stringify(payload) });
 };
 const setStatus = (text) => { els.status.textContent = text; };
@@ -761,13 +790,14 @@ const refresh = async () => {
     await loadMessages();
   }
   applyRuntimeMode();
-  setStatus(state.writesEnabled ? "Ready" : "Ready · read-only shadow");
+  setStatus(state.runtimeMode === "limited-write" ? "Ready · bounded Email fetch" : state.writesEnabled ? "Ready" : "Ready · read-only shadow");
 };
 
 const loadRuntimeMode = async () => {
   const runtime = await api("/api/ping");
   state.runtimeMode = String(runtime.mode || "unknown");
   state.writesEnabled = runtime.writesEnabled === true;
+  state.writeCapabilities = runtime.writeCapabilities || (state.writesEnabled ? { unrestricted: true } : {});
   applyRuntimeMode();
 };
 

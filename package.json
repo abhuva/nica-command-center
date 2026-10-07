@@ -11,6 +11,7 @@
     "check:project-creation": "node ./tests/project-creation-smoke.mjs",
     "check:calendar-vault-creation": "node ./tests/calendar-vault-creation-smoke.mjs",
     "check:email-read-shadow": "python ./tests/email_snapshot_smoke.py",
+    "check:email-fetch-shadow": "python ./tests/email_fetch_shadow_smoke.py",
     "lint": "eslint .",
     "lint:jsdoc": "eslint \"**/*.{js,mjs}\""
   },

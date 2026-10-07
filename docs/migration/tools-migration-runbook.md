@@ -229,6 +229,14 @@ remain disabled there. Legacy Email `4176` remains production for writes and
 the warm fallback for reads. See [Gate 5 Email read-only shadow
 record](gate-5-email-read-shadow.md).
 
+The bounded Email fetch shadow is accepted after synthetic API and launcher
+checks, Playwright MCP verification, live bounded Count/Fetch, rollback
+rehearsal, and Marc's normal-workflow confirmation on 2026-10-07. Candidate
+`4276` enables only `mail.count` and `mail.fetch`; OAuth setup, classification,
+rules, tags, and vault export remain blocked. Legacy Email `4176` remains the
+production workflow for those operations and the warm fallback. See [Gate 5
+Email bounded-fetch shadow record](gate-5-email-fetch-shadow.md).
+
 Use the following sequence for each capability:
 
 1. Confirm production is healthy.

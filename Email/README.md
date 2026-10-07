@@ -50,6 +50,7 @@ Use `ssl: true` for implicit TLS on port 993. Use `ssl: false` plus `starttls: t
 ```powershell
 npm.cmd --prefix .\Email run check:smoke
 npm run check:email-read-shadow
+npm run check:email-fetch-shadow
 ```
 
 ## Gate 5 read-only shadow
@@ -81,3 +82,27 @@ No Email configuration, password environment file, or OAuth token is copied.
 The shadow starts with `NICA_WRITE_ENABLED=false`; all POST routes return HTTP
 403, and the UI disables fetch, count, OAuth, classification, rule, tag, and
 export controls. Legacy Email `4176` remains the production workflow.
+
+## Gate 5 bounded-fetch shadow
+
+Email POST routes are protected by operation-specific server capabilities.
+Preview the copy of the existing local profile and a consistent snapshot
+refresh without changing files or processes:
+
+```powershell
+.\scripts\start-email-fetch-shadow.ps1 -VaultRoot "C:\path\to\vault" -PrepareFetchProfile -RefreshSnapshot
+```
+
+After reviewing the plan, stop only the migrated `4276` read shadow and apply
+the bounded profile:
+
+```powershell
+.\scripts\stop-email-read.ps1
+.\scripts\start-email-fetch-shadow.ps1 -VaultRoot "C:\path\to\vault" -PrepareFetchProfile -RefreshSnapshot -Apply
+```
+
+The launcher keeps `NICA_WRITE_ENABLED=false` and enables only
+`mail.count,mail.fetch`. IMAP mailboxes are opened read-only. Candidate database
+and token refreshes stay in isolated local state; OAuth setup, classification,
+rules, tags, and vault export remain disabled. Legacy Email `4176` remains the
+production workflow and immediate fallback.
