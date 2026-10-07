@@ -7,8 +7,11 @@ param(
   [switch]$RefreshSnapshot,
   [switch]$PrepareFetchProfile,
   [switch]$EnableClassification,
+  [switch]$EnableOAuth,
   [switch]$BackupCandidate,
   [switch]$RefreshCandidateBackup,
+  [switch]$BackupOAuthTokens,
+  [int]$OAuthCallbackPort = 8080,
   [switch]$Apply
 )
 
@@ -25,18 +28,29 @@ $resolvedLegacy = (Resolve-Path -LiteralPath $legacyRootInput).Path
 $legacyEmailRoot = Join-Path $resolvedLegacy "Email"
 $sourceDatabase = Join-Path $legacyEmailRoot "email.db"
 $legacyConfigPath = Join-Path $legacyEmailRoot "config.local.json"
-$componentName = if ($EnableClassification) { "email-classification-shadow" } else { "email-fetch-shadow" }
+$componentName = if ($EnableOAuth) { "email-oauth-shadow" } elseif ($EnableClassification) { "email-classification-shadow" } else { "email-fetch-shadow" }
 $writeCapabilities = @("mail.count", "mail.fetch")
 if ($EnableClassification) {
   $writeCapabilities += @("message.tag", "rules.apply", "rules.manage")
 }
+if ($EnableOAuth) { $writeCapabilities += "oauth.manage" }
 
 if (-not (Test-Path -LiteralPath $sourceDatabase -PathType Leaf)) {
   throw "Legacy Email database was not found."
 }
 if ($Port -lt 1 -or $Port -gt 65535) { throw "Port must be between 1 and 65535." }
+if ($OAuthCallbackPort -lt 1 -or $OAuthCallbackPort -gt 65535) { throw "OAuth callback port must be between 1 and 65535." }
+if ($EnableOAuth -and -not $EnableClassification) {
+  throw "The OAuth profile must retain the accepted classification capabilities."
+}
 if (($BackupCandidate -or $RefreshCandidateBackup) -and -not $EnableClassification) {
   throw "Candidate backup is supported only for the classification profile."
+}
+if ($BackupOAuthTokens -and -not $EnableOAuth) {
+  throw "OAuth token backup is supported only for the OAuth profile."
+}
+if ($EnableOAuth -and $Port -eq $OAuthCallbackPort) {
+  throw "Email and OAuth callback ports must be different."
 }
 
 $vaultPrefix = $resolvedVault.TrimEnd('\') + '\'
@@ -126,6 +140,7 @@ $candidateBackupAction = if ($RefreshCandidateBackup) {
 }
 $profileFiles = @()
 $oauthTokenFiles = @()
+$candidateOauthTokens = @()
 $accountCount = 0
 $credentialEnvironmentFileCount = 0
 $oauthTokenFileCount = 0
@@ -163,6 +178,10 @@ if ($PrepareFetchProfile) {
       source = $tokenSource
       destination = $tokenDestination
     }
+    $candidateOauthTokens += [pscustomobject]@{
+      relative = $tokenRelative
+      path = $tokenDestination
+    }
   }
   $credentialEnvironmentFileCount = @($profileFiles | Where-Object { (Split-Path -Leaf $_.source) -like ".env*" }).Count
   $oauthTokenFileCount = $oauthTokenFiles.Count
@@ -181,8 +200,21 @@ if ($PrepareFetchProfile) {
       $tokenRelative = ([string]$account.id) + ".json"
     }
     $tokenPath = Resolve-ContainedFile -Root $componentState -RelativePath $tokenRelative -Label "Candidate OAuth token"
-    if (Test-Path -LiteralPath $tokenPath -PathType Leaf) { $oauthTokenFileCount++ }
+    $candidateOauthTokens += [pscustomobject]@{
+      relative = $tokenRelative
+      path = $tokenPath
+    }
+    if (Test-Path -LiteralPath $tokenPath -PathType Leaf) {
+      $oauthTokenFileCount++
+    }
   }
+}
+
+$oauthBackupRoot = Join-Path $componentState "backups\oauth-before-management"
+$oauthTokenBackupReadyCount = 0
+foreach ($token in $candidateOauthTokens) {
+  $backupPath = Resolve-ContainedFile -Root $oauthBackupRoot -RelativePath $token.relative -Label "Candidate OAuth token backup"
+  if (Test-Path -LiteralPath $backupPath -PathType Leaf) { $oauthTokenBackupReadyCount++ }
 }
 
 $sourceInfo = Get-Item -LiteralPath $sourceDatabase
@@ -204,8 +236,11 @@ $plan = [ordered]@{
   configuredAccountCount = $accountCount
   credentialEnvironmentFileCount = $credentialEnvironmentFileCount
   oauthTokenFileCount = $oauthTokenFileCount
+  oauthTokenBackupAction = if ($BackupOAuthTokens) { "create-missing" } else { "none" }
+  oauthTokenBackupReadyCount = $oauthTokenBackupReadyCount
   writeCapabilities = $writeCapabilities
-  oauthSetupEnabled = $false
+  oauthSetupEnabled = [bool]$EnableOAuth
+  oauthCallbackPort = $OAuthCallbackPort
   rulesEnabled = [bool]$EnableClassification
   messageTaggingEnabled = [bool]$EnableClassification
   vaultExportEnabled = $false
@@ -222,6 +257,10 @@ if (-not $Apply) {
 
 $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
 if ($listener) { throw "Port $Port is already in use; no process was stopped." }
+if ($EnableOAuth) {
+  $oauthListener = Get-NetTCPConnection -LocalPort $OAuthCallbackPort -State Listen -ErrorAction SilentlyContinue
+  if ($oauthListener) { throw "OAuth callback port $OAuthCallbackPort is already in use; no process was stopped." }
+}
 
 New-Item -ItemType Directory -Force -Path $componentState | Out-Null
 $componentState = (Resolve-Path -LiteralPath $componentState).Path
@@ -261,6 +300,19 @@ if ($PrepareFetchProfile) {
   }
   Get-Content -LiteralPath $candidateConfigPath -Raw | ConvertFrom-Json | Out-Null
 }
+$oauthTokenBackupsCreated = 0
+if ($BackupOAuthTokens) {
+  foreach ($token in $candidateOauthTokens) {
+    if (-not (Test-Path -LiteralPath $token.path -PathType Leaf)) {
+      throw "Candidate OAuth token was not found; no OAuth management profile was started."
+    }
+    $backupPath = Resolve-ContainedFile -Root $oauthBackupRoot -RelativePath $token.relative -Label "Candidate OAuth token backup"
+    if (-not (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
+      Copy-AtomicFile -Source $token.path -Destination $backupPath -NoOverwrite
+      $oauthTokenBackupsCreated++
+    }
+  }
+}
 if ($RefreshSnapshot) {
   & python (Join-Path $repoRoot "Email\snapshot_db.py") --source $sourceDatabase --destination $candidateDatabase
   if ($LASTEXITCODE -ne 0) { throw "Consistent Email database snapshot failed." }
@@ -278,8 +330,9 @@ $env:NICA_WRITE_ENABLED = "false"
 $env:NICA_EMAIL_CAPABILITIES = $writeCapabilities -join ","
 $env:EMAIL_HOST = "127.0.0.1"
 $env:EMAIL_PORT = [string]$Port
+$env:EMAIL_OAUTH_CALLBACK_PORT = [string]$OAuthCallbackPort
 
-$logPrefix = if ($EnableClassification) { "email-classification" } else { "email-fetch" }
+$logPrefix = if ($EnableOAuth) { "email-oauth" } elseif ($EnableClassification) { "email-classification" } else { "email-fetch" }
 $stdout = Join-Path $componentState ($logPrefix + ".out.log")
 $stderr = Join-Path $componentState ($logPrefix + ".err.log")
 $serverPath = Join-Path $repoRoot "Email\email_tool.py"
@@ -296,6 +349,9 @@ $manifest = [ordered]@{
   snapshotRefreshed = [bool]$RefreshSnapshot
   fetchProfilePrepared = [bool]$PrepareFetchProfile
   classificationEnabled = [bool]$EnableClassification
+  oauthManagementEnabled = [bool]$EnableOAuth
+  oauthCallbackPort = $OAuthCallbackPort
+  oauthTokenBackupsCreated = $oauthTokenBackupsCreated
   candidateBackupCreated = $candidateBackupCreated
   candidateBackupRefreshed = $candidateBackupRefreshed
   candidateBackup = if ($BackupCandidate -or $RefreshCandidateBackup) { $rollbackDatabase } else { $null }
@@ -323,7 +379,8 @@ try {
         -not [bool]$response.writeCapabilities.unrestricted -and
         [bool]$response.writeCapabilities.mailCount -and
         [bool]$response.writeCapabilities.mailFetch -and
-        -not [bool]$response.writeCapabilities.oauthManage -and
+        ([bool]$response.writeCapabilities.oauthManage -eq [bool]$EnableOAuth) -and
+        ([int]$response.oauthCallback.port -eq $OAuthCallbackPort) -and
         ([bool]$response.writeCapabilities.rulesManage -eq [bool]$EnableClassification) -and
         ([bool]$response.writeCapabilities.rulesApply -eq [bool]$EnableClassification) -and
         ([bool]$response.writeCapabilities.messageTag -eq [bool]$EnableClassification) -and
@@ -352,7 +409,10 @@ try {
     throw "$componentName did not become healthy with the planned authority and capabilities."
   }
 
-  $disabledRoutes = @("export", "oauth/start")
+  $disabledRoutes = @("export")
+  if (-not $EnableOAuth) {
+    $disabledRoutes += @("oauth/start", "oauth/poll")
+  }
   if (-not $EnableClassification) {
     $disabledRoutes += @("rules", "rules/apply", "messages/tag")
   }

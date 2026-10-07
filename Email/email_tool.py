@@ -38,6 +38,7 @@ DEFAULT_CONFIG = {
     "runtimeRoot": "",
     "vaultRoot": "",
     "emailVaultDir": "8. Emails",
+    "oauthCallbackPort": 8080,
     "accounts": [],
 }
 MIME_TYPES = {
@@ -134,6 +135,9 @@ class EmailTool:
         self.email_vault_root = (self.vault_root / self.email_vault_dir).resolve()
         if self.email_vault_root != self.vault_root and self.vault_root not in self.email_vault_root.parents:
             raise ValueError("Email export path escaped the configured vault root")
+        self.oauth_callback_port = int(self.config.get("oauthCallbackPort") or 8080)
+        if self.oauth_callback_port < 1 or self.oauth_callback_port > 65535:
+            raise ValueError("Email OAuth callback port must be between 1 and 65535")
         self._lock = threading.Lock()
         self._progress_lock = threading.Lock()
         self.progress: dict[str, Any] = {"active": False, "phase": "idle", "message": "Idle", "updatedAt": iso_now()}
@@ -841,7 +845,7 @@ class EmailTool:
         tokens = json.loads(token_path.read_text(encoding="utf-8"))
         if oauth_token_expired(tokens):
             tokens = refresh_oauth_token(provider, tokens)
-            token_path.write_text(json.dumps(tokens, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            write_json_atomic(token_path, tokens)
         access_token = str(tokens.get("access_token") or "").strip()
         if not access_token:
             raise ValueError(f"OAuth access token is missing for account {account_id}")
@@ -857,7 +861,7 @@ class EmailTool:
         if provider != "microsoft":
             raise ValueError("Only Microsoft OAuth login is currently implemented")
         token_url, client_id, _client_secret = oauth_provider_config(provider)
-        redirect_uri = "http://localhost:8080/callback"
+        redirect_uri = f"http://localhost:{self.oauth_callback_port}/callback"
         state = secrets.token_urlsafe(24)
         flow = {
             "account_id": account_id,
@@ -912,7 +916,16 @@ class EmailTool:
         if not account:
             raise ValueError(f"Unknown account: {account_id}")
         token_path = self.resolve_state_path(account.get("oauthTokenPath") or f"{account_id}.json")
-        token_path.write_text(json.dumps(oauth_payload_to_tokens(payload), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        existing_tokens: dict[str, Any] = {}
+        if token_path.exists():
+            existing_tokens = json.loads(token_path.read_text(encoding="utf-8"))
+        tokens = oauth_payload_to_tokens(payload)
+        tokens["refresh_token"] = tokens.get("refresh_token") or existing_tokens.get("refresh_token")
+        if not str(tokens.get("access_token") or "").strip():
+            raise ValueError("OAuth login response did not include an access token")
+        if not str(tokens.get("refresh_token") or "").strip():
+            raise ValueError("OAuth login response did not include a refresh token")
+        write_json_atomic(token_path, tokens)
         self.oauth_flows.pop(account_id, None)
         return {"ok": True, "pending": False, "accountId": account_id}
 
@@ -920,7 +933,7 @@ class EmailTool:
         if self.oauth_callback_server:
             return
         OAuthCallbackHandler.tool = self
-        server = ThreadingHTTPServer(("localhost", 8080), OAuthCallbackHandler)
+        server = ThreadingHTTPServer(("127.0.0.1", self.oauth_callback_port), OAuthCallbackHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         self.oauth_callback_server = server
@@ -1207,6 +1220,25 @@ def stable_hash(values: Iterable[Any]) -> str:
 
 def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    """Publish sensitive JSON state atomically without exposing partial tokens."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    stage = path.with_name(f".{path.name}.stage-{secrets.token_hex(12)}")
+    try:
+        descriptor = os.open(stage, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+            json.dump(payload, stream, indent=2, ensure_ascii=False)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(stage, path)
+    finally:
+        try:
+            stage.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def first(query: dict[str, list[str]] | list[str] | None, key: str | None = None, default: str = "") -> str:
@@ -1558,6 +1590,10 @@ class Handler(BaseHTTPRequestHandler):
                     "mode": mode,
                     "writesEnabled": self.write_enabled,
                     "writeCapabilities": capability_health(self.write_capabilities, self.unrestricted_write),
+                    "oauthCallback": {
+                        "host": "127.0.0.1",
+                        "port": self.tool.oauth_callback_port,
+                    },
                     "authority": {
                         "vault": str(self.tool.vault_root),
                         "localState": str(self.state_dir),
@@ -1694,12 +1730,17 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class OAuthCallbackHandler(BaseHTTPRequestHandler):
-    """Receives OAuth authorization-code callbacks on localhost:8080."""
+    """Receive OAuth authorization-code callbacks on the configured loopback port."""
 
     tool: EmailTool
 
     def log_message(self, format: str, *args: Any) -> None:
         sys.stderr.write("Email OAuth callback: " + format % args + "\n")
+
+    def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+        """Log callback status without authorization codes or state values."""
+        path = urllib.parse.urlparse(self.path).path
+        self.log_message('"%s %s %s" %s %s', self.command, path, self.request_version, str(code), str(size))
 
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
@@ -1799,6 +1840,7 @@ def serve(args: argparse.Namespace) -> None:
     config["database"] = "email.db"
     config["host"] = os.environ.get("EMAIL_HOST", config.get("host") or "127.0.0.1")
     config["port"] = int(os.environ.get("EMAIL_PORT", args.port or config.get("port") or 4176))
+    config["oauthCallbackPort"] = int(os.environ.get("EMAIL_OAUTH_CALLBACK_PORT", config.get("oauthCallbackPort") or 8080))
     tool = EmailTool(config)
     host = str(tool.config.get("host") or "127.0.0.1")
     port = int(tool.config.get("port") or 4176)

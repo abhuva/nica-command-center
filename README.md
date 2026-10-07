@@ -205,6 +205,22 @@ snapshot refresh. Repeating `-BackupCandidate` retains an existing recovery
 copy; `-RefreshCandidateBackup` is required to replace it and preserves the
 original first. Legacy Email `4176` remains available throughout.
 
+### Gate 5 Email bounded-OAuth shadow
+
+The OAuth slice retains Count/Fetch and classification and adds only interactive
+Microsoft login and reauthorization. Preview the activation and immutable local
+token backup first:
+
+```powershell
+.\scripts\start-email-oauth-shadow.ps1 -VaultRoot "C:\path\to\vault" -BackupOAuthTokens
+```
+
+After review, stop only migrated `4276` and repeat the command with `-Apply`.
+The callback remains loopback-only on port `8080` by default, existing recovery
+copies are retained, and vault export remains disabled. Roll back by stopping
+the OAuth profile and starting `start-email-classification-shadow.ps1 -Apply`.
+Legacy Email `4176` remains available throughout.
+
 ## Ziele
 
 - Homepage in Obsidian Webviewer ueber lokalen Server.

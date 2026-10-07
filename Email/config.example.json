@@ -5,6 +5,7 @@
   "runtimeRoot": "",
   "vaultRoot": "",
   "emailVaultDir": "8. Emails",
+  "oauthCallbackPort": 8080,
   "accounts": [
     {
       "id": "example",

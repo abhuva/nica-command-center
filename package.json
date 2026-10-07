@@ -13,6 +13,7 @@
     "check:email-read-shadow": "python ./tests/email_snapshot_smoke.py",
     "check:email-fetch-shadow": "python ./tests/email_fetch_shadow_smoke.py",
     "check:email-classification-shadow": "python ./tests/email_classification_shadow_smoke.py",
+    "check:email-oauth-shadow": "python ./tests/email_oauth_shadow_smoke.py",
     "lint": "eslint .",
     "lint:jsdoc": "eslint \"**/*.{js,mjs}\""
   },
