@@ -318,7 +318,13 @@ theme integration at Homepage `4274`, and retains the bounded capability set.
 Aggregate database counts survived the launcher switch, all regression and
 browser checks passed, and Marc confirmed the normal interface. See [Gate 6
 Email stable runtime](gate-6-email-stable-runtime.md). Gate 6 remains open for
-the aggregate command-centre launcher.
+the aggregate command-centre launcher. The repository-owned aggregate launcher
+is live with hidden independent services, machine-local configuration,
+Homepage startup toggles, synthetic startup/stop verification, and a rehearsed
+reversible Beantime ledger relocation. The first aggregate start and live
+Playwright MCP settings check passed on 2026-10-08. Normal one-button startup,
+shutdown, selected-service behavior, and Marc's workflow confirmation remain
+before acceptance. See [Gate 6 aggregate workspace launcher](gate-6-aggregate-workspace-launcher.md).
 
 - Keep the legacy launcher available under an explicit name.
 - Change the stable entry point only after every included capability has passed

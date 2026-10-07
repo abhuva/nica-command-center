@@ -31,6 +31,7 @@ passed its acceptance checks and has a tested rollback path.
 - [Gate 5 Beantime synthetic-shadow record](gate-5-beantime-shadow.md)
 - [Gate 5 Beantime tool-cutover record](gate-5-beantime-tool-cutover.md)
 - [Gate 6 Email stable-runtime record](gate-6-email-stable-runtime.md)
+- [Gate 6 aggregate-workspace launcher record](gate-6-aggregate-workspace-launcher.md)
 
 These documents are operational plans. Accepted, long-lived architecture
 decisions remain in `docs/adr/`.
@@ -45,7 +46,7 @@ decisions remain in `docs/adr/`.
 | 3 | Remove vault-location assumptions and isolate candidate state | Complete |
 | 4 | Shadow-test capabilities without production writes | Complete; external credentials deferred |
 | 5 | Cut over one capability at a time | In progress; thirteen capabilities accepted, including Beantime using its unchanged Nextcloud ledger; Email database migration and the previously previewed 515-note export batch are not migration requirements |
-| 6 | Switch the stable launcher | In progress; Email stable runtime accepted on `4276` |
+| 6 | Switch the stable launcher | In progress; Email stable runtime accepted on `4276`; aggregate launcher is live and awaits normal-workflow confirmation |
 | 7 | Observe, rehearse rollback, and retire the old checkout | Not started |
 
 Gate 0 changes documentation only. It must not change the source checkout,

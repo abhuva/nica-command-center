@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "ui": {
     "title": "Workspace Homepage",
     "titleSize": 38,
@@ -11,6 +11,18 @@
       "mode": "preset",
       "preset": "soft",
       "shape": "rounded"
+    }
+  },
+  "startup": {
+    "openObsidian": true,
+    "openHomepage": true,
+    "openCalendar": true,
+    "services": {
+      "calendar": true,
+      "email": true,
+      "vaultGraph": true,
+      "financeNica": true,
+      "financeTohu": true
     }
   },
   "modules": {
@@ -36,7 +48,7 @@
     "beantime": {
       "enabled": true,
       "title": "Beantime",
-      "file": "data/beantime/zeit.beancount",
+      "file": "1. Vereinsverwaltung/Buchhaltung/Zeiterfassung/zeit.beancount",
       "personAccount": "Zeit:Example",
       "stateFile": "data/beantime/state.json",
       "bookableAccountPrefix": "Projekte:"
@@ -49,7 +61,7 @@
     "email": {
       "enabled": true,
       "title": "Email",
-      "url": "http://127.0.0.1:4176/email.html"
+      "url": "http://127.0.0.1:4276/email.html"
     },
     "updo": {
       "enabled": true,

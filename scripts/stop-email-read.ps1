@@ -10,7 +10,7 @@ $pidPath = Join-Path $componentState "email.preview.pid"
 
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
   Write-Host "No Email read-shadow process manifest found."
-  exit 0
+  return
 }
 
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json

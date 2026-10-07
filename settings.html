@@ -425,6 +425,52 @@
         </div>
       </section>
 
+      <div class="section-divider"><span>Workspace-Start</span></div>
+
+      <section class="panel panel-collapsible">
+        <header class="panel-head">
+          <div>
+            <h2 class="panel-title">Startverhalten</h2>
+            <div class="panel-help">Diese Auswahl wird beim naechsten Workspace-Start angewendet.</div>
+          </div>
+        </header>
+        <div class="panel-body">
+          <label class="toggle-line" for="startupOpenObsidian">
+            <input id="startupOpenObsidian" class="switch" type="checkbox" />
+            <span class="toggle-copy"><span class="toggle-title">Obsidian oeffnen</span><span class="toggle-help">Oeffnet den konfigurierten Vault.</span></span>
+          </label>
+          <label class="toggle-line" for="startupOpenHomepage">
+            <input id="startupOpenHomepage" class="switch" type="checkbox" />
+            <span class="toggle-copy"><span class="toggle-title">Homepage oeffnen</span><span class="toggle-help">Oeffnet die Homepage im Obsidian Webviewer.</span></span>
+          </label>
+          <label class="toggle-line" for="startupOpenCalendar">
+            <input id="startupOpenCalendar" class="switch" type="checkbox" />
+            <span class="toggle-copy"><span class="toggle-title">Kalender oeffnen</span><span class="toggle-help">Oeffnet den Kalender, wenn der Dienst aktiv ist.</span></span>
+          </label>
+          <div class="section-divider"><span>Hintergrunddienste</span></div>
+          <label class="toggle-line" for="startupCalendar">
+            <input id="startupCalendar" class="switch" type="checkbox" />
+            <span class="toggle-copy"><span class="toggle-title">Calendar</span><span class="toggle-help">Kalender lesen und Vault-Termine erstellen.</span></span>
+          </label>
+          <label class="toggle-line" for="startupEmail">
+            <input id="startupEmail" class="switch" type="checkbox" />
+            <span class="toggle-copy"><span class="toggle-title">Email</span><span class="toggle-help">Lokalen Email-Arbeitsbereich starten.</span></span>
+          </label>
+          <label class="toggle-line" for="startupVaultGraph">
+            <input id="startupVaultGraph" class="switch" type="checkbox" />
+            <span class="toggle-copy"><span class="toggle-title">VaultGraph</span><span class="toggle-help">Den abgeleiteten Vault-Graph bereitstellen.</span></span>
+          </label>
+          <label class="toggle-line" for="startupFinanceNica">
+            <input id="startupFinanceNica" class="switch" type="checkbox" />
+            <span class="toggle-copy"><span class="toggle-title">NICA Finanzen</span><span class="toggle-help">Fava fuer das NICA-Ledger starten.</span></span>
+          </label>
+          <label class="toggle-line" for="startupFinanceTohu">
+            <input id="startupFinanceTohu" class="switch" type="checkbox" />
+            <span class="toggle-copy"><span class="toggle-title">TOHU Finanzen</span><span class="toggle-help">Fava fuer das TOHU-Ledger starten.</span></span>
+          </label>
+        </div>
+      </section>
+
       <div class="section-divider"><span>Module</span></div>
 
       <section class="panel panel-collapsible">
@@ -544,7 +590,7 @@
           </label>
           <div class="field">
             <label for="beantimeFile">Pfad zur Beancount-Datei</label>
-            <input id="beantimeFile" type="text" placeholder="data/beantime/zeit.beancount" />
+            <input id="beantimeFile" type="text" placeholder="1. Vereinsverwaltung/Buchhaltung/Zeiterfassung/zeit.beancount" />
           </div>
           <div class="field">
             <label for="beantimePersonAccount">Person-Konto (Gegenkonto)</label>
@@ -642,8 +688,7 @@
           </div>
           <div id="status" class="status"></div>
           <div class="footnote">
-            Gespeichert wird in <code>Tools/config/settings.local.json</code>. Defaults liegen in
-            <code>Tools/config/settings.default.json</code>.
+            Gespeichert wird im lokalen Command-Centre-State. Die Defaults liegen im Git-Repository.
           </div>
         </div>
       </section>
@@ -657,6 +702,14 @@
       const themeMode = document.getElementById("themeMode");
       const themePreset = document.getElementById("themePreset");
       const themeShape = document.getElementById("themeShape");
+      const startupOpenObsidian = document.getElementById("startupOpenObsidian");
+      const startupOpenHomepage = document.getElementById("startupOpenHomepage");
+      const startupOpenCalendar = document.getElementById("startupOpenCalendar");
+      const startupCalendar = document.getElementById("startupCalendar");
+      const startupEmail = document.getElementById("startupEmail");
+      const startupVaultGraph = document.getElementById("startupVaultGraph");
+      const startupFinanceNica = document.getElementById("startupFinanceNica");
+      const startupFinanceTohu = document.getElementById("startupFinanceTohu");
       const bookmarksEnabled = document.getElementById("bookmarksEnabled");
       const bookmarksShowPath = document.getElementById("bookmarksShowPath");
       const bookmarksShowType = document.getElementById("bookmarksShowType");
@@ -987,13 +1040,13 @@
           String(updoOutageMinConsecutiveFailures.value || ""),
           10
         );
-        const cleanBeantimeFile = String(beantimeFile.value || "").trim() || "data/beantime/zeit.beancount";
+        const cleanBeantimeFile = String(beantimeFile.value || "").trim() || "1. Vereinsverwaltung/Buchhaltung/Zeiterfassung/zeit.beancount";
         const cleanBeantimePersonAccount = String(beantimePersonAccount.value || "").trim() || "Zeit:Example";
         const cleanBeantimeStateFile = String(beantimeStateFile.value || "").trim() || "data/beantime/state.json";
         const cleanBeantimeAccountPrefix = String(beantimeAccountPrefix.value || "").trim() || "Projekte:";
         const parsedUpdoGapFactor = Number.parseFloat(String(updoGapFactor.value || ""));
         return {
-          schemaVersion: 1,
+          schemaVersion: 2,
           ui: {
             title: String(titleInput.value || "").trim() || "Workspace Homepage",
             titleSize,
@@ -1005,6 +1058,18 @@
               mode: String(themeMode.value || "preset"),
               preset: String(themePreset.value || "soft"),
               shape: String(themeShape.value || "rounded")
+            }
+          },
+          startup: {
+            openObsidian: Boolean(startupOpenObsidian.checked),
+            openHomepage: Boolean(startupOpenHomepage.checked),
+            openCalendar: Boolean(startupOpenCalendar.checked),
+            services: {
+              calendar: Boolean(startupCalendar.checked),
+              email: Boolean(startupEmail.checked),
+              vaultGraph: Boolean(startupVaultGraph.checked),
+              financeNica: Boolean(startupFinanceNica.checked),
+              financeTohu: Boolean(startupFinanceTohu.checked)
             }
           },
           modules: {
@@ -1102,6 +1167,14 @@
         themeShape.value = settings?.ui?.theme?.shape || "rounded";
         syncThemeFieldState();
         applyThemePreviewFromForm();
+        startupOpenObsidian.checked = Boolean(settings?.startup?.openObsidian ?? true);
+        startupOpenHomepage.checked = Boolean(settings?.startup?.openHomepage ?? true);
+        startupOpenCalendar.checked = Boolean(settings?.startup?.openCalendar ?? true);
+        startupCalendar.checked = Boolean(settings?.startup?.services?.calendar ?? true);
+        startupEmail.checked = Boolean(settings?.startup?.services?.email ?? true);
+        startupVaultGraph.checked = Boolean(settings?.startup?.services?.vaultGraph ?? true);
+        startupFinanceNica.checked = Boolean(settings?.startup?.services?.financeNica ?? true);
+        startupFinanceTohu.checked = Boolean(settings?.startup?.services?.financeTohu ?? true);
         bookmarksEnabled.checked = Boolean(settings?.modules?.bookmarks?.enabled);
         bookmarksShowPath.checked = Boolean(settings?.modules?.bookmarks?.showPath);
         bookmarksShowType.checked = Boolean(settings?.modules?.bookmarks?.showType);
@@ -1113,7 +1186,7 @@
         newProjectEnabled.checked = Boolean(settings?.modules?.newProject?.enabled);
         newProjectOpenInNewTab.checked = Boolean(settings?.modules?.newProject?.openInNewTab);
         beantimeEnabled.checked = Boolean(settings?.modules?.beantime?.enabled);
-        beantimeFile.value = String(settings?.modules?.beantime?.file ?? "data/beantime/zeit.beancount");
+        beantimeFile.value = String(settings?.modules?.beantime?.file ?? "1. Vereinsverwaltung/Buchhaltung/Zeiterfassung/zeit.beancount");
         const initialBeantimePerson = String(settings?.modules?.beantime?.personAccount ?? "Zeit:Example").trim() || "Zeit:Example";
         beantimePersonAccount.innerHTML = "";
         {
@@ -1191,7 +1264,7 @@
           await loadBeantimePersonOptions(
             String(currentSettings?.modules?.beantime?.personAccount ?? "Zeit:Example")
           );
-          setStatus("Gespeichert. Oeffne die Homepage neu, falls noetig.", "ok");
+          setStatus("Gespeichert. Startup-Dienste werden beim naechsten Workspace-Start angewendet.", "ok");
         } catch (error) {
           setStatus(`Speichern fehlgeschlagen: ${error.message || error}`, "err");
         }
