@@ -555,11 +555,14 @@ class EmailTool:
     def apply_rules(self) -> dict[str, Any]:
         with self.connect() as conn:
             rules = [dict(row) for row in conn.execute("SELECT * FROM rules WHERE enabled=1 ORDER BY updated_at ASC")]
-            rows = [dict(row) for row in conn.execute("SELECT id, account_id, sender_email, subject, body_markdown FROM messages")]
+            rows = [dict(row) for row in conn.execute("SELECT id, account_id, sender_email, subject, body_markdown, include_state, include_reason FROM messages")]
             changed = 0
             matched = 0
             now = iso_now()
+            conn.execute("DELETE FROM rule_matches")
             for msg in rows:
+                next_state = msg["include_state"]
+                next_reason = msg["include_reason"]
                 for rule in rules:
                     if not rule_matches(rule, msg):
                         continue
@@ -569,17 +572,19 @@ class EmailTool:
                         (msg["id"], rule["id"], now, json.dumps({"action": rule["action"], "tag": rule.get("tag")})),
                     )
                     if rule["action"] in {"include", "exclude"}:
-                        state = "included" if rule["action"] == "include" else "excluded"
-                        conn.execute(
-                            "UPDATE messages SET include_state=?, include_reason=? WHERE id=?",
-                            (state, f"rule:{rule['id']}", msg["id"]),
-                        )
-                        changed += 1
+                        next_state = "included" if rule["action"] == "include" else "excluded"
+                        next_reason = f"rule:{rule['id']}"
                     if rule.get("tag"):
                         conn.execute(
                             "INSERT OR IGNORE INTO message_tags(message_id, tag, source, created_at) VALUES(?, ?, ?, ?)",
                             (msg["id"], normalize_tag(rule["tag"]), f"rule:{rule['id']}", now),
                         )
+                if next_state != msg["include_state"] or next_reason != msg["include_reason"]:
+                    conn.execute(
+                        "UPDATE messages SET include_state=?, include_reason=? WHERE id=?",
+                        (next_state, next_reason, msg["id"]),
+                    )
+                    changed += 1
             return {"ok": True, "rules": len(rules), "matches": matched, "changed": changed}
 
     def fetch(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -2374,6 +2379,7 @@ def smoke() -> None:
         tool.upsert_rule({"name": "wrong account", "scope": "account", "accountId": "other", "field": "sender_domain", "operator": "equals", "pattern": "example.test", "action": "exclude"})
         applied = tool.apply_rules()
         assert applied["matches"] == 1
+        assert applied["changed"] == 0
         assert tool.list_tags()
         exported = tool.export_markdown({"state": "included"})
         assert exported["exported"] == 1

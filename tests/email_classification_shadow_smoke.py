@@ -123,6 +123,10 @@ def exercise_classification_api(base_url: str, database: Path, message_id: str) 
     assert status == 200 and applied.get("matches") == 1
     assert applied.get("changed") == 1
 
+    status, repeated = request_json(f"{base_url}/api/rules/apply", "POST", {})
+    assert status == 200 and repeated.get("matches") == 1
+    assert repeated.get("changed") == 0
+
     with closing(sqlite3.connect(database)) as connection:
         state = connection.execute(
             "SELECT include_state, include_reason FROM messages WHERE id=?",
@@ -137,6 +141,29 @@ def exercise_classification_api(base_url: str, database: Path, message_id: str) 
         }
     assert state == ("excluded", f"rule:{rule_id}")
     assert tags == {"synthetic-manual", "synthetic-rule"}
+
+    status, updated = request_json(
+        f"{base_url}/api/rules",
+        "POST",
+        {
+            "id": rule_id,
+            "name": "Synthetic sender rule",
+            "scope": "global",
+            "field": "sender_domain",
+            "operator": "equals",
+            "pattern": "not-example.test",
+            "action": "exclude",
+            "tag": "synthetic-rule",
+        },
+    )
+    assert status == 200 and updated.get("ok") is True
+    status, reapplied = request_json(f"{base_url}/api/rules/apply", "POST", {})
+    assert status == 200 and reapplied.get("matches") == 0
+    assert reapplied.get("changed") == 0
+    status, current_state = request_json(f"{base_url}/api/state")
+    assert status == 200
+    current_rule = next(rule for rule in current_state["rules"] if rule["id"] == rule_id)
+    assert current_rule["hit_count"] == 0
 
     status, deleted = request_json(
         f"{base_url}/api/rules/delete",
