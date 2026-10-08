@@ -31,6 +31,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Iterable
 
+from classification import MODEL_SPECS, available_models, classify_messages, message_text
+
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = {
     "host": "127.0.0.1",
@@ -56,6 +58,8 @@ MIME_TYPES = {
 EMAIL_WRITE_CAPABILITIES = frozenset({
     "mail.count",
     "mail.fetch",
+    "classification.label",
+    "classification.run",
     "message.tag",
     "oauth.manage",
     "rules.apply",
@@ -70,6 +74,9 @@ POST_ROUTE_CAPABILITIES = {
     "/api/fetch": "mail.fetch",
     "/api/fetch-new": "mail.fetch",
     "/api/fetch-new-all": "mail.fetch",
+    "/api/classification/run": "classification.run",
+    "/api/classification/labels": "classification.label",
+    "/api/classification/labels/import": "classification.label",
     "/api/export": "vault.export",
     "/api/export/plan": "vault.export",
     "/api/export/apply": "vault.export",
@@ -146,6 +153,7 @@ class EmailTool:
         self._lock = threading.Lock()
         self._progress_lock = threading.Lock()
         self._export_lock = threading.Lock()
+        self._classification_lock = threading.Lock()
         self.progress: dict[str, Any] = {"active": False, "phase": "idle", "message": "Idle", "updatedAt": iso_now()}
         self.oauth_flows: dict[str, dict[str, Any]] = {}
         self.export_plans: dict[str, dict[str, Any]] = {}
@@ -278,10 +286,68 @@ class EmailTool:
                   PRIMARY KEY(message_id, profile),
                   FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
                 );
+                CREATE TABLE IF NOT EXISTS classification_runs (
+                  id TEXT PRIMARY KEY,
+                  task TEXT NOT NULL,
+                  model_id TEXT NOT NULL,
+                  model_revision TEXT NOT NULL,
+                  config_json TEXT NOT NULL DEFAULT '{}',
+                  selection_json TEXT NOT NULL DEFAULT '{}',
+                  status TEXT NOT NULL,
+                  message_count INTEGER NOT NULL DEFAULT 0,
+                  completed_count INTEGER NOT NULL DEFAULT 0,
+                  error TEXT,
+                  started_at TEXT NOT NULL,
+                  completed_at TEXT
+                );
+                CREATE TABLE IF NOT EXISTS message_predictions (
+                  run_id TEXT NOT NULL,
+                  message_id TEXT NOT NULL,
+                  task TEXT NOT NULL,
+                  predicted_label TEXT NOT NULL,
+                  score REAL,
+                  scores_json TEXT NOT NULL DEFAULT '{}',
+                  input_hash TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  PRIMARY KEY(run_id, message_id, task),
+                  FOREIGN KEY(run_id) REFERENCES classification_runs(id) ON DELETE CASCADE,
+                  FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_predictions_message ON message_predictions(message_id, task);
+                CREATE TABLE IF NOT EXISTS message_labels (
+                  message_id TEXT NOT NULL,
+                  task TEXT NOT NULL,
+                  label TEXT NOT NULL,
+                  source TEXT NOT NULL,
+                  review_mode TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  PRIMARY KEY(message_id, task),
+                  FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_labels_task_label ON message_labels(task, label);
+                CREATE TABLE IF NOT EXISTS label_events (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  message_id TEXT NOT NULL,
+                  task TEXT NOT NULL,
+                  label TEXT NOT NULL,
+                  source TEXT NOT NULL,
+                  review_mode TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
+                );
                 """
             )
             ensure_column(conn, "rules", "scope", "TEXT NOT NULL DEFAULT 'global'")
             ensure_column(conn, "rules", "account_id", "TEXT")
+            conn.execute(
+                """
+                UPDATE classification_runs
+                SET status='interrupted', error='Email service restarted before the run completed', completed_at=?
+                WHERE status IN ('queued', 'running')
+                """,
+                (iso_now(),),
+            )
             self.sync_accounts(conn)
             conn.execute(
                 """
@@ -463,6 +529,27 @@ class EmailTool:
             tags = conn.execute("SELECT tag, source FROM message_tags WHERE message_id=? ORDER BY tag", (message_id,)).fetchall()
             data = dict(row)
             data["tags"] = [dict(tag) for tag in tags]
+            data["classificationLabels"] = [dict(label) for label in conn.execute(
+                "SELECT task, label, source, review_mode, created_at, updated_at FROM message_labels WHERE message_id=? ORDER BY task",
+                (message_id,),
+            ).fetchall()]
+            predictions = conn.execute(
+                """
+                SELECT p.task, p.predicted_label, p.score, p.scores_json, p.input_hash,
+                       p.created_at, r.id AS run_id, r.model_id, r.model_revision
+                FROM message_predictions p
+                JOIN classification_runs r ON r.id=p.run_id
+                WHERE p.message_id=?
+                ORDER BY r.started_at DESC
+                LIMIT 10
+                """,
+                (message_id,),
+            ).fetchall()
+            data["classificationPredictions"] = []
+            for prediction in predictions:
+                item = dict(prediction)
+                item["scores"] = json.loads(item.pop("scores_json") or "{}")
+                data["classificationPredictions"].append(item)
             return data
 
     def upsert_rule(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -528,6 +615,419 @@ class EmailTool:
                 "SELECT tag, COUNT(*) AS count FROM message_tags GROUP BY tag ORDER BY count DESC, tag"
             ).fetchall()
             return [dict(row) for row in rows]
+
+    def classification_models(self) -> list[dict[str, Any]]:
+        """Return local model adapters without loading their weights."""
+        return available_models()
+
+    def list_classification_runs(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Return recent immutable model-run metadata."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM classification_runs ORDER BY started_at DESC LIMIT ?",
+                (clamp_int(limit, 1, 100, 20),),
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["config"] = json.loads(item.pop("config_json") or "{}")
+            item["selection"] = json.loads(item.pop("selection_json") or "{}")
+            result.append(item)
+        return result
+
+    def start_classification_run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Queue a local shadow classification run without changing mail workflow state."""
+        model_id = str(payload.get("modelId") or "gliclass-multilang-mini").strip()
+        if model_id not in MODEL_SPECS:
+            raise ValueError("Unsupported classification model")
+        model = next(item for item in self.classification_models() if item["id"] == model_id)
+        if not model["available"]:
+            raise RuntimeError(f"Model dependencies are missing: {', '.join(model['missing'])}")
+        selection_mode = str(payload.get("selection") or "all").strip()
+        if selection_mode not in {"all", "unlabeled"}:
+            raise ValueError("Unsupported classification selection")
+        account_id = str(payload.get("accountId") or "").strip()
+        limit = clamp_int(payload.get("limit"), 1, 10000, 500)
+        device = str(payload.get("device") or "auto").strip().lower()
+        if device not in {"auto", "cpu", "cuda", "cuda:0"}:
+            raise ValueError("Device must be auto, cpu, or cuda")
+        threshold = float(payload.get("threshold", 0.5))
+        margin = float(payload.get("uncertaintyMargin", 0.08))
+        if not 0 <= threshold <= 1 or not 0 <= margin <= 1:
+            raise ValueError("Classification threshold and uncertainty margin must be between 0 and 1")
+        where = []
+        args: list[Any] = []
+        if account_id:
+            where.append("m.account_id=?")
+            args.append(account_id)
+        if selection_mode == "unlabeled":
+            where.append("NOT EXISTS (SELECT 1 FROM message_labels ml WHERE ml.message_id=m.id AND ml.task='spam')")
+        where_sql = " WHERE " + " AND ".join(where) if where else ""
+        with self._classification_lock, self.connect() as conn:
+            active = conn.execute(
+                "SELECT id FROM classification_runs WHERE status IN ('queued', 'running') LIMIT 1"
+            ).fetchone()
+            if active:
+                raise RuntimeError(f"Classification run {active['id']} is already active")
+            rows = conn.execute(
+                f"""
+                SELECT m.id, m.account_id, m.subject, m.sender_name, m.sender_email,
+                       m.body_text, m.body_markdown, m.body_hash, m.sent_at
+                FROM messages m{where_sql}
+                ORDER BY COALESCE(m.sent_at, m.fetched_at) DESC
+                LIMIT ?
+                """,
+                args + [limit],
+            ).fetchall()
+            messages = [dict(row) for row in rows]
+            if not messages:
+                raise ValueError("No messages match the classification selection")
+            run_id = f"run-{secrets.token_hex(8)}"
+            now = iso_now()
+            config = {
+                "adapterVersion": "spam-v1",
+                "device": device,
+                "threshold": threshold,
+                "uncertaintyMargin": margin,
+            }
+            selection = {"mode": selection_mode, "accountId": account_id, "limit": limit}
+            conn.execute(
+                """
+                INSERT INTO classification_runs(
+                  id, task, model_id, model_revision, config_json, selection_json,
+                  status, message_count, completed_count, started_at
+                ) VALUES(?, 'spam', ?, ?, ?, ?, 'queued', ?, 0, ?)
+                """,
+                (
+                    run_id,
+                    model_id,
+                    str(MODEL_SPECS[model_id]["revision"]),
+                    json.dumps(config, sort_keys=True),
+                    json.dumps(selection, sort_keys=True),
+                    len(messages),
+                    now,
+                ),
+            )
+        worker = threading.Thread(
+            target=self._execute_classification_run,
+            args=(run_id, model_id, messages, config),
+            daemon=True,
+            name=f"email-classification-{run_id}",
+        )
+        worker.start()
+        return {"ok": True, "runId": run_id, "status": "queued", "messageCount": len(messages)}
+
+    def _execute_classification_run(
+        self,
+        run_id: str,
+        model_id: str,
+        messages: list[dict[str, Any]],
+        config: dict[str, Any],
+    ) -> None:
+        """Execute one model run in a background thread and retain partial diagnostics."""
+        try:
+            with self.connect() as conn:
+                conn.execute("UPDATE classification_runs SET status='running' WHERE id=?", (run_id,))
+            message_by_id = {message["id"]: message for message in messages}
+            completed = 0
+            predictions = classify_messages(
+                model_id,
+                messages,
+                device=str(config["device"]),
+                threshold=float(config["threshold"]),
+                uncertainty_margin=float(config["uncertaintyMargin"]),
+            )
+            for prediction in predictions:
+                message = message_by_id[prediction["message_id"]]
+                completed += 1
+                with self.connect() as conn:
+                    resolved_revision = str(prediction.get("model_revision") or MODEL_SPECS[model_id]["revision"])
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO message_predictions(
+                          run_id, message_id, task, predicted_label, score,
+                          scores_json, input_hash, created_at
+                        ) VALUES(?, ?, 'spam', ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            run_id,
+                            prediction["message_id"],
+                            prediction["label"],
+                            prediction.get("score"),
+                            json.dumps(prediction.get("scores") or {}, sort_keys=True),
+                            sha256_text(message_text(message)),
+                            iso_now(),
+                        ),
+                    )
+                    conn.execute(
+                        "UPDATE classification_runs SET completed_count=?, model_revision=? WHERE id=?",
+                        (completed, resolved_revision, run_id),
+                    )
+            with self.connect() as conn:
+                conn.execute(
+                    "UPDATE classification_runs SET status='completed', completed_at=? WHERE id=?",
+                    (iso_now(), run_id),
+                )
+        except Exception as exc:
+            with self.connect() as conn:
+                conn.execute(
+                    "UPDATE classification_runs SET status='failed', error=?, completed_at=? WHERE id=?",
+                    (str(exc)[:2000], iso_now(), run_id),
+                )
+
+    def classification_summary(self, run_id: str = "") -> dict[str, Any]:
+        """Return review progress and held-out metrics for one model run."""
+        with self.connect() as conn:
+            total = int(conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0])
+            label_rows = conn.execute(
+                "SELECT message_id, label, review_mode FROM message_labels WHERE task='spam'"
+            ).fetchall()
+            if run_id:
+                latest_row = conn.execute("SELECT * FROM classification_runs WHERE id=?", (run_id,)).fetchone()
+                if not latest_row:
+                    raise ValueError("Classification run not found")
+            else:
+                latest_row = conn.execute(
+                    "SELECT * FROM classification_runs ORDER BY started_at DESC LIMIT 1"
+                ).fetchone()
+            prediction_rows = []
+            if latest_row:
+                prediction_rows = conn.execute(
+                    "SELECT message_id, predicted_label, score FROM message_predictions WHERE run_id=? AND task='spam'",
+                    (latest_row["id"],),
+                ).fetchall()
+        label_counts = {"ham": 0, "spam": 0, "unsure": 0}
+        human = {}
+        holdout_reviewed = 0
+        for row in label_rows:
+            label_counts[row["label"]] = label_counts.get(row["label"], 0) + 1
+            human[row["message_id"]] = row["label"]
+            if is_holdout_message(row["message_id"]):
+                holdout_reviewed += 1
+        prediction_counts = {"ham": 0, "spam": 0, "unsure": 0}
+        correct = evaluated = false_positives = false_negatives = predicted_spam = actual_spam = 0
+        for row in prediction_rows:
+            predicted = row["predicted_label"]
+            prediction_counts[predicted] = prediction_counts.get(predicted, 0) + 1
+            actual = human.get(row["message_id"])
+            if not is_holdout_message(row["message_id"]):
+                continue
+            if actual not in {"ham", "spam"} or predicted not in {"ham", "spam"}:
+                continue
+            evaluated += 1
+            correct += int(actual == predicted)
+            predicted_spam += int(predicted == "spam")
+            actual_spam += int(actual == "spam")
+            false_positives += int(predicted == "spam" and actual == "ham")
+            false_negatives += int(predicted == "ham" and actual == "spam")
+        true_positives = predicted_spam - false_positives
+        metrics = {
+            "evaluated": evaluated,
+            "accuracy": correct / evaluated if evaluated else None,
+            "spamPrecision": true_positives / predicted_spam if predicted_spam else None,
+            "spamRecall": true_positives / actual_spam if actual_spam else None,
+            "falsePositives": false_positives,
+            "falseNegatives": false_negatives,
+        }
+        latest = dict(latest_row) if latest_row else None
+        if latest:
+            latest["config"] = json.loads(latest.pop("config_json") or "{}")
+            latest["selection"] = json.loads(latest.pop("selection_json") or "{}")
+        return {
+            "ok": True,
+            "totalMessages": total,
+            "reviewed": len(label_rows),
+            "remaining": max(0, total - len(label_rows)),
+            "holdoutReviewed": holdout_reviewed,
+            "labels": label_counts,
+            "predictions": prediction_counts,
+            "latestRun": latest,
+            "metrics": metrics,
+        }
+
+    def list_classification_queue(self, query: dict[str, list[str]]) -> dict[str, Any]:
+        """Return a bounded training or prediction-blind human review queue."""
+        mode = first(query, "mode", "training").strip()
+        if mode not in {"training", "blind", "all"}:
+            raise ValueError("Unsupported review mode")
+        queue_filter = first(query, "filter", "unlabeled").strip()
+        if queue_filter not in {"unlabeled", "labeled", "all", "disagreement", "uncertain"}:
+            raise ValueError("Unsupported review filter")
+        limit = clamp_int(first(query, "limit", "100"), 1, 500, 100)
+        run_id = first(query, "runId", "").strip()
+        with self.connect() as conn:
+            if not run_id:
+                run = conn.execute(
+                    "SELECT id FROM classification_runs ORDER BY started_at DESC LIMIT 1"
+                ).fetchone()
+                run_id = str(run["id"]) if run else ""
+            rows = conn.execute(
+                """
+                SELECT m.id, m.account_id, m.mailbox, m.message_id, m.subject,
+                       m.sender_name, m.sender_email, m.sent_at, m.fetched_at,
+                       m.body_text, m.body_markdown, m.body_hash,
+                       spam.label AS human_label, spam.review_mode AS human_review_mode,
+                       kind.label AS mail_type,
+                       p.predicted_label, p.score, p.scores_json
+                FROM messages m
+                LEFT JOIN message_labels spam ON spam.message_id=m.id AND spam.task='spam'
+                LEFT JOIN message_labels kind ON kind.message_id=m.id AND kind.task='mail_type'
+                LEFT JOIN message_predictions p ON p.message_id=m.id AND p.task='spam' AND p.run_id=?
+                ORDER BY COALESCE(m.sent_at, m.fetched_at) DESC
+                """,
+                (run_id,),
+            ).fetchall()
+        candidates = []
+        for row in rows:
+            item = dict(row)
+            item["holdout"] = is_holdout_message(item["id"])
+            if mode == "blind" and not item["holdout"]:
+                continue
+            if mode == "training" and item["holdout"]:
+                continue
+            if queue_filter == "unlabeled" and item["human_label"]:
+                continue
+            if queue_filter == "labeled" and not item["human_label"]:
+                continue
+            if queue_filter == "disagreement" and (
+                not item["human_label"]
+                or not item["predicted_label"]
+                or item["human_label"] == item["predicted_label"]
+            ):
+                continue
+            if queue_filter == "uncertain" and item["predicted_label"] != "unsure":
+                continue
+            item["scores"] = json.loads(item.pop("scores_json") or "{}") if run_id else {}
+            hidden = mode == "blind" and not item["human_label"]
+            item["predictionHidden"] = hidden
+            if hidden:
+                item["predicted_label"] = None
+                item["score"] = None
+                item["scores"] = {}
+            candidates.append(item)
+        candidates.sort(key=lambda item: classification_queue_sort(item, queue_filter))
+        return {"ok": True, "runId": run_id or None, "mode": mode, "filter": queue_filter, "messages": candidates[:limit]}
+
+    def set_classification_label(self, payload: dict[str, Any], *, source: str = "human") -> dict[str, Any]:
+        """Record a current label plus an append-only correction event."""
+        message_id = str(payload.get("messageId") or "").strip()
+        task = str(payload.get("task") or "spam").strip()
+        label = str(payload.get("label") or "").strip()
+        review_mode = str(payload.get("reviewMode") or "training").strip()
+        validate_classification_label(task, label)
+        if review_mode not in {"training", "blind", "import", "rule", "provider"}:
+            raise ValueError("Unsupported label review mode")
+        with self.connect() as conn:
+            if not conn.execute("SELECT 1 FROM messages WHERE id=?", (message_id,)).fetchone():
+                raise ValueError("Message not found")
+            self._write_classification_label(conn, message_id, task, label, source, review_mode)
+        return {"ok": True, "messageId": message_id, "task": task, "label": label}
+
+    def _write_classification_label(
+        self,
+        conn: sqlite3.Connection,
+        message_id: str,
+        task: str,
+        label: str,
+        source: str,
+        review_mode: str,
+    ) -> None:
+        now = iso_now()
+        conn.execute(
+            "INSERT INTO label_events(message_id, task, label, source, review_mode, created_at) VALUES(?, ?, ?, ?, ?, ?)",
+            (message_id, task, label, source, review_mode, now),
+        )
+        conn.execute(
+            """
+            INSERT INTO message_labels(message_id, task, label, source, review_mode, created_at, updated_at)
+            VALUES(?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(message_id, task) DO UPDATE SET
+              label=excluded.label, source=excluded.source,
+              review_mode=excluded.review_mode, updated_at=excluded.updated_at
+            """,
+            (message_id, task, label, source, review_mode, now, now),
+        )
+
+    def export_classification_labels(self, include_content: bool = False) -> dict[str, Any]:
+        """Return portable annotations; message content is opt-in because it is sensitive."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT m.id, m.account_id, m.mailbox, m.uid, m.message_id, m.sent_at,
+                       m.subject, m.sender_email, m.body_text, m.body_hash
+                FROM messages m
+                WHERE EXISTS (SELECT 1 FROM message_labels ml WHERE ml.message_id=m.id)
+                ORDER BY COALESCE(m.sent_at, m.fetched_at), m.id
+                """
+            ).fetchall()
+            records = []
+            for row in rows:
+                message = dict(row)
+                labels = [dict(label) for label in conn.execute(
+                    "SELECT task, label, source, review_mode, created_at, updated_at FROM message_labels WHERE message_id=? ORDER BY task",
+                    (message["id"],),
+                ).fetchall()]
+                identity = {
+                    "id": message["id"],
+                    "accountId": message["account_id"],
+                    "mailbox": message["mailbox"],
+                    "uid": message["uid"],
+                    "rfcMessageId": message["message_id"],
+                    "sentAt": message["sent_at"],
+                    "bodyHash": message["body_hash"],
+                }
+                record: dict[str, Any] = {"message": identity, "labels": labels}
+                if include_content:
+                    record["content"] = {
+                        "subject": message["subject"],
+                        "senderEmail": message["sender_email"],
+                        "bodyText": message["body_text"],
+                    }
+                records.append(record)
+        return {
+            "schemaVersion": 1,
+            "exportedAt": iso_now(),
+            "containsMessageContent": include_content,
+            "records": records,
+        }
+
+    def import_classification_labels(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Restore portable annotations while refusing ambiguous message matches."""
+        records = payload.get("records")
+        if not isinstance(records, list) or len(records) > 50000:
+            raise ValueError("Classification import requires at most 50000 records")
+        imported = skipped = unchanged = 0
+        with self.connect() as conn:
+            for record in records:
+                if not isinstance(record, dict) or not isinstance(record.get("message"), dict):
+                    skipped += 1
+                    continue
+                identity = record["message"]
+                message_id = str(identity.get("id") or "")
+                row = conn.execute("SELECT id FROM messages WHERE id=?", (message_id,)).fetchone()
+                if not row and identity.get("rfcMessageId"):
+                    matches = conn.execute(
+                        "SELECT id FROM messages WHERE account_id=? AND message_id=? LIMIT 2",
+                        (str(identity.get("accountId") or ""), str(identity["rfcMessageId"])),
+                    ).fetchall()
+                    row = matches[0] if len(matches) == 1 else None
+                if not row or not isinstance(record.get("labels"), list):
+                    skipped += 1
+                    continue
+                for label_item in record["labels"]:
+                    task = str(label_item.get("task") or "")
+                    label = str(label_item.get("label") or "")
+                    validate_classification_label(task, label)
+                    current = conn.execute(
+                        "SELECT label FROM message_labels WHERE message_id=? AND task=?",
+                        (row["id"], task),
+                    ).fetchone()
+                    if current and current["label"] == label:
+                        unchanged += 1
+                        continue
+                    self._write_classification_label(conn, row["id"], task, label, "import", "import")
+                    imported += 1
+        return {"ok": True, "imported": imported, "unchanged": unchanged, "skipped": skipped}
 
     def delete_rule(self, rule_id: str) -> dict[str, Any]:
         with self.connect() as conn:
@@ -1515,6 +2015,8 @@ def capability_health(capabilities: frozenset[str], unrestricted: bool) -> dict[
         "unrestricted": unrestricted,
         "mailCount": "mail.count" in capabilities,
         "mailFetch": "mail.fetch" in capabilities,
+        "classificationLabel": "classification.label" in capabilities,
+        "classificationRun": "classification.run" in capabilities,
         "messageTag": "message.tag" in capabilities,
         "oauthManage": "oauth.manage" in capabilities,
         "rulesApply": "rules.apply" in capabilities,
@@ -1570,6 +2072,48 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+CLASSIFICATION_LABELS = {
+    "spam": {"ham", "spam", "unsure"},
+    "mail_type": {
+        "phishing",
+        "newsletter_marketing",
+        "transactional",
+        "personal_organisational",
+        "other",
+        "unsure",
+    },
+}
+
+
+def validate_classification_label(task: str, label: str) -> None:
+    """Reject unknown annotation taxonomies and labels."""
+    if task not in CLASSIFICATION_LABELS:
+        raise ValueError("Unsupported classification task")
+    if label not in CLASSIFICATION_LABELS[task]:
+        raise ValueError(f"Unsupported {task} label")
+
+
+def is_holdout_message(message_id: str) -> bool:
+    """Assign a stable 20 percent blind holdout without storing new authority."""
+    digest = hashlib.sha256(message_id.encode("utf-8", errors="replace")).digest()
+    return digest[0] % 5 == 0
+
+
+def classification_queue_sort(item: dict[str, Any], queue_filter: str) -> tuple[Any, ...]:
+    """Prioritize disagreements and uncertain decisions, then newest messages."""
+    disagreement = bool(
+        item.get("human_label")
+        and item.get("predicted_label")
+        and item["human_label"] != item["predicted_label"]
+    )
+    uncertain = item.get("predicted_label") == "unsure"
+    score = item.get("score")
+    distance = abs(float(score) - 0.5) if score is not None else 1.0
+    if queue_filter == "disagreement":
+        return (not disagreement, distance, str(item.get("sent_at") or item.get("fetched_at") or ""))
+    return (not disagreement, not uncertain, distance, str(item.get("sent_at") or item.get("fetched_at") or ""))
 
 
 def legacy_account_slug(value: Any) -> str:
@@ -2043,6 +2587,29 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/api/tags":
                 self.send_json({"ok": True, "tags": self.tool.list_tags()})
                 return
+            if parsed.path == "/api/classification/models":
+                self.send_json({"ok": True, "models": self.tool.classification_models()})
+                return
+            if parsed.path == "/api/classification/runs":
+                query = urllib.parse.parse_qs(parsed.query)
+                self.send_json({
+                    "ok": True,
+                    "runs": self.tool.list_classification_runs(clamp_int(first(query, "limit", "20"), 1, 100, 20)),
+                })
+                return
+            if parsed.path == "/api/classification/summary":
+                query = urllib.parse.parse_qs(parsed.query)
+                self.send_json(self.tool.classification_summary(first(query, "runId", "")))
+                return
+            if parsed.path == "/api/classification/queue":
+                query = urllib.parse.parse_qs(parsed.query)
+                self.send_json(self.tool.list_classification_queue(query))
+                return
+            if parsed.path == "/api/classification/export":
+                query = urllib.parse.parse_qs(parsed.query)
+                include_content = first(query, "includeContent", "false").lower() == "true"
+                self.send_json(self.tool.export_classification_labels(include_content))
+                return
             if parsed.path == "/api/messages":
                 query = urllib.parse.parse_qs(parsed.query)
                 self.send_json({"ok": True, **self.tool.list_messages(query)})
@@ -2097,6 +2664,15 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/fetch-new-all":
                 self.send_json(self.tool.fetch_new_all(payload))
+                return
+            if parsed.path == "/api/classification/run":
+                self.send_json(self.tool.start_classification_run(payload), status=202)
+                return
+            if parsed.path == "/api/classification/labels":
+                self.send_json(self.tool.set_classification_label(payload))
+                return
+            if parsed.path == "/api/classification/labels/import":
+                self.send_json(self.tool.import_classification_labels(payload))
                 return
             if parsed.path == "/api/export":
                 self.send_json(self.tool.export_markdown(payload))

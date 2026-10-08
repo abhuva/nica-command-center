@@ -262,6 +262,8 @@ def fresh_database_launcher_smoke() -> None:
         assert all(health["writeCapabilities"][name] is True for name in (
             "mailCount",
             "mailFetch",
+            "classificationLabel",
+            "classificationRun",
             "messageTag",
             "oauthManage",
             "rulesApply",
@@ -373,6 +375,8 @@ def main() -> None:
                 "unrestricted": False,
                 "mailCount": True,
                 "mailFetch": True,
+                "classificationLabel": False,
+                "classificationRun": False,
                 "messageTag": False,
                 "oauthManage": False,
                 "rulesApply": False,

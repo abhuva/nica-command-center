@@ -246,6 +246,101 @@ h2 { font-size: 12px; color: var(--email-muted); text-transform: uppercase; lett
   padding: 10px;
   overflow: auto;
 }
+.classification-view {
+  overflow: hidden;
+}
+.classification-toolbar,
+.classification-review-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--email-line);
+  background: var(--email-panel-strong);
+}
+.classification-toolbar label,
+.classification-review-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--email-muted);
+}
+.classification-toolbar input[type="number"] { width: 76px; }
+.classification-model-status {
+  min-height: 28px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--email-line);
+  color: var(--email-muted);
+  background: var(--email-panel);
+}
+.classification-view .stat-strip {
+  margin: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--email-line);
+}
+.classification-layout {
+  display: grid;
+  grid-template-columns: minmax(330px, 38vw) 1fr;
+  min-height: 0;
+  height: calc(100% - 154px);
+}
+.classification-queue,
+.classification-detail {
+  min-height: 0;
+  overflow: auto;
+}
+.classification-queue {
+  border-right: 1px solid var(--email-line);
+  background: var(--email-panel);
+}
+.classification-detail { padding: 10px 12px; }
+.classification-row {
+  display: grid;
+  grid-template-columns: 76px 1fr 76px;
+  gap: 8px;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--email-line);
+  cursor: pointer;
+}
+.classification-row:hover,
+.classification-row.active { background: var(--email-panel-hover); }
+.classification-row-main { min-width: 0; }
+.classification-row-main strong,
+.classification-row-main span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.classification-row-main span,
+.classification-prediction { color: var(--email-muted); font-size: 12px; }
+.classification-prediction.spam { color: var(--email-bad); }
+.classification-prediction.ham { color: var(--email-good); }
+.classification-prediction.unsure { color: var(--email-warn); }
+.classification-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.classification-actions strong {
+  color: var(--email-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.classification-actions button[data-spam-label="spam"] { color: var(--email-bad); }
+.classification-actions button[data-spam-label="ham"] { color: var(--email-good); }
+.classification-banner {
+  border: 1px solid var(--email-line);
+  border-radius: 4px;
+  background: var(--email-panel-hover);
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  color: var(--email-muted);
+}
 .rules-toolbar {
   display: flex;
   align-items: center;
@@ -509,4 +604,7 @@ h2 { font-size: 12px; color: var(--email-muted); text-transform: uppercase; lett
   .rules-row { grid-template-columns: 30px 48px minmax(130px, 1fr) 180px 74px 88px minmax(260px, 1.35fr) 68px 62px; }
   .rule-scope-cell { grid-template-columns: 66px minmax(110px, 1fr); }
   .rule-match-cell { grid-template-columns: 100px 76px minmax(120px, 1fr); }
+  .classification-layout { grid-template-columns: 1fr; height: auto; }
+  .classification-queue { border-right: 0; border-bottom: 1px solid var(--email-line); max-height: 38vh; }
+  .classification-view { overflow: auto; }
 }

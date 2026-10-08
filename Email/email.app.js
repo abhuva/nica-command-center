@@ -10,6 +10,11 @@
   writesEnabled: false,
   writeCapabilities: {},
   exportPlanToken: "",
+  classificationModels: [],
+  classificationRuns: [],
+  classificationQueue: [],
+  classificationSelectedId: null,
+  classificationRunPoll: null,
 };
 
 const THEME_CACHE_KEY = "email-theme-bootstrap-v1";
@@ -22,9 +27,11 @@ const els = {
   dashboardTab: document.querySelector("#dashboardTab"),
   accountTab: document.querySelector("#accountTab"),
   rulesTab: document.querySelector("#rulesTab"),
+  classificationTab: document.querySelector("#classificationTab"),
   dashboardView: document.querySelector("#dashboardView"),
   accountView: document.querySelector("#accountView"),
   rulesView: document.querySelector("#rulesView"),
+  classificationView: document.querySelector("#classificationView"),
   fetchNewAllBtn: document.querySelector("#fetchNewAllBtn"),
   countAllBtn: document.querySelector("#countAllBtn"),
   recentLimitInput: document.querySelector("#recentLimitInput"),
@@ -85,6 +92,26 @@ const els = {
   rulesActionFilter: document.querySelector("#rulesActionFilter"),
   rulesCount: document.querySelector("#rulesCount"),
   rulesTable: document.querySelector("#rulesTable"),
+  classificationModel: document.querySelector("#classificationModel"),
+  classificationDevice: document.querySelector("#classificationDevice"),
+  classificationSelection: document.querySelector("#classificationSelection"),
+  classificationLimit: document.querySelector("#classificationLimit"),
+  classificationRunBtn: document.querySelector("#classificationRunBtn"),
+  classificationExportBtn: document.querySelector("#classificationExportBtn"),
+  classificationDatasetBtn: document.querySelector("#classificationDatasetBtn"),
+  classificationImportBtn: document.querySelector("#classificationImportBtn"),
+  classificationImportFile: document.querySelector("#classificationImportFile"),
+  classificationModelStatus: document.querySelector("#classificationModelStatus"),
+  classificationStats: document.querySelector("#classificationStats"),
+  classificationRunSelect: document.querySelector("#classificationRunSelect"),
+  classificationReviewMode: document.querySelector("#classificationReviewMode"),
+  classificationQueueFilter: document.querySelector("#classificationQueueFilter"),
+  classificationReloadBtn: document.querySelector("#classificationReloadBtn"),
+  classificationQueueStatus: document.querySelector("#classificationQueueStatus"),
+  classificationQueue: document.querySelector("#classificationQueue"),
+  classificationActions: document.querySelector("#classificationActions"),
+  classificationMailType: document.querySelector("#classificationMailType"),
+  classificationDetail: document.querySelector("#classificationDetail"),
 };
 
 const api = async (path, options = {}) => {
@@ -102,6 +129,8 @@ const api = async (path, options = {}) => {
 const CAPABILITY_CONTROL_SELECTORS = {
   mailCount: "#countAllBtn, #countBtn",
   mailFetch: "#fetchNewAllBtn, #fetchNewBtn, #fetchBtn",
+  classificationLabel: "#classificationActions button, #classificationMailType, #classificationImportBtn",
+  classificationRun: "#classificationRunBtn",
   messageTag: "#dashboardTagBtn, #tagBtn, [data-state]",
   oauthManage: "#oauthBtn",
   rulesApply: "#applyRulesBtn",
@@ -127,6 +156,9 @@ const ROUTE_CAPABILITIES = {
   "/api/fetch": "mailFetch",
   "/api/fetch-new": "mailFetch",
   "/api/fetch-new-all": "mailFetch",
+  "/api/classification/run": "classificationRun",
+  "/api/classification/labels": "classificationLabel",
+  "/api/classification/labels/import": "classificationLabel",
   "/api/export": "vaultExport",
   "/api/export/plan": "vaultExport",
   "/api/export/apply": "vaultExport",
@@ -183,7 +215,9 @@ const runtimeReadyStatus = () => {
     if (capabilityEnabled("oauthManage")) {
       return "Ready · bounded Email OAuth";
     }
-    const classificationEnabled = capabilityEnabled("messageTag")
+    const classificationEnabled = capabilityEnabled("classificationLabel")
+      && capabilityEnabled("classificationRun")
+      && capabilityEnabled("messageTag")
       && capabilityEnabled("rulesApply")
       && capabilityEnabled("rulesManage");
     return classificationEnabled
@@ -373,14 +407,18 @@ const setActiveView = (view) => {
   const isDashboard = view === "dashboard";
   const isAccount = view === "account";
   const isRules = view === "rules";
+  const isClassification = view === "classification";
   els.dashboardView.classList.toggle("hidden", !isDashboard);
   els.accountView.classList.toggle("hidden", !isAccount);
   els.rulesView.classList.toggle("hidden", !isRules);
+  els.classificationView.classList.toggle("hidden", !isClassification);
   els.dashboardTab.classList.toggle("active", isDashboard);
   els.accountTab.classList.toggle("active", isAccount);
   els.rulesTab.classList.toggle("active", isRules);
+  els.classificationTab.classList.toggle("active", isClassification);
   if (isDashboard) loadDashboard().catch((error) => setStatus(error.message));
   if (isRules) loadRulesView().catch((error) => setStatus(error.message));
+  if (isClassification) loadClassificationView().catch((error) => setStatus(error.message));
 };
 
 const renderOAuthControl = () => {
@@ -762,6 +800,195 @@ const loadMessages = async () => {
   renderMessages();
 };
 
+const percentage = (value) => value === null || value === undefined ? "-" : `${(Number(value) * 100).toFixed(1)}%`;
+
+const renderClassificationModels = () => {
+  const current = els.classificationModel.value;
+  els.classificationModel.innerHTML = state.classificationModels.map((model) => (
+    `<option value="${escapeHtml(model.id)}" ${model.available ? "" : "disabled"}>${escapeHtml(model.name)}${model.available ? "" : " (not installed)"}</option>`
+  )).join("");
+  const preferred = state.classificationModels.find((model) => model.id === current && model.available)
+    || state.classificationModels.find((model) => model.id === "gliclass-multilang-mini" && model.available)
+    || state.classificationModels.find((model) => model.available);
+  if (preferred) els.classificationModel.value = preferred.id;
+  renderClassificationModelStatus();
+};
+
+const renderClassificationModelStatus = () => {
+  const model = state.classificationModels.find((item) => item.id === els.classificationModel.value);
+  if (!model) {
+    els.classificationModelStatus.textContent = "No classification model is available.";
+    return;
+  }
+  const device = model.cudaAvailable ? `CUDA: ${model.cudaDevice || "available"}` : "CPU / CUDA not detected";
+  const availability = model.available ? device : `missing: ${(model.missing || []).join(", ")}`;
+  els.classificationModelStatus.textContent = `${model.description} · ${availability}`;
+};
+
+const renderClassificationSummary = (summary) => {
+  const run = summary.latestRun;
+  const metrics = summary.metrics || {};
+  const chips = [
+    ["reviewed", `${fmtNumber(summary.reviewed)}/${fmtNumber(summary.totalMessages)}`],
+    ["ham", fmtNumber(summary.labels?.ham)],
+    ["spam", fmtNumber(summary.labels?.spam)],
+    ["unsure", fmtNumber(summary.labels?.unsure)],
+    ["blind holdout", fmtNumber(summary.holdoutReviewed)],
+    ["holdout accuracy", percentage(metrics.accuracy)],
+    ["spam precision", percentage(metrics.spamPrecision)],
+    ["spam recall", percentage(metrics.spamRecall)],
+    ["false positives", fmtNumber(metrics.falsePositives)],
+  ];
+  els.classificationStats.innerHTML = chips.map(([label, value]) => `
+    <div class="stat-chip"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
+  `).join("");
+  if (!run) return;
+  const progress = `${fmtNumber(run.completed_count)}/${fmtNumber(run.message_count)}`;
+  const error = run.error ? ` · ${run.error}` : "";
+  els.classificationQueueStatus.textContent = `${run.model_id}: ${run.status} ${progress}${error}`;
+};
+
+const loadClassificationRuns = async (preferredRunId = "") => {
+  const payload = await api("/api/classification/runs?limit=50");
+  state.classificationRuns = payload.runs || [];
+  const current = preferredRunId || els.classificationRunSelect.value;
+  els.classificationRunSelect.innerHTML = state.classificationRuns.length
+    ? state.classificationRuns.map((run) => (
+      `<option value="${escapeHtml(run.id)}">${escapeHtml(shortDate(run.started_at))} · ${escapeHtml(run.model_id)} · ${escapeHtml(run.status)}</option>`
+    )).join("")
+    : `<option value="">no model runs</option>`;
+  if (current && state.classificationRuns.some((run) => run.id === current)) {
+    els.classificationRunSelect.value = current;
+  }
+};
+
+const loadClassificationSummary = async () => {
+  const runId = els.classificationRunSelect.value;
+  const summary = await api(`/api/classification/summary${runId ? `?runId=${encodeURIComponent(runId)}` : ""}`);
+  renderClassificationSummary(summary);
+  return summary;
+};
+
+const renderClassificationQueue = () => {
+  if (!state.classificationQueue.length) {
+    els.classificationQueue.innerHTML = `<div class="empty-table meta">No messages in this review queue.</div>`;
+    els.classificationActions.classList.add("hidden");
+    els.classificationDetail.classList.add("empty");
+    els.classificationDetail.textContent = "No message selected.";
+    return;
+  }
+  els.classificationQueue.innerHTML = state.classificationQueue.map((message) => {
+    const prediction = message.predictionHidden
+      ? "hidden"
+      : message.predicted_label
+        ? `${message.predicted_label} ${message.score === null ? "" : percentage(message.score)}`
+        : "no prediction";
+    return `
+      <div class="classification-row ${message.id === state.classificationSelectedId ? "active" : ""}" data-classification-id="${escapeHtml(message.id)}">
+        <span class="message-date">${escapeHtml(shortDate(message.sent_at || message.fetched_at))}</span>
+        <span class="classification-row-main">
+          <strong>${escapeHtml(message.subject || "(no subject)")}</strong>
+          <span>${escapeHtml(message.sender_email || message.sender_name || "")}</span>
+        </span>
+        <span class="classification-prediction ${escapeHtml(message.predicted_label || "")}">${escapeHtml(message.human_label || prediction)}</span>
+      </div>`;
+  }).join("");
+};
+
+const selectClassificationMessage = (messageId) => {
+  const message = state.classificationQueue.find((item) => item.id === messageId);
+  if (!message) return;
+  state.classificationSelectedId = messageId;
+  renderClassificationQueue();
+  els.classificationActions.classList.remove("hidden");
+  els.classificationMailType.value = message.mail_type || "";
+  const scoreText = message.predictionHidden
+    ? "Prediction hidden until this holdout message is labelled."
+    : message.predicted_label
+      ? `Prediction: ${message.predicted_label}; spam score ${percentage(message.score)}; scores ${JSON.stringify(message.scores || {})}`
+      : "No model prediction exists for this message.";
+  els.classificationDetail.classList.remove("empty");
+  els.classificationDetail.innerHTML = `
+    <div class="classification-banner">${escapeHtml(scoreText)}</div>
+    <h2>${escapeHtml(message.subject || "(no subject)")}</h2>
+    <div class="meta">${escapeHtml(message.sender_name || "")} &lt;${escapeHtml(message.sender_email || "")}&gt;</div>
+    <div class="meta">${escapeHtml(message.sent_at || "")} | ${escapeHtml(message.account_id)} / ${escapeHtml(message.mailbox)}</div>
+    <div class="meta">human spam label: ${escapeHtml(message.human_label || "not labelled")} | mail type: ${escapeHtml(message.mail_type || "not labelled")} | ${message.holdout ? "blind holdout" : "training set"}</div>
+    <pre>${escapeHtml(message.body_text || message.body_markdown || "")}</pre>`;
+  applyRuntimeMode();
+};
+
+const loadClassificationQueue = async () => {
+  const params = new URLSearchParams({
+    mode: els.classificationReviewMode.value,
+    filter: els.classificationQueueFilter.value,
+    limit: "250",
+  });
+  if (els.classificationRunSelect.value) params.set("runId", els.classificationRunSelect.value);
+  const payload = await api(`/api/classification/queue?${params.toString()}`);
+  state.classificationQueue = payload.messages || [];
+  if (!state.classificationQueue.some((item) => item.id === state.classificationSelectedId)) {
+    state.classificationSelectedId = state.classificationQueue[0]?.id || null;
+  }
+  renderClassificationQueue();
+  if (state.classificationSelectedId) selectClassificationMessage(state.classificationSelectedId);
+  els.classificationQueueStatus.textContent = `${fmtNumber(state.classificationQueue.length)} queued${payload.runId ? ` · run ${payload.runId}` : " · no run"}`;
+};
+
+const loadClassificationView = async () => {
+  const payload = await api("/api/classification/models");
+  state.classificationModels = payload.models || [];
+  renderClassificationModels();
+  await loadClassificationRuns();
+  await loadClassificationSummary();
+  await loadClassificationQueue();
+  applyRuntimeMode();
+};
+
+const saveClassificationLabel = async (task, label) => {
+  if (!state.classificationSelectedId) return;
+  const currentId = state.classificationSelectedId;
+  await post("/api/classification/labels", {
+    messageId: currentId,
+    task,
+    label,
+    reviewMode: els.classificationReviewMode.value === "blind" ? "blind" : "training",
+  });
+  setStatus(`Saved ${task}: ${label}`);
+  await loadClassificationSummary();
+  await loadClassificationQueue();
+};
+
+const downloadClassificationExport = async (includeContent) => {
+  if (includeContent && !window.confirm("This export contains confidential email subjects, senders and bodies. Keep it in protected local storage. Continue?")) return;
+  const payload = await api(`/api/classification/export?includeContent=${includeContent ? "true" : "false"}`);
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = includeContent ? "email-classification-training-data.json" : "email-classification-labels.json";
+  link.click();
+  URL.revokeObjectURL(link.href);
+};
+
+const pollClassificationRun = (runId) => {
+  if (state.classificationRunPoll) window.clearInterval(state.classificationRunPoll);
+  state.classificationRunPoll = window.setInterval(async () => {
+    try {
+      const summary = await loadClassificationSummary();
+      if (summary.latestRun?.id !== runId) return;
+      if (["completed", "failed", "interrupted"].includes(summary.latestRun.status)) {
+        window.clearInterval(state.classificationRunPoll);
+        state.classificationRunPoll = null;
+        await loadClassificationRuns(runId);
+        await loadClassificationQueue();
+        setStatus(summary.latestRun.status === "completed" ? "Classification run completed." : `Classification run ${summary.latestRun.status}.`);
+      }
+    } catch (error) {
+      setStatus(error.message);
+    }
+  }, 1200);
+};
+
 const renderMessageDetail = (msg, actionsEl, detailEl) => {
   actionsEl.classList.remove("hidden");
   detailEl.classList.remove("empty");
@@ -843,6 +1070,7 @@ els.refreshBtn.addEventListener("click", () => refresh().catch((error) => setSta
 els.dashboardTab.addEventListener("click", () => setActiveView("dashboard"));
 els.accountTab.addEventListener("click", () => setActiveView("account"));
 els.rulesTab.addEventListener("click", () => setActiveView("rules"));
+els.classificationTab.addEventListener("click", () => setActiveView("classification"));
 els.dashboardAccountsTab.addEventListener("click", () => setDashboardAccountPanel("accounts"));
 els.dashboardMailTab.addEventListener("click", () => setDashboardAccountPanel("mail"));
 els.rulesSearch.addEventListener("input", renderRulesTable);
@@ -1158,6 +1386,74 @@ els.dashboardTagBtn.addEventListener("click", async () => {
   els.dashboardTagInput.value = "";
   await loadDashboard();
   await selectMessage(state.selectedId, "dashboard");
+});
+
+els.classificationModel.addEventListener("change", renderClassificationModelStatus);
+els.classificationReloadBtn.addEventListener("click", () => loadClassificationQueue().catch((error) => setStatus(error.message)));
+els.classificationRunSelect.addEventListener("change", async () => {
+  state.classificationSelectedId = null;
+  try {
+    await loadClassificationSummary();
+    await loadClassificationQueue();
+  } catch (error) {
+    setStatus(error.message);
+  }
+});
+els.classificationReviewMode.addEventListener("change", () => {
+  state.classificationSelectedId = null;
+  loadClassificationQueue().catch((error) => setStatus(error.message));
+});
+els.classificationQueueFilter.addEventListener("change", () => {
+  state.classificationSelectedId = null;
+  loadClassificationQueue().catch((error) => setStatus(error.message));
+});
+els.classificationQueue.addEventListener("click", (event) => {
+  const row = event.target.closest("[data-classification-id]");
+  if (row) selectClassificationMessage(row.dataset.classificationId);
+});
+els.classificationActions.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-spam-label]");
+  if (!button) return;
+  saveClassificationLabel("spam", button.dataset.spamLabel).catch((error) => setStatus(error.message));
+});
+els.classificationMailType.addEventListener("change", () => {
+  if (!els.classificationMailType.value) return;
+  saveClassificationLabel("mail_type", els.classificationMailType.value).catch((error) => setStatus(error.message));
+});
+els.classificationRunBtn.addEventListener("click", async () => {
+  try {
+    setStatus("Starting local classification run...");
+    const payload = await post("/api/classification/run", {
+      modelId: els.classificationModel.value,
+      device: els.classificationDevice.value,
+      selection: els.classificationSelection.value,
+      limit: Number(els.classificationLimit.value || 500),
+    });
+    setStatus(`Classification run ${payload.runId} queued for ${fmtNumber(payload.messageCount)} messages.`);
+    await loadClassificationRuns(payload.runId);
+    pollClassificationRun(payload.runId);
+    await loadClassificationSummary();
+  } catch (error) {
+    setStatus(error.message);
+  }
+});
+els.classificationExportBtn.addEventListener("click", () => downloadClassificationExport(false).catch((error) => setStatus(error.message)));
+els.classificationDatasetBtn.addEventListener("click", () => downloadClassificationExport(true).catch((error) => setStatus(error.message)));
+els.classificationImportBtn.addEventListener("click", () => els.classificationImportFile.click());
+els.classificationImportFile.addEventListener("change", async () => {
+  const file = els.classificationImportFile.files?.[0];
+  if (!file) return;
+  try {
+    const payload = JSON.parse(await file.text());
+    const result = await post("/api/classification/labels/import", payload);
+    setStatus(`Imported ${fmtNumber(result.imported)} labels; ${fmtNumber(result.unchanged)} unchanged; skipped ${fmtNumber(result.skipped)} records.`);
+    await loadClassificationSummary();
+    await loadClassificationQueue();
+  } catch (error) {
+    setStatus(`Label import failed: ${error.message}`);
+  } finally {
+    els.classificationImportFile.value = "";
+  }
 });
 
 loadCompactMode();

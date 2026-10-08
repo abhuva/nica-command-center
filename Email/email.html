@@ -43,6 +43,7 @@
           <button id="dashboardTab" class="tab-btn active" type="button" data-view="dashboard">Dashboard</button>
           <button id="accountTab" class="tab-btn" type="button" data-view="account">Account</button>
           <button id="rulesTab" class="tab-btn" type="button" data-view="rules">Rules</button>
+          <button id="classificationTab" class="tab-btn" type="button" data-view="classification">Classification</button>
         </nav>
         <p id="status">Loading...</p>
       </div>
@@ -119,6 +120,76 @@
         <span id="rulesCount" class="server-count"></span>
       </section>
       <div id="rulesTable" class="rules-table"></div>
+    </section>
+
+    <section id="classificationView" class="view-panel classification-view hidden">
+      <section class="classification-toolbar">
+        <label>Model <select id="classificationModel"></select></label>
+        <label>Device
+          <select id="classificationDevice">
+            <option value="auto">auto</option>
+            <option value="cuda">GPU / CUDA</option>
+            <option value="cpu">CPU</option>
+          </select>
+        </label>
+        <label>Messages
+          <select id="classificationSelection">
+            <option value="all">all</option>
+            <option value="unlabeled">unlabelled only</option>
+          </select>
+        </label>
+        <label>Limit <input id="classificationLimit" type="number" min="1" max="10000" value="500"></label>
+        <button id="classificationRunBtn" type="button">Start Shadow Run</button>
+        <button id="classificationExportBtn" type="button">Export Labels</button>
+        <button id="classificationDatasetBtn" type="button">Export Training Data</button>
+        <button id="classificationImportBtn" type="button">Import Labels</button>
+        <input id="classificationImportFile" class="hidden" type="file" accept="application/json,.json">
+      </section>
+      <div id="classificationModelStatus" class="classification-model-status"></div>
+      <section id="classificationStats" class="stat-strip"></section>
+      <section class="classification-review-toolbar">
+        <label>Run <select id="classificationRunSelect"><option value="">latest</option></select></label>
+        <label>Review
+          <select id="classificationReviewMode">
+            <option value="training">training queue (predictions visible)</option>
+            <option value="blind">blind 20% holdout</option>
+            <option value="all">all messages</option>
+          </select>
+        </label>
+        <label>Filter
+          <select id="classificationQueueFilter">
+            <option value="unlabeled">unlabelled</option>
+            <option value="disagreement">disagreements</option>
+            <option value="uncertain">model unsure</option>
+            <option value="labeled">labelled</option>
+            <option value="all">all</option>
+          </select>
+        </label>
+        <button id="classificationReloadBtn" type="button">Reload Queue</button>
+        <span id="classificationQueueStatus" class="server-count"></span>
+      </section>
+      <main class="classification-layout">
+        <aside id="classificationQueue" class="classification-queue"></aside>
+        <section class="classification-detail">
+          <div id="classificationActions" class="classification-actions hidden">
+            <strong>Spam label</strong>
+            <button data-spam-label="ham" type="button">Ham</button>
+            <button data-spam-label="spam" type="button">Spam</button>
+            <button data-spam-label="unsure" type="button">Unsure</button>
+            <strong>Mail type</strong>
+            <select id="classificationMailType">
+              <option value="">not labelled</option>
+              <option value="personal_organisational">personal / organisational</option>
+              <option value="transactional">transactional</option>
+              <option value="newsletter_marketing">newsletter / marketing</option>
+              <option value="phishing">phishing</option>
+              <option value="other">other</option>
+              <option value="unsure">unsure</option>
+            </select>
+          </div>
+          <article id="classificationDetail" class="message-detail empty">Select a message to review.</article>
+        </section>
+      </main>
     </section>
 
     <section id="accountView" class="view-panel hidden">

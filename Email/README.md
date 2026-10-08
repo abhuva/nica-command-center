@@ -78,7 +78,8 @@ Use `ssl: true` for implicit TLS on port 993. Use `ssl: false` plus `starttls: t
 ## Data Model
 
 - `email.db` stores rebuildable fetched messages, tags, rules, exports, and
-  account sync state.
+  account sync state. It also stores versioned model predictions and human
+  review labels; export reviewed labels before replacing a database.
 - Markdown files in `8. Emails/` are generated projections and can be regenerated.
 - Stable export filenames use account, date, sender, subject, and a message hash.
 
@@ -89,6 +90,60 @@ Use `ssl: true` for implicit TLS on port 993. Use `ssl: false` plus `starttls: t
 3. Apply blacklist/whitelist/tag rules in SQLite.
 4. Review/filter in the local UI.
 5. Export included/candidate messages to `8. Emails/`.
+
+## Local spam-classification experiment
+
+The **Classification** tab is shadow-only: it writes predictions and review
+labels to the local database but never changes `include_state`, vault exports,
+or remote mailboxes. Predictions are retained by model run. Human corrections
+are retained separately with append-only history.
+
+The built-in transparent keyword baseline requires no installation and exists
+to validate the workflow, not to filter mail. Install the recommended
+multilingual GLiClass model into machine-local state with a preview/apply step:
+
+```powershell
+.\scripts\install-email-classification.ps1
+.\scripts\install-email-classification.ps1 -Apply
+```
+
+The installer creates
+`NICA_STATE_ROOT\email\classification\.venv` and caches weights under
+`NICA_STATE_ROOT\email\classification\models`. The Email launcher detects that
+environment automatically. The default model is GLiClass Multilang Mini; pass
+`-Model gliclass-multilang-edge` for the smaller comparison model.
+
+Installation downloads the selected snapshot without loading its weights into
+memory. The first classification run performs the actual model load. Allow at
+least 1 GB of free system memory for Edge and 2 GB for Mini before starting a
+run; these are conservative operating estimates rather than model guarantees.
+The installer reports whether the installed PyTorch build can use CUDA. If it
+reports `cudaAvailable: false`, classification runs on the CPU even when the
+computer has an NVIDIA GPU. To use the office GPU, select the currently
+supported Windows/Pip/CUDA build on the
+[official PyTorch installer](https://pytorch.org/get-started/locally/) and pass
+its wheel index explicitly, for example:
+
+```powershell
+.\scripts\install-email-classification.ps1 -TorchIndexUrl "https://download.pytorch.org/whl/cu126" -Apply
+```
+
+The installer accepts only HTTPS indexes hosted by `download.pytorch.org` and
+replaces an existing CPU-only Torch build when this option is supplied. The
+example CUDA version is illustrative; use the current selector result for the
+target computer and verify that the final JSON says `cudaAvailable: true`.
+
+Use the training queue to see and correct predictions. Use the blind queue for
+the stable 20-percent holdout; predictions are hidden until the first label.
+**Export Labels** creates a portable annotation backup without message bodies.
+**Export Training Data** includes confidential subjects, senders, and bodies and
+must remain in protected local storage outside Git and Nextcloud.
+
+See
+[ADR-007](../docs/adr/ADR-007-separate-email-predictions-from-human-annotations.md).
+The current workstation handoff, installation checklist, and pending inference
+acceptance checks are recorded in
+[Local email classification: workstation handoff](../docs/email-local-classification-handoff.md).
 
 The product baseline and deliberately deferred choices are documented in
 [Email tool workflow](../docs/email-tool-workflow.md).

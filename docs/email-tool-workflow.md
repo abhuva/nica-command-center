@@ -21,11 +21,14 @@ SQLite database authoritative.
    access remains read-only and does not use server flags as workflow state.
 4. Apply local rules, then review candidate, included, and excluded messages in
    the UI. Manual tagging or include/exclude decisions may refine the rules.
-5. Use **Preview Export** to reconcile included messages with existing Markdown
+5. Optionally run local spam classification in shadow mode. Review training
+   examples with predictions visible and label the deterministic 20-percent
+   holdout blind. These labels do not change include/exclude state or mailboxes.
+6. Use **Preview Export** to reconcile included messages with existing Markdown
    projections in `8. Emails/`.
-6. Use the separate **Apply Export** action only when the aggregate plan is
+7. Use the separate **Apply Export** action only when the aggregate plan is
    expected and conflict-free.
-7. Treat a lost or intentionally discarded database as a reset: initialize an
+8. Treat a lost or intentionally discarded database as a reset: initialize an
    empty database, refetch, recreate the useful rules, and reconcile against
    existing vault notes before exporting.
 
@@ -54,8 +57,14 @@ not database-migration prerequisites:
 - scheduled background fetching instead of explicit Count/Fetch actions;
 - retaining or exporting attachments rather than recording only their count;
 - long-term rule libraries, bulk triage ergonomics, and retention controls;
+- remote mailbox moves, provider spam reporting, or deletion based on model
+  predictions;
 - a destructive reset command for an existing database.
 
 Each item should be selected from actual daily use. Until then, a fresh start
 requires an empty state path rather than deleting or replacing a database
 automatically.
+
+The local-model implementation and the validation still required on the
+16-GB-VRAM office workstation are documented in the
+[classification workstation handoff](email-local-classification-handoff.md).

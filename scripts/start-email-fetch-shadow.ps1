@@ -41,7 +41,13 @@ if ($requiresLegacyRoot) {
 $componentName = if ($StableRuntime) { "email" } elseif ($EnableExport) { "email-export-shadow" } elseif ($EnableOAuth) { "email-oauth-shadow" } elseif ($EnableClassification) { "email-classification-shadow" } else { "email-fetch-shadow" }
 $writeCapabilities = @("mail.count", "mail.fetch")
 if ($EnableClassification) {
-  $writeCapabilities += @("message.tag", "rules.apply", "rules.manage")
+  $writeCapabilities += @(
+    "classification.label",
+    "classification.run",
+    "message.tag",
+    "rules.apply",
+    "rules.manage"
+  )
 }
 if ($EnableOAuth) { $writeCapabilities += "oauth.manage" }
 if ($EnableExport) { $writeCapabilities += "vault.export" }
@@ -366,12 +372,15 @@ $env:EMAIL_HOST = "127.0.0.1"
 $env:EMAIL_PORT = [string]$Port
 $env:EMAIL_OAUTH_CALLBACK_PORT = [string]$OAuthCallbackPort
 $env:NICA_HOMEPAGE_URL = "http://127.0.0.1:$HomepagePort"
+$classificationPython = Join-Path $componentState "classification\.venv\Scripts\python.exe"
+$emailPython = if ($EnableClassification -and (Test-Path -LiteralPath $classificationPython -PathType Leaf)) { $classificationPython } else { "python" }
+$env:HF_HOME = Join-Path $componentState "classification\models"
 
 $logPrefix = if ($StableRuntime) { "email" } elseif ($EnableExport) { "email-export" } elseif ($EnableOAuth) { "email-oauth" } elseif ($EnableClassification) { "email-classification" } else { "email-fetch" }
 $stdout = Join-Path $componentState ($logPrefix + ".out.log")
 $stderr = Join-Path $componentState ($logPrefix + ".err.log")
 $serverPath = Join-Path $repoRoot "Email\email_tool.py"
-$proc = Start-Process -FilePath "python" -ArgumentList ('"' + $serverPath + '" serve') -WorkingDirectory (Join-Path $repoRoot "Email") -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+$proc = Start-Process -FilePath $emailPython -ArgumentList ('"' + $serverPath + '" serve') -WorkingDirectory (Join-Path $repoRoot "Email") -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
 $manifestPath = Join-Path $componentState "email-read-process.json"
 $manifest = [ordered]@{
   component = $componentName
@@ -417,6 +426,8 @@ try {
         -not [bool]$response.writeCapabilities.unrestricted -and
         [bool]$response.writeCapabilities.mailCount -and
         [bool]$response.writeCapabilities.mailFetch -and
+        ([bool]$response.writeCapabilities.classificationLabel -eq [bool]$EnableClassification) -and
+        ([bool]$response.writeCapabilities.classificationRun -eq [bool]$EnableClassification) -and
         ([bool]$response.writeCapabilities.oauthManage -eq [bool]$EnableOAuth) -and
         ([int]$response.oauthCallback.port -eq $OAuthCallbackPort) -and
         ([bool]$response.writeCapabilities.rulesManage -eq [bool]$EnableClassification) -and
@@ -458,7 +469,7 @@ try {
     $disabledRoutes += @("oauth/start", "oauth/poll")
   }
   if (-not $EnableClassification) {
-    $disabledRoutes += @("rules", "rules/apply", "messages/tag")
+    $disabledRoutes += @("classification/run", "classification/labels", "classification/labels/import", "rules", "rules/apply", "messages/tag")
   }
   foreach ($route in $disabledRoutes) {
     try {

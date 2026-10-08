@@ -10,6 +10,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 from contextlib import closing
 from pathlib import Path
 from typing import Any
@@ -31,13 +32,15 @@ from email_fetch_shadow_smoke import (  # noqa: E402
     stop_process,
     wait_for_ping,
 )
-from email_tool import EmailTool, sha256_text  # noqa: E402
+from email_tool import EmailTool, is_holdout_message, sha256_text, stable_hash  # noqa: E402
 
 
 CLASSIFICATION_CAPABILITIES = {
     "unrestricted": False,
     "mailCount": True,
     "mailFetch": True,
+    "classificationLabel": True,
+    "classificationRun": True,
     "messageTag": True,
     "oauthManage": False,
     "rulesApply": True,
@@ -59,12 +62,20 @@ def fixture_config(runtime_root: Path, vault: Path) -> dict[str, Any]:
 
 def add_fixture_message(tool: EmailTool, uid: str = "1") -> str:
     """Insert one non-sensitive synthetic message and return its stable id."""
+    candidate_uid = int(uid)
+    while True:
+        uid = str(candidate_uid)
+        rfc_message_id = f"<fixture-{uid}@example.test>"
+        candidate_id = stable_hash(["fixture", "INBOX", uid, rfc_message_id])
+        if is_holdout_message(candidate_id):
+            break
+        candidate_uid += 1
     sample = {
         "account_id": "fixture",
         "mailbox": "INBOX",
         "uid": uid,
-        "message_id": f"<fixture-{uid}@example.test>",
-        "thread_key": f"<fixture-{uid}@example.test>",
+        "message_id": rfc_message_id,
+        "thread_key": rfc_message_id,
         "subject": "Synthetic classification message",
         "sender_name": "Fixture Sender",
         "sender_email": "fixture@example.test",
@@ -172,6 +183,76 @@ def exercise_classification_api(base_url: str, database: Path, message_id: str) 
     )
     assert status == 200 and deleted.get("ok") is True
 
+    status, models = request_json(f"{base_url}/api/classification/models")
+    assert status == 200
+    baseline = next(model for model in models["models"] if model["id"] == "keyword-baseline-v1")
+    assert baseline["available"] is True
+
+    status, started = request_json(
+        f"{base_url}/api/classification/run",
+        "POST",
+        {"modelId": "keyword-baseline-v1", "selection": "all", "limit": 10},
+    )
+    assert status == 202 and started.get("messageCount") == 1
+    run_id = str(started["runId"])
+    summary = {}
+    for _attempt in range(100):
+        status, summary = request_json(f"{base_url}/api/classification/summary")
+        assert status == 200
+        if summary.get("latestRun", {}).get("status") in {"completed", "failed"}:
+            break
+        time.sleep(0.02)
+    assert summary["latestRun"]["id"] == run_id
+    assert summary["latestRun"]["status"] == "completed", summary
+
+    status, queue = request_json(f"{base_url}/api/classification/queue?mode=all&filter=unlabeled")
+    assert status == 200 and len(queue["messages"]) == 1
+    assert queue["messages"][0]["predicted_label"] in {"ham", "spam", "unsure"}
+    status, blind_queue = request_json(f"{base_url}/api/classification/queue?mode=blind&filter=unlabeled")
+    assert status == 200 and len(blind_queue["messages"]) == 1
+    assert blind_queue["messages"][0]["predictionHidden"] is True
+    assert blind_queue["messages"][0]["predicted_label"] is None
+
+    status, labelled = request_json(
+        f"{base_url}/api/classification/labels",
+        "POST",
+        {"messageId": message_id, "task": "spam", "label": "ham", "reviewMode": "training"},
+    )
+    assert status == 200 and labelled.get("label") == "ham"
+    status, typed = request_json(
+        f"{base_url}/api/classification/labels",
+        "POST",
+        {
+            "messageId": message_id,
+            "task": "mail_type",
+            "label": "personal_organisational",
+            "reviewMode": "training",
+        },
+    )
+    assert status == 200 and typed.get("label") == "personal_organisational"
+    status, exported = request_json(f"{base_url}/api/classification/export?includeContent=false")
+    assert status == 200 and exported["containsMessageContent"] is False
+    assert exported["records"][0]["message"]["id"] == message_id
+    assert "content" not in exported["records"][0]
+    status, imported = request_json(
+        f"{base_url}/api/classification/labels/import",
+        "POST",
+        exported,
+    )
+    assert status == 200 and imported.get("imported") == 0 and imported.get("unchanged") == 2
+
+    with closing(sqlite3.connect(database)) as connection:
+        state_after_labels = connection.execute(
+            "SELECT include_state, include_reason FROM messages WHERE id=?",
+            (message_id,),
+        ).fetchone()
+        event_count = connection.execute(
+            "SELECT COUNT(*) FROM label_events WHERE message_id=?",
+            (message_id,),
+        ).fetchone()[0]
+    assert state_after_labels == ("excluded", f"rule:{rule_id}")
+    assert event_count == 2
+
     denied_routes = {
         "/api/export": "vault.export",
         "/api/oauth/start": "oauth.manage",
@@ -199,7 +280,7 @@ def direct_server_smoke() -> None:
             "NICA_VAULT_ROOT": str(vault),
             "NICA_STATE_ROOT": str(state),
             "NICA_WRITE_ENABLED": "false",
-            "NICA_EMAIL_CAPABILITIES": "mail.count,mail.fetch,message.tag,rules.apply,rules.manage",
+            "NICA_EMAIL_CAPABILITIES": "mail.count,mail.fetch,classification.label,classification.run,message.tag,rules.apply,rules.manage",
             "EMAIL_HOST": "127.0.0.1",
             "EMAIL_PORT": str(port),
         })

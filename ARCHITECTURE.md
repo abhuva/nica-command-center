@@ -20,6 +20,8 @@ The accepted repository-placement decision is recorded in
 [ADR-001](docs/adr/ADR-001-separate-operational-software-from-the-shared-vault.md).
 The accepted local-workspace orchestration decision is recorded in
 [ADR-005](docs/adr/ADR-005-use-a-repository-owned-workspace-launcher.md).
+The accepted local email-classification evidence boundary is recorded in
+[ADR-007](docs/adr/ADR-007-separate-email-predictions-from-human-annotations.md).
 
 ## Current operating environment
 
@@ -173,6 +175,8 @@ term.
 | Beancount ledgers | Vault/data repository | Narrow private Git history where useful |
 | Raw source documents | Vault or originating system | Preserve provenance and permissions |
 | Derived indexes and caches | Owning tool | Rebuildable; excluded from synchronization and Git |
+| Email model predictions | Email tool | Rebuildable, versioned local evidence; never mailbox actions by themselves |
+| Human email-classification labels | Email tool/operator | Sensitive curated local state; explicitly exportable and backed up |
 | Generated publication output | Owning workflow | Reproducible; archive only when useful |
 | Credentials and tokens | Dedicated secret mechanism | Never browser-exposed or committed |
 | Audit events | Command centre or owning tool | Minimal, attributable, privacy-aware |
