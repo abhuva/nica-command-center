@@ -49,7 +49,7 @@ token, immutable pre-management OAuth backup, and database below
 not a retirement prerequisite under
 [ADR-004](../adr/ADR-004-treat-email-database-as-rebuildable-local-state.md).
 
-## Open credential decision
+## Credential preservation decision
 
 The migrated Calendar runtime has the configuration needed for its accepted
 vault-event capability. Its Google integration remains disabled, so the old
@@ -57,12 +57,16 @@ Google OAuth token was deliberately not copied into the new state root. The
 token is therefore not an active dependency, but it is unique recovery
 material inside the legacy checkout.
 
-Before permanent deletion, Marc must choose one of these explicit outcomes:
+Marc chose preservation on 2026-10-08. A recovery-only copy now exists below
+`NICA_STATE_ROOT/calendar/backups/legacy-google-oauth-pre-retirement/`.
+Publication used create-new semantics, JSON parsing and SHA-256 verification;
+the source remained untouched. The recovery file disables inherited Windows
+permissions and grants access only to the current user, local administrators,
+and SYSTEM.
 
-1. preserve the token in an approved local secret/recovery location outside
-   Git and Nextcloud; or
-2. accept reauthorization for any future Google integration and securely
-   discard the legacy token.
+The backup is not part of the active Calendar profile and does not enable
+Google integration. Restoring it later must be an explicit credential recovery
+or reauthorization operation.
 
 No token content or hash is recorded in this repository.
 
@@ -106,7 +110,8 @@ authoritative write merely for testing.
 - [x] Confirm no unmatched legacy application source remains.
 - [x] Confirm authoritative Beantime data lives outside the old checkout.
 - [x] Confirm the legacy Email database is not a migration requirement.
-- [ ] Resolve the Calendar Google OAuth token decision above.
+- [x] Preserve the Calendar Google OAuth token as a verified, access-restricted
+  recovery copy outside Git and Nextcloud.
 - [ ] Complete the final rollback rehearsal.
 - [ ] Confirm the GitHub repository and local `main` contain the accepted
   migration history.

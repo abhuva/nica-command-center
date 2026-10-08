@@ -374,5 +374,6 @@ A capability is accepted only when:
 1. Choose the final secret-storage mechanism before any live credential moves;
    local runtime state currently defaults to `%LOCALAPPDATA%` through the
    candidate launcher.
-2. Resolve the retained Calendar Google OAuth token before permanent legacy
-   checkout deletion, then obtain final retirement approval during Gate 7.
+2. The retained Calendar Google OAuth token now has a verified,
+   access-restricted recovery copy below `NICA_STATE_ROOT`; obtain final
+   retirement approval during Gate 7.
