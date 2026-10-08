@@ -43,6 +43,9 @@ data/
 *.sqlite3
 *.db
 *.log
+*.onnx
+*.onnx.data
+Dictate/models/
 Calendar/calendar.filter-state.json
 Calendar/calendar.preview.pid
 Calendar/events.generated.js
