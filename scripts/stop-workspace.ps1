@@ -7,6 +7,7 @@ param(
 $ErrorActionPreference = "Continue"
 $results = [System.Collections.Generic.List[object]]::new()
 $stops = @(
+  @{ name = "dictate"; script = "stop-dictate.ps1"; args = @{ StateRoot = $StateRoot } },
   @{ name = "finance-tohu"; script = "stop-finance.ps1"; args = @{ FinanceId = "tohu"; StateRoot = $StateRoot } },
   @{ name = "finance-nica"; script = "stop-finance.ps1"; args = @{ FinanceId = "nica"; StateRoot = $StateRoot } },
   @{ name = "email"; script = "stop-email.ps1"; args = @{ StateRoot = $StateRoot } },

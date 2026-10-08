@@ -468,6 +468,31 @@
             <input id="startupFinanceTohu" class="switch" type="checkbox" />
             <span class="toggle-copy"><span class="toggle-title">TOHU Finanzen</span><span class="toggle-help">Fava fuer das TOHU-Ledger starten.</span></span>
           </label>
+          <label class="toggle-line" for="startupDictate">
+            <input id="startupDictate" class="switch" type="checkbox" />
+            <span class="toggle-copy"><span class="toggle-title">Dictate</span><span class="toggle-help">Lokale Push-to-talk-Diktierfunktion beim Workspace-Start laden.</span></span>
+          </label>
+          <div class="field">
+            <label for="dictateModel">Dictate-Modell</label>
+            <select id="dictateModel">
+              <option value="multilingual">Multilingual (Deutsch + Englisch, empfohlen)</option>
+              <option value="german">Primeline (Deutsch optimiert)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="dictateHotkey">Dictate-Taste</label>
+            <select id="dictateHotkey">
+              <option value="ctrl">Strg (beide)</option>
+              <option value="ctrl_r">Strg rechts</option>
+              <option value="ctrl_l">Strg links</option>
+              <option value="f12">F12</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="dictateMinHoldSeconds">Mindestdauer (Sekunden)</label>
+            <input id="dictateMinHoldSeconds" type="number" min="0" max="30" step="0.1" />
+          </div>
+          <div class="panel-help">Modellwechsel werden beim naechsten Workspace-Start durch einen alleinigen Dictate-Neustart angewendet. Modelle muessen zuvor lokal installiert sein.</div>
         </div>
       </section>
 
@@ -710,6 +735,10 @@
       const startupVaultGraph = document.getElementById("startupVaultGraph");
       const startupFinanceNica = document.getElementById("startupFinanceNica");
       const startupFinanceTohu = document.getElementById("startupFinanceTohu");
+      const startupDictate = document.getElementById("startupDictate");
+      const dictateModel = document.getElementById("dictateModel");
+      const dictateHotkey = document.getElementById("dictateHotkey");
+      const dictateMinHoldSeconds = document.getElementById("dictateMinHoldSeconds");
       const bookmarksEnabled = document.getElementById("bookmarksEnabled");
       const bookmarksShowPath = document.getElementById("bookmarksShowPath");
       const bookmarksShowType = document.getElementById("bookmarksShowType");
@@ -1046,7 +1075,7 @@
         const cleanBeantimeAccountPrefix = String(beantimeAccountPrefix.value || "").trim() || "Projekte:";
         const parsedUpdoGapFactor = Number.parseFloat(String(updoGapFactor.value || ""));
         return {
-          schemaVersion: 2,
+          schemaVersion: 3,
           ui: {
             title: String(titleInput.value || "").trim() || "Workspace Homepage",
             titleSize,
@@ -1069,8 +1098,16 @@
               email: Boolean(startupEmail.checked),
               vaultGraph: Boolean(startupVaultGraph.checked),
               financeNica: Boolean(startupFinanceNica.checked),
-              financeTohu: Boolean(startupFinanceTohu.checked)
+              financeTohu: Boolean(startupFinanceTohu.checked),
+              dictate: Boolean(startupDictate.checked)
             }
+          },
+          dictate: {
+            model: String(dictateModel.value || "multilingual"),
+            hotkey: String(dictateHotkey.value || "ctrl"),
+            minHoldSeconds: Number.isFinite(Number(dictateMinHoldSeconds.value))
+              ? Math.max(0, Math.min(30, Number(dictateMinHoldSeconds.value)))
+              : 2
           },
           modules: {
             bookmarks: {
@@ -1175,6 +1212,10 @@
         startupVaultGraph.checked = Boolean(settings?.startup?.services?.vaultGraph ?? true);
         startupFinanceNica.checked = Boolean(settings?.startup?.services?.financeNica ?? true);
         startupFinanceTohu.checked = Boolean(settings?.startup?.services?.financeTohu ?? true);
+        startupDictate.checked = Boolean(settings?.startup?.services?.dictate ?? false);
+        dictateModel.value = String(settings?.dictate?.model ?? "multilingual");
+        dictateHotkey.value = String(settings?.dictate?.hotkey ?? "ctrl");
+        dictateMinHoldSeconds.value = String(settings?.dictate?.minHoldSeconds ?? 2);
         bookmarksEnabled.checked = Boolean(settings?.modules?.bookmarks?.enabled);
         bookmarksShowPath.checked = Boolean(settings?.modules?.bookmarks?.showPath);
         bookmarksShowType.checked = Boolean(settings?.modules?.bookmarks?.showType);

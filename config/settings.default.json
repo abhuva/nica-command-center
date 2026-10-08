@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "ui": {
     "title": "Workspace Homepage",
     "titleSize": 38,
@@ -22,8 +22,14 @@
       "email": true,
       "vaultGraph": true,
       "financeNica": true,
-      "financeTohu": true
+      "financeTohu": true,
+      "dictate": false
     }
+  },
+  "dictate": {
+    "model": "multilingual",
+    "hotkey": "ctrl",
+    "minHoldSeconds": 2
   },
   "modules": {
     "bookmarks": {

@@ -18,6 +18,7 @@
     "check:beantime-shadow": "node ./tests/beantime-shadow-smoke.mjs",
     "check:beantime-live-profile": "powershell -NoProfile -ExecutionPolicy Bypass -File ./tests/homepage-beantime-profile-smoke.ps1",
     "check:workspace-launcher": "powershell -NoProfile -ExecutionPolicy Bypass -File ./tests/workspace-launcher-smoke.ps1",
+    "check:dictate": "powershell -NoProfile -ExecutionPolicy Bypass -File ./tests/dictate-smoke.ps1",
     "lint": "eslint .",
     "lint:jsdoc": "eslint \"**/*.{js,mjs}\""
   },

@@ -20,6 +20,8 @@ The accepted repository-placement decision is recorded in
 [ADR-001](docs/adr/ADR-001-separate-operational-software-from-the-shared-vault.md).
 The accepted local-workspace orchestration decision is recorded in
 [ADR-005](docs/adr/ADR-005-use-a-repository-owned-workspace-launcher.md).
+The accepted optional desktop-dictation decision is recorded in
+[ADR-006](docs/adr/ADR-006-manage-desktop-dictation-as-an-optional-local-capability.md).
 
 ## Current operating environment
 
@@ -50,7 +52,8 @@ The current landscape includes at least:
 - project creation and Obsidian integrations;
 - Beancount/Fava finance views and time tracking;
 - CircusWiki and related knowledge-publication tooling;
-- vault visualization and operational homepage modules.
+- vault visualization and operational homepage modules;
+- optional local desktop dictation with separately installed speech models.
 
 This inventory is incomplete and must be verified before migration. Every
 capability may contain software, authoritative data, derived state, credentials,
@@ -173,6 +176,7 @@ term.
 | Beancount ledgers | Vault/data repository | Narrow private Git history where useful |
 | Raw source documents | Vault or originating system | Preserve provenance and permissions |
 | Derived indexes and caches | Owning tool | Rebuildable; excluded from synchronization and Git |
+| Downloaded speech models and local tool runtimes | Machine-local state | Verified, replaceable, excluded from synchronization and Git |
 | Generated publication output | Owning workflow | Reproducible; archive only when useful |
 | Credentials and tokens | Dedicated secret mechanism | Never browser-exposed or committed |
 | Audit events | Command centre or owning tool | Minimal, attributable, privacy-aware |
