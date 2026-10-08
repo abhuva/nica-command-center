@@ -7,6 +7,11 @@ param(
   [int]$CalendarPort = 4273,
   [int]$VaultGraphPort = 4175,
   [int]$EmailPort = 4276,
+  [string]$WebsiteRepository = "",
+  [int]$WebsiteConsolePort = 8787,
+  [string]$ResearchRepository = "",
+  [string]$ResearchDataDirectory = "",
+  [int]$ResearchAgentPort = 8767,
   [int]$BeantimeFavaPort = 3464,
   [int]$NicaFavaPort = 4998,
   [int]$TohuFavaPort = 4999,
@@ -20,6 +25,31 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $resolvedVault = (Resolve-Path -LiteralPath $VaultRoot).Path
 $resolvedState = [System.IO.Path]::GetFullPath($StateRoot)
+$resolvedWebsite = $null
+if (-not [string]::IsNullOrWhiteSpace($WebsiteRepository)) {
+  $resolvedWebsite = (Resolve-Path -LiteralPath $WebsiteRepository).Path
+  if (-not (Test-Path -LiteralPath (Join-Path $resolvedWebsite "tools\dev_console.ps1") -PathType Leaf)) {
+    throw "WebsiteRepository has no tools/dev_console.ps1 launcher."
+  }
+}
+$resolvedResearch = $null
+$resolvedResearchData = $null
+if (-not [string]::IsNullOrWhiteSpace($ResearchRepository)) {
+  $resolvedResearch = (Resolve-Path -LiteralPath $ResearchRepository).Path
+  if (-not (Test-Path -LiteralPath (Join-Path $resolvedResearch "pyproject.toml") -PathType Leaf)) {
+    throw "ResearchRepository has no pyproject.toml."
+  }
+  if (-not (Test-Path -LiteralPath (Join-Path $resolvedResearch ".venv\Scripts\funding-agent.exe") -PathType Leaf)) {
+    throw "ResearchRepository has no installed .venv/Scripts/funding-agent.exe launcher."
+  }
+  $resolvedResearchData = if ([string]::IsNullOrWhiteSpace($ResearchDataDirectory)) {
+    [System.IO.Path]::GetFullPath((Join-Path $resolvedResearch "var\live"))
+  } else {
+    [System.IO.Path]::GetFullPath($ResearchDataDirectory)
+  }
+} elseif (-not [string]::IsNullOrWhiteSpace($ResearchDataDirectory)) {
+  throw "ResearchDataDirectory requires ResearchRepository."
+}
 
 function Resolve-VaultFile {
   param(
@@ -49,10 +79,18 @@ if (
 ) {
   throw "VaultRoot and StateRoot must be separate directory trees."
 }
+if ($resolvedResearchData) {
+  $researchDataPrefix = $resolvedResearchData.TrimEnd('\') + '\'
+  if (
+    $resolvedResearchData -eq $resolvedVault -or
+    $resolvedResearchData.StartsWith($vaultPrefix, [System.StringComparison]::OrdinalIgnoreCase) -or
+    $resolvedVault.StartsWith($researchDataPrefix, [System.StringComparison]::OrdinalIgnoreCase)
+  ) { throw "ResearchDataDirectory and VaultRoot must be separate directory trees." }
+}
 if ([string]::IsNullOrWhiteSpace($ObsidianVaultName)) {
   throw "ObsidianVaultName is required."
 }
-$ports = @($HomepagePort, $CalendarPort, $VaultGraphPort, $EmailPort, $BeantimeFavaPort, $NicaFavaPort, $TohuFavaPort)
+$ports = @($HomepagePort, $CalendarPort, $VaultGraphPort, $EmailPort, $WebsiteConsolePort, $ResearchAgentPort, $BeantimeFavaPort, $NicaFavaPort, $TohuFavaPort)
 if ($ports | Where-Object { $_ -lt 1 -or $_ -gt 65535 }) {
   throw "Workspace ports must be between 1 and 65535."
 }
@@ -74,6 +112,8 @@ $profile = [ordered]@{
     calendar = $CalendarPort
     vaultGraph = $VaultGraphPort
     email = $EmailPort
+    websiteConsole = $WebsiteConsolePort
+    researchAgent = $ResearchAgentPort
     beantimeFava = $BeantimeFavaPort
     financeNica = $NicaFavaPort
     financeTohu = $TohuFavaPort
@@ -81,6 +121,13 @@ $profile = [ordered]@{
   finance = [ordered]@{
     nicaLedger = $resolvedNicaLedger.Substring($vaultPrefix.Length).Replace('\', '/')
     tohuLedger = $resolvedTohuLedger.Substring($vaultPrefix.Length).Replace('\', '/')
+  }
+  website = [ordered]@{
+    repository = $resolvedWebsite
+  }
+  research = [ordered]@{
+    repository = $resolvedResearch
+    dataDirectory = $resolvedResearchData
   }
   configuredAt = (Get-Date).ToString("o")
 }
@@ -92,6 +139,8 @@ $profile = [ordered]@{
   stateRoot = $resolvedState
   obsidianVaultName = $profile.obsidianVaultName
   ports = $profile.ports
+  website = $profile.website
+  research = $profile.research
   financeLedgers = $profile.finance
 } | ConvertTo-Json -Depth 5
 

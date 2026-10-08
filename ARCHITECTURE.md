@@ -20,6 +20,15 @@ The accepted repository-placement decision is recorded in
 [ADR-001](docs/adr/ADR-001-separate-operational-software-from-the-shared-vault.md).
 The accepted local-workspace orchestration decision is recorded in
 [ADR-005](docs/adr/ADR-005-use-a-repository-owned-workspace-launcher.md).
+The separation between shared Dashboard services and personal bookmarks is
+recorded in
+[ADR-006](docs/adr/ADR-006-separate-shared-dashboard-services-from-personal-bookmarks.md).
+The external-service boundary for the independently owned website console is
+recorded in
+[ADR-007](docs/adr/ADR-007-integrate-the-website-console-as-an-external-service.md).
+The deliberately started external-service boundary for the Funding Observatory
+is recorded in
+[ADR-008](docs/adr/ADR-008-integrate-research-as-a-deliberately-started-external-service.md).
 
 ## Current operating environment
 

@@ -20,12 +20,23 @@
     "services": {
       "calendar": true,
       "email": true,
+      "websiteConsole": false,
+      "researchAgent": false,
+      "projects": true,
+      "contacts": true,
       "vaultGraph": true,
       "financeNica": true,
       "financeTohu": true
     }
   },
   "modules": {
+    "dashboard": {
+      "enabled": true,
+      "title": "Home",
+      "services": {
+        "researchAgent": true
+      }
+    },
     "bookmarks": {
       "enabled": true,
       "title": "Bookmarks",

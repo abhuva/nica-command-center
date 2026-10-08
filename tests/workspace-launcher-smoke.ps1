@@ -3,6 +3,9 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $sandbox = Join-Path ([System.IO.Path]::GetTempPath()) ("nica-workspace-launcher-" + [Guid]::NewGuid().ToString("N"))
 $vault = Join-Path $sandbox "vault"
 $state = Join-Path $sandbox "state"
+$website = Join-Path $sandbox "website"
+$research = Join-Path $sandbox "research"
+$researchData = Join-Path $sandbox "research-data"
 $nicaRelative = "finance/nica.beancount"
 $tohuRelative = "finance/tohu.beancount"
 
@@ -21,7 +24,12 @@ option "operating_currency" "EUR"
 '@
   Set-Content -LiteralPath (Join-Path $vault $nicaRelative) -Value $ledger -Encoding utf8
   Set-Content -LiteralPath (Join-Path $vault $tohuRelative) -Value $ledger -Encoding utf8
-  $ports = 1..7 | ForEach-Object { Get-FreePort }
+  New-Item -ItemType Directory -Force -Path (Join-Path $website "tools") | Out-Null
+  Set-Content -LiteralPath (Join-Path $website "tools\dev_console.ps1") -Value '# synthetic website console launcher' -Encoding utf8
+  New-Item -ItemType Directory -Force -Path (Join-Path $research ".venv\Scripts") | Out-Null
+  Set-Content -LiteralPath (Join-Path $research "pyproject.toml") -Value '[project]' -Encoding utf8
+  Set-Content -LiteralPath (Join-Path $research ".venv\Scripts\funding-agent.exe") -Value 'synthetic executable marker' -Encoding utf8
+  $ports = 1..9 | ForEach-Object { Get-FreePort }
   $configure = Join-Path $repoRoot "scripts\configure-workspace.ps1"
   $arguments = @{
     VaultRoot = $vault
@@ -31,11 +39,23 @@ option "operating_currency" "EUR"
     CalendarPort = $ports[1]
     VaultGraphPort = $ports[2]
     EmailPort = $ports[3]
-    BeantimeFavaPort = $ports[4]
-    NicaFavaPort = $ports[5]
-    TohuFavaPort = $ports[6]
+    WebsiteRepository = $website
+    WebsiteConsolePort = $ports[4]
+    ResearchRepository = $research
+    ResearchDataDirectory = $researchData
+    ResearchAgentPort = $ports[5]
+    BeantimeFavaPort = $ports[6]
+    NicaFavaPort = $ports[7]
+    TohuFavaPort = $ports[8]
     NicaLedger = $nicaRelative
     TohuLedger = $tohuRelative
+  }
+  $unsafeArguments = $arguments.Clone()
+  $unsafeArguments.ResearchDataDirectory = Join-Path $vault "research-state"
+  $unsafeResearchBlocked = $false
+  try { & $configure @unsafeArguments | Out-Null } catch { $unsafeResearchBlocked = $_.Exception.Message -match "separate directory trees" }
+  if (-not $unsafeResearchBlocked) {
+    throw "Workspace configuration accepted private research state inside the vault."
   }
   & $configure @arguments | Out-Null
   if (Test-Path -LiteralPath (Join-Path $state "launcher\workspace-profile.json")) {
@@ -44,7 +64,15 @@ option "operating_currency" "EUR"
   & $configure @arguments -Apply | Out-Null
   $profilePath = Join-Path $state "launcher\workspace-profile.json"
   $profile = Get-Content -LiteralPath $profilePath -Raw | ConvertFrom-Json
-  if ($profile.obsidianVaultName -ne "Synthetic Workspace" -or $profile.finance.nicaLedger -ne $nicaRelative) {
+  if (
+    $profile.obsidianVaultName -ne "Synthetic Workspace" -or
+    $profile.finance.nicaLedger -ne $nicaRelative -or
+    $profile.website.repository -ne (Resolve-Path -LiteralPath $website).Path -or
+    [int]$profile.ports.websiteConsole -ne $ports[4] -or
+    $profile.research.repository -ne (Resolve-Path -LiteralPath $research).Path -or
+    $profile.research.dataDirectory -ne [System.IO.Path]::GetFullPath($researchData) -or
+    [int]$profile.ports.researchAgent -ne $ports[5]
+  ) {
     throw "Workspace profile did not preserve the synthetic configuration."
   }
   & (Join-Path $repoRoot "scripts\stop-workspace.ps1") -StateRoot $state | Out-Null
@@ -60,6 +88,8 @@ option "operating_currency" "EUR"
       services = [ordered]@{
         calendar = $false
         email = $true
+        websiteConsole = $true
+        researchAgent = $true
         vaultGraph = $false
         financeNica = $true
         financeTohu = $false
@@ -67,7 +97,12 @@ option "operating_currency" "EUR"
     }
   } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $settingsPath -Encoding utf8
   $planText = (& (Join-Path $repoRoot "scripts\start-workspace.ps1") -StateRoot $state | Out-String)
-  if ($planText -notmatch '"email"\s*:\s*true' -or $planText -notmatch '"calendar"\s*:\s*false') {
+  if (
+    $planText -notmatch '"email"\s*:\s*true' -or
+    $planText -notmatch '"websiteConsole"\s*:\s*true' -or
+    $planText -notmatch '"researchAgent"\s*:\s*true' -or
+    $planText -notmatch '"calendar"\s*:\s*false'
+  ) {
     throw "Workspace plan did not honor local startup service choices."
   }
 

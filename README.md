@@ -12,10 +12,16 @@ enthaelt keine Zugangsdaten. Zuerst den Plan pruefen, dann anwenden:
 ```powershell
 .\scripts\configure-workspace.ps1 `
   -VaultRoot "C:\path\to\vault" `
-  -ObsidianVaultName "vault-name"
+  -ObsidianVaultName "vault-name" `
+  -WebsiteRepository "C:\path\to\nica-website" `
+  -ResearchRepository "C:\path\to\research-agent" `
+  -ResearchDataDirectory "C:\private\funding-observatory"
 .\scripts\configure-workspace.ps1 `
   -VaultRoot "C:\path\to\vault" `
   -ObsidianVaultName "vault-name" `
+  -WebsiteRepository "C:\path\to\nica-website" `
+  -ResearchRepository "C:\path\to\research-agent" `
+  -ResearchDataDirectory "C:\private\funding-observatory" `
   -Apply
 ```
 
@@ -23,8 +29,17 @@ Danach startet ein Doppelklick auf `start-workspace.cmd` Obsidian und die in
 der Homepage unter Settings > Workspace-Start ausgewaehlten Dienste ohne
 offene Terminalfenster. `stop-workspace.cmd` beendet nur die vom Repository
 verwalteten Dienste; Obsidian bleibt offen. Homepage startet immer. Calendar,
-Email, VaultGraph sowie NICA- und TOHU-Fava koennen fuer den naechsten Start
-einzeln deaktiviert werden.
+Email, die NICA-Website-Konsole, VaultGraph sowie NICA- und TOHU-Fava koennen
+fuer den naechsten Start einzeln deaktiviert werden. Die Website-Konsole bleibt
+im separaten `nica-website`-Repository; Pfad und Port werden nur im lokalen
+Workspace-Profil gespeichert.
+
+Das Funding Observatory bleibt ebenfalls in seinem eigenen Repository. Sein
+Dashboard-Eintrag und sein automatischer Start sind getrennte Einstellungen.
+Auto-Start ist standardmaessig aus, weil der Host gespeicherte oder geplante
+Recherche fortsetzen und Codex-Kontingent verbrauchen kann. `stop-workspace.cmd`
+beendet einen verwalteten Research-Prozess nur im Leerlauf; aktive Recherche
+wird nicht erzwungen abgebrochen.
 
 Beide Wrapper koennen auch aus PowerShell aufgerufen werden:
 
@@ -382,6 +397,15 @@ obsidian web url="http://127.0.0.1:4174/settings.html"
 - `POST /api/settings`: Speichert lokale Settings; erfordert `application/json`
   (Parameter und Gross-/Kleinschreibung werden ignoriert) sowie den exakten
   Homepage-`Origin`.
+- `GET /api/dashboard`: Liefert nur die gemeinsam aktivierten, festen
+  Dashboard-Einstiege; lokale URLs und Vault-Pfade bleiben serverseitig.
+- `POST /api/dashboard/open`: Oeffnet einen aktivierten Dashboard-Einstieg ueber
+  die begrenzte Obsidian-Aktionsfreigabe. Unbekannte oder deaktivierte Ziele
+  werden abgewiesen.
+- `POST /api/dashboard/start`: Startet ausschliesslich den lokal konfigurierten
+  Research-Dienst nach einer Same-Origin-Anfrage und oeffnet ihn. Die Aktion ist
+  nur verfuegbar, wenn Repository und privates Datenverzeichnis im lokalen
+  Workspace-Profil konfiguriert sind.
 - `GET /api/bookmarks`: Liest `.obsidian/bookmarks.json` fuer Bookmark-Modul.
 - `POST /api/bookmarks/open`: Oeffnet Bookmark in Obsidian ueber Bookmark-Plugin-API.
 - `GET /api/obsidian/theme`: Liefert einen Theme-Snapshot aus Obsidian (fuer `mirror-obsidian`).
@@ -410,7 +434,35 @@ Damit sind spaetere Features stabil erweiterbar (neue Module, neue Optionen).
 - Homepage-Layout:
   - Aktivierte Module erscheinen als Icon-Tabs im Header.
   - Es wird jeweils genau ein Modul-Panel unterhalb des Headers gerendert (Tab-Prinzip statt gestapelter Boxen).
-  - Die zuletzt aktive Modul-Auswahl wird lokal gespeichert (`homepage-active-module-v1`).
+  - Die zuletzt aktive Modul-Auswahl wird lokal gespeichert (`homepage-active-module-v2`).
+  - Header, Modulrahmen und Viewport-Raender sind fuer eine dichtere
+    Arbeitsflaeche ohne Zwischenabstaende ausgelegt.
+- `dashboard`: Gemeinsame, repository-definierte Einstiege fuer Calendar,
+  Email, Website, Research, Projekte, Kontakte sowie NICA- und TOHU-Buchhaltung.
+  - Die bestehenden Dienste folgen `startup.services`; deaktivierte Dienste
+    erscheinen weder im Dashboard-Payload noch in der Ansicht. Research nutzt
+    fuer die Sichtbarkeit `modules.dashboard.services.researchAgent`, damit
+    seine separate Auto-Start-Auswahl keine Navigation entfernt.
+  - Calendar, Email und Fava werden in einem neuen Obsidian Webviewer-Tab
+    geoeffnet.
+  - Website oeffnet die separat laufende NICA-Website-Konsole. Deren
+    Uebersetzungs- und Deployment-Aktionen sowie Zugangsdaten bleiben im
+    `nica-website`-Repository.
+  - Research startet nach bewusster Auswahl oder oeffnet das separat laufende
+    Funding Observatory. Dashboard-Sichtbarkeit und Auto-Start sind getrennt;
+    Research-Inhalte und Worker-Steuerung bleiben im `research-agent`-Repository.
+  - Projekte oeffnet `6. Obsidian/Live/Projekte.md`; Kontakte oeffnet
+    `6. Obsidian/Bases/Kontakte.base`.
+  - Diese Eintraege sind bewusst unabhaengig von persoenlichen Bookmarks.
+  - Die dauerhafte Trennung ist in
+    [ADR-006](docs/adr/ADR-006-separate-shared-dashboard-services-from-personal-bookmarks.md)
+    dokumentiert.
+  - Die externe Website-Grenze ist in
+    [ADR-007](docs/adr/ADR-007-integrate-the-website-console-as-an-external-service.md)
+    dokumentiert.
+  - Die externe Research-Grenze ist in
+    [ADR-008](docs/adr/ADR-008-integrate-research-as-a-deliberately-started-external-service.md)
+    dokumentiert.
 - `bookmarks`: Visuelle Bookmark-Navigation.
   - Optional: Pfadanzeige (`showPath`) an/aus.
   - Optional: Typ-Badge (`showType`) an/aus.
