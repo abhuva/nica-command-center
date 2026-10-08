@@ -333,6 +333,11 @@ aggregate workspace launcher](gate-6-aggregate-workspace-launcher.md).
 
 ## Gate 7 - observation and retirement
 
+- Observation started on 2026-10-08. The initial read-only process,
+  configuration, source, and state audit found no active dependency on the
+  legacy checkout. The remaining credential decision, observation checks,
+  rollback rehearsal, and reversible retirement sequence are tracked in
+  [Gate 7 observation and retirement](gate-7-retirement.md).
 - Use the new installation through at least one to two weeks of normal work.
 - Keep the old checkout, configuration, databases, and launchers recoverable.
 - Resolve issues in the new repository without moving authoritative vault data.
@@ -369,5 +374,5 @@ A capability is accepted only when:
 1. Choose the final secret-storage mechanism before any live credential moves;
    local runtime state currently defaults to `%LOCALAPPDATA%` through the
    candidate launcher.
-2. Define the observation-period start and final retirement approval before
-   Gate 7.
+2. Resolve the retained Calendar Google OAuth token before permanent legacy
+   checkout deletion, then obtain final retirement approval during Gate 7.
