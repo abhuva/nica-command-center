@@ -7,6 +7,14 @@ param(
   [int]$Port = 4274,
   [int]$LegacyHomepagePort = 4174,
   [int]$BeantimeFavaPort = 3464,
+  [int]$CalendarPort = 4273,
+  [int]$EmailPort = 4276,
+  [int]$WebsiteConsolePort = 8787,
+  [int]$ResearchAgentPort = 8767,
+  [string]$ResearchRepository = "",
+  [string]$ResearchDataDirectory = "",
+  [int]$NicaFavaPort = 4998,
+  [int]$TohuFavaPort = 4999,
   [switch]$PrepareShellProfile,
   [switch]$PrepareProjectProfile,
   [switch]$PrepareBeantimeProfile,
@@ -31,12 +39,14 @@ if ($Port -lt 1 -or $Port -gt 65535) { throw "Port must be between 1 and 65535."
 if ($LegacyHomepagePort -lt 1 -or $LegacyHomepagePort -gt 65535) {
   throw "LegacyHomepagePort must be between 1 and 65535."
 }
-if ($BeantimeFavaPort -lt 1 -or $BeantimeFavaPort -gt 65535) {
-  throw "BeantimeFavaPort must be between 1 and 65535."
+foreach ($servicePort in @($Port, $LegacyHomepagePort, $BeantimeFavaPort, $CalendarPort, $EmailPort, $WebsiteConsolePort, $ResearchAgentPort, $NicaFavaPort, $TohuFavaPort)) {
+  if ($servicePort -lt 1 -or $servicePort -gt 65535) {
+    throw "Homepage and dashboard service ports must be between 1 and 65535."
+  }
 }
-$homepagePorts = @($Port, $LegacyHomepagePort, $BeantimeFavaPort)
-if (($homepagePorts | Select-Object -Unique).Count -ne 3) {
-  throw "Port, LegacyHomepagePort, and BeantimeFavaPort must be different."
+$homepagePorts = @($Port, $LegacyHomepagePort, $BeantimeFavaPort, $CalendarPort, $EmailPort, $WebsiteConsolePort, $ResearchAgentPort, $NicaFavaPort, $TohuFavaPort)
+if (($homepagePorts | Select-Object -Unique).Count -ne $homepagePorts.Count) {
+  throw "Homepage and dashboard service ports must be different."
 }
 if ([string]::IsNullOrWhiteSpace($ObsidianVaultName)) {
   throw "ObsidianVaultName is required for explicit Obsidian CLI reads."
@@ -397,6 +407,14 @@ $plan = [ordered]@{
   localState = $componentState
   port = $Port
   legacyHomepagePort = $LegacyHomepagePort
+  dashboardPorts = [ordered]@{
+    calendar = $CalendarPort
+    email = $EmailPort
+    websiteConsole = $WebsiteConsolePort
+    researchAgent = $ResearchAgentPort
+    financeNica = $NicaFavaPort
+    financeTohu = $TohuFavaPort
+  }
   mode = if ($plannedProjectEnabled -or $plannedBeantimeEnabled) { "limited-write" } else { "read-only" }
   currentProfile = $profile
   prepareShellProfile = [bool]$PrepareShellProfile
@@ -468,6 +486,12 @@ $actualEnabled = @(
     Where-Object { [bool]$_.Value.enabled } |
     ForEach-Object { $_.Name }
 )
+# Existing local settings predate the shared Dashboard module. The runtime
+# normalizer enables that new default even when it is absent from the local
+# overlay, so the launcher must expect the same effective module set.
+if ($null -eq $shellSettings.modules.psobject.Properties["dashboard"]) {
+  $actualEnabled = @("dashboard") + $actualEnabled
+}
 $updoEnabled = [bool]$shellSettings.modules.updo.enabled
 $projectCreationEnabled = $profile -in @("homepage-project-creation", "homepage-project-beantime")
 $beantimeEnabled = $profile -eq "homepage-project-beantime"
@@ -484,6 +508,13 @@ $env:NICA_WRITE_ENABLED = "false"
 $env:NICA_PROJECT_CREATE_ENABLED = if ($projectCreationEnabled) { "true" } else { "false" }
 $env:NICA_SETTINGS_MANAGE_ENABLED = "true"
 $env:NICA_OBSIDIAN_ACTIONS_ENABLED = "true"
+$env:NICA_RESEARCH_CONTROL_ENABLED = if (
+  -not [string]::IsNullOrWhiteSpace($ResearchRepository) -and
+  -not [string]::IsNullOrWhiteSpace($ResearchDataDirectory)
+) { "true" } else { "false" }
+$env:NICA_RESEARCH_REPOSITORY = $ResearchRepository
+$env:NICA_RESEARCH_DATA_DIRECTORY = $ResearchDataDirectory
+$env:NICA_WORKSPACE_STATE_ROOT = $resolvedState
 $env:NICA_BEANTIME_CAPABILITIES = if ($beantimeEnabled) {
   "beantime.read,beantime.timer,beantime.append,beantime.fava"
 } else {
@@ -493,11 +524,18 @@ $env:NICA_BEANTIME_LEDGER_PATH = $beantimeLedgerPath
 $env:OBSIDIAN_VAULT_NAME = $ObsidianVaultName
 $env:HOMEPAGE_PORT = [string]$Port
 $env:BEANTIME_FAVA_PORT = [string]$BeantimeFavaPort
+$env:DASHBOARD_CALENDAR_PORT = [string]$CalendarPort
+$env:DASHBOARD_EMAIL_PORT = [string]$EmailPort
+$env:DASHBOARD_WEBSITE_CONSOLE_PORT = [string]$WebsiteConsolePort
+$env:DASHBOARD_RESEARCH_AGENT_PORT = [string]$ResearchAgentPort
+$env:DASHBOARD_FINANCE_NICA_PORT = [string]$NicaFavaPort
+$env:DASHBOARD_FINANCE_TOHU_PORT = [string]$TohuFavaPort
 
 $stdout = Join-Path $componentState "homepage.out.log"
 $stderr = Join-Path $componentState "homepage.err.log"
 $serverPath = Join-Path $repoRoot "serve.mjs"
 $writeCapabilities = [string[]]@("settings.manage", "obsidian.open")
+if ($env:NICA_RESEARCH_CONTROL_ENABLED -eq "true") { $writeCapabilities += "research.start" }
 if ($projectCreationEnabled) { $writeCapabilities += "project.create" }
 if ($beantimeEnabled) {
   $writeCapabilities += @("beantime.read", "beantime.timer", "beantime.append", "beantime.fava")
@@ -512,12 +550,22 @@ try {
     obsidianVaultName = $ObsidianVaultName
     stateRoot = $resolvedState
     port = $Port
+    researchRepository = if ([string]::IsNullOrWhiteSpace($ResearchRepository)) { $null } else { $ResearchRepository }
+    researchDataDirectory = if ([string]::IsNullOrWhiteSpace($ResearchDataDirectory)) { $null } else { $ResearchDataDirectory }
     mode = "limited-write"
     writeCapabilities = $writeCapabilities
     enabledModules = $actualEnabled
     beantimeLedgerAuthority = if ($beantimeEnabled) { "vault" } else { "none" }
     beantimeLedgerPath = if ($beantimeEnabled) { $beantimeLedgerPath } else { $null }
     beantimeFavaPort = if ($beantimeEnabled) { $BeantimeFavaPort } else { $null }
+    dashboardPorts = [ordered]@{
+      calendar = $CalendarPort
+      email = $EmailPort
+      websiteConsole = $WebsiteConsolePort
+      researchAgent = $ResearchAgentPort
+      financeNica = $NicaFavaPort
+      financeTohu = $TohuFavaPort
+    }
     monitoringTargetCount = $targetCount
     pid = $proc.Id
     startedAt = (Get-Date).ToString("o")
