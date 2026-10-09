@@ -1,6 +1,7 @@
 ﻿import { renderBookmarksModule } from "../modules/bookmarks.js";
 import { renderBeantimeModule } from "../modules/beantime.js";
 import { renderClockInElement } from "../modules/clock.js";
+import { renderDashboardModule } from "../modules/dashboard.js";
 import { renderEmailModule } from "../modules/email.js";
 import { renderNewProjectModule } from "../modules/new-project.js";
 import { renderSettingsModule } from "../modules/settings.js";
@@ -19,7 +20,7 @@ const pageCleanups = [];
 const activeModuleCleanups = [];
 const rootEl = document.documentElement;
 const THEME_CACHE_KEY = "homepage-theme-bootstrap-v1";
-const MODULE_TAB_CACHE_KEY = "homepage-active-module-v1";
+const MODULE_TAB_CACHE_KEY = "homepage-active-module-v2";
 const MODULE_TAB_ID_PREFIX = "module-tab-";
 const MODULE_PANEL_ID_PREFIX = "module-panel-";
 let searchConfig = {
@@ -172,6 +173,10 @@ function createModuleShell(title) {
 }
 
 const moduleRegistry = {
+  dashboard: {
+    render: renderDashboardModule,
+    showHeader: false
+  },
   settings: {
     render: renderSettingsModule
   },
@@ -196,6 +201,10 @@ const moduleRegistry = {
 };
 
 const moduleUiMeta = {
+  dashboard: {
+    icon: "\u2302",
+    label: "Home"
+  },
   settings: {
     icon: "\u2699\ufe0f"
   },
@@ -337,7 +346,8 @@ function pickActiveModuleKey() {
   if (enabledKeys.includes(requested)) return requested;
   const cached = restoreActiveModuleKey();
   if (enabledKeys.includes(cached)) return cached;
-  return enabledKeys[0] || "";
+  if (enabledKeys.includes("dashboard")) return "dashboard";
+  return enabledKeys.find((moduleKey) => moduleKey !== "settings") || enabledKeys[0] || "";
 }
 
 /**
@@ -354,7 +364,7 @@ function renderModuleTabs() {
   if (!visibleTabEntries.length) return;
 
   for (const [moduleKey, moduleCfg] of visibleTabEntries) {
-    const title = String(moduleCfg?.title || moduleKey);
+    const title = String(moduleUiMeta[moduleKey]?.label || moduleCfg?.title || moduleKey);
     const button = document.createElement("button");
     button.type = "button";
     button.className = "icon-link icon-btn module-tab-btn";
@@ -365,7 +375,19 @@ function renderModuleTabs() {
     button.setAttribute("aria-controls", panelId);
     button.setAttribute("aria-label", title);
     button.title = title;
-    button.textContent = moduleIconForKey(moduleKey);
+    if (moduleKey === "dashboard") {
+      button.classList.add("dashboard-tab-btn");
+      const icon = document.createElement("span");
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = moduleIconForKey(moduleKey);
+      const label = document.createElement("span");
+      label.className = "dashboard-tab-label";
+      label.textContent = title;
+      button.appendChild(icon);
+      button.appendChild(label);
+    } else {
+      button.textContent = moduleIconForKey(moduleKey);
+    }
     button.addEventListener("click", () => {
       void activateModule(moduleKey);
     });
@@ -425,6 +447,9 @@ async function renderActiveModule() {
   }
 
   const shell = createModuleShell(String(moduleCfg?.title || moduleKey));
+  if (definition.showHeader === false) {
+    shell.head.remove();
+  }
   const { tabId, panelId } = moduleTabDomIds(moduleKey);
   shell.root.id = panelId;
   shell.root.setAttribute("role", "tabpanel");

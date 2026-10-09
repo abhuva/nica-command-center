@@ -24,6 +24,36 @@ $resolvedVault = (Resolve-Path -LiteralPath ([string]$profile.vaultRoot)).Path
 if ([string]::IsNullOrWhiteSpace([string]$profile.obsidianVaultName)) {
   throw "Workspace profile has no Obsidian vault name."
 }
+$websiteConsolePort = if (
+  $null -ne $profile.ports.websiteConsole -and
+  [int]$profile.ports.websiteConsole -ge 1 -and
+  [int]$profile.ports.websiteConsole -le 65535
+) { [int]$profile.ports.websiteConsole } else { 8787 }
+$resolvedWebsiteRepository = ""
+$configuredWebsiteRepository = [string]$profile.website.repository
+if (
+  -not [string]::IsNullOrWhiteSpace($configuredWebsiteRepository) -and
+  (Test-Path -LiteralPath $configuredWebsiteRepository -PathType Container)
+) {
+  $resolvedWebsiteRepository = (Resolve-Path -LiteralPath $configuredWebsiteRepository).Path
+}
+$researchAgentPort = if (
+  $null -ne $profile.ports.researchAgent -and
+  [int]$profile.ports.researchAgent -ge 1024 -and
+  [int]$profile.ports.researchAgent -le 65535
+) { [int]$profile.ports.researchAgent } else { 8767 }
+$resolvedResearchRepository = ""
+$resolvedResearchData = ""
+$configuredResearchRepository = [string]$profile.research.repository
+$configuredResearchData = [string]$profile.research.dataDirectory
+if (
+  -not [string]::IsNullOrWhiteSpace($configuredResearchRepository) -and
+  -not [string]::IsNullOrWhiteSpace($configuredResearchData) -and
+  (Test-Path -LiteralPath $configuredResearchRepository -PathType Container)
+) {
+  $resolvedResearchRepository = (Resolve-Path -LiteralPath $configuredResearchRepository).Path
+  $resolvedResearchData = [System.IO.Path]::GetFullPath($configuredResearchData)
+}
 
 $settings = if (Test-Path -LiteralPath $settingsPath -PathType Leaf) {
   Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
@@ -48,6 +78,10 @@ $desired = [ordered]@{
   homepage = $true
   calendar = Get-StartupBool "services.calendar"
   email = Get-StartupBool "services.email"
+  websiteConsole = Get-StartupBool "services.websiteConsole" $false
+  researchAgent = Get-StartupBool "services.researchAgent" $false
+  projects = Get-StartupBool "services.projects"
+  contacts = Get-StartupBool "services.contacts"
   vaultGraph = Get-StartupBool "services.vaultGraph"
   financeNica = Get-StartupBool "services.financeNica"
   financeTohu = Get-StartupBool "services.financeTohu"
@@ -83,6 +117,23 @@ if (-not $Apply) {
 New-Item -ItemType Directory -Force -Path $launcherState | Out-Null
 $results = [System.Collections.Generic.List[object]]::new()
 
+function Test-ProcessDescendant {
+  param(
+    [Parameter(Mandatory = $true)][int]$ProcessId,
+    [Parameter(Mandatory = $true)][int]$AncestorProcessId
+  )
+  $currentId = $ProcessId
+  for ($depth = 0; $depth -lt 16; $depth += 1) {
+    $current = Get-CimInstance Win32_Process -Filter "ProcessId = $currentId" -ErrorAction SilentlyContinue
+    if ($null -eq $current) { return $false }
+    $parentId = [int]$current.ParentProcessId
+    if ($parentId -eq $AncestorProcessId) { return $true }
+    if ($parentId -le 0 -or $parentId -eq $currentId) { return $false }
+    $currentId = $parentId
+  }
+  return $false
+}
+
 function Test-ManifestProcess {
   param(
     [Parameter(Mandatory = $true)][string]$ManifestPath,
@@ -92,29 +143,72 @@ function Test-ManifestProcess {
   if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) { return $false }
   try {
     $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+    $component = [string]$manifest.component
+    $isWebsiteConsole = $component -eq "website-console"
+    $isResearchAgent = $component -eq "research-agent"
+    $isHomepage = $component -eq "homepage-shell"
     if (
       [string]$manifest.repository -ne $repoRoot -or
-      [string]$manifest.component -notin $Components -or
-      [string]$manifest.vaultAuthority -ne $resolvedVault -or
+      $component -notin $Components -or
       [string]$manifest.stateRoot -ne $resolvedState -or
       [int]$manifest.port -ne $ExpectedPort
     ) { return $false }
+    if ($isWebsiteConsole) {
+      if (
+        [string]::IsNullOrWhiteSpace($resolvedWebsiteRepository) -or
+        [string]$manifest.websiteRepository -ne $resolvedWebsiteRepository
+      ) { return $false }
+    } elseif ($isResearchAgent) {
+      if (
+        [string]::IsNullOrWhiteSpace($resolvedResearchRepository) -or
+        [string]$manifest.researchRepository -ne $resolvedResearchRepository -or
+        [string]$manifest.dataDirectory -ne $resolvedResearchData
+      ) { return $false }
+    } elseif ([string]$manifest.vaultAuthority -ne $resolvedVault) {
+      return $false
+    }
+    if ($isHomepage -and (
+      [int]$manifest.dashboardPorts.websiteConsole -ne $websiteConsolePort -or
+      [int]$manifest.dashboardPorts.researchAgent -ne $researchAgentPort -or
+      [string]$manifest.researchRepository -ne $resolvedResearchRepository -or
+      [string]$manifest.researchDataDirectory -ne $resolvedResearchData
+    )) { return $false }
     $manifestPid = [int]$manifest.pid
     $process = Get-CimInstance Win32_Process -Filter "ProcessId = $manifestPid" -ErrorAction SilentlyContinue
     if ($null -eq $process) { return $false }
 
-    $isFinance = [string]$manifest.component -like "finance-*"
+    $isFinance = $component -like "finance-*"
     $favaPattern = '(?i)(?:^|[\\/"\s])fava(?:\.exe)?(?=["\s]|$)'
     $portPattern = '--port(?:=|\s+)' + [regex]::Escape([string]$ExpectedPort) + '(?=["\s]|$)'
     if ($isFinance -and (
       [string]$process.CommandLine -notmatch $favaPattern -or
       [string]$process.CommandLine -notmatch $portPattern
     )) { return $false }
+    if ($isWebsiteConsole) {
+      $websiteLauncher = (Join-Path $resolvedWebsiteRepository "tools\dev_console.ps1")
+      if (
+        [string]$process.CommandLine -notmatch ('(?i)(?:^|\s)-Port\s+' + [regex]::Escape([string]$ExpectedPort) + '(?:\s|$)') -or
+        ([string]$process.CommandLine).IndexOf($websiteLauncher, [System.StringComparison]::OrdinalIgnoreCase) -lt 0
+      ) { return $false }
+    }
+    if ($isResearchAgent) {
+      if (
+        [string]$process.CommandLine -notmatch $portPattern -or
+        ([string]$process.CommandLine).IndexOf([string]$manifest.launcher, [System.StringComparison]::OrdinalIgnoreCase) -lt 0
+      ) { return $false }
+    }
 
     $listeners = @(Get-NetTCPConnection -LocalPort $ExpectedPort -State Listen -ErrorAction SilentlyContinue)
     if ($listeners.Count -eq 0) { return $false }
     if ($manifestPid -in @($listeners | ForEach-Object { [int]$_.OwningProcess })) {
       return $true
+    }
+
+    if ($isWebsiteConsole -or $isResearchAgent) {
+      $serverPid = [int]$manifest.serverPid
+      if ($serverPid -notin @($listeners | ForEach-Object { [int]$_.OwningProcess })) { return $false }
+      $serverProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $serverPid" -ErrorAction SilentlyContinue
+      return $null -ne $serverProcess -and (Test-ProcessDescendant -ProcessId $serverPid -AncestorProcessId $manifestPid)
     }
 
     # Windows Python entry-point wrappers retain the manifest PID while their
@@ -131,6 +225,21 @@ function Test-ManifestProcess {
       }
     }
     return $false
+  } catch {
+    return $false
+  }
+}
+
+function Test-ResearchAgentHealth {
+  param([int]$Port)
+  try {
+    $health = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/ping" -TimeoutSec 2
+    return (
+      [bool]$health.ok -and
+      [string]$health.component -eq "funding-observatory" -and
+      [int]$health.api_version -eq 1 -and
+      [string]$health.backend -eq "codex"
+    )
   } catch {
     return $false
   }
@@ -178,6 +287,20 @@ function Test-DictateProcess {
     if ([int]$ready.pid -ne [int]$manifest.pid -or [string]$ready.model -ne $dictateModel) { return $false }
     $process = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$manifest.pid)" -ErrorAction SilentlyContinue
     return $null -ne $process -and [string]$process.CommandLine -like "*Dictate*runner.py*"
+  } catch {
+    return $false
+  }
+}
+
+function Test-WebsiteConsoleHealth {
+  param([int]$Port)
+  try {
+    $health = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/ping" -TimeoutSec 2
+    return (
+      [bool]$health.ok -and
+      [string]$health.component -eq "nica-website-console" -and
+      [int]$health.api_version -eq 1
+    )
   } catch {
     return $false
   }
@@ -255,7 +378,7 @@ if ($open.obsidian) {
 $homepageManifest = Join-Path $resolvedState "homepage\homepage-process.json"
 Invoke-ReconcileService -Name "homepage" -Enabled $true -ManifestPath $homepageManifest `
   -IsHealthy { (Test-ManifestProcess $homepageManifest @("homepage-shell") ([int]$profile.ports.homepage)) -and (Test-ApiHealth ([int]$profile.ports.homepage) "homepage" (Join-Path $resolvedState "homepage")) } `
-  -Start { & (Join-Path $PSScriptRoot "start-homepage.ps1") -VaultRoot $resolvedVault -ObsidianVaultName ([string]$profile.obsidianVaultName) -StateRoot $resolvedState -Port ([int]$profile.ports.homepage) -BeantimeFavaPort ([int]$profile.ports.beantimeFava) -Apply } `
+  -Start { & (Join-Path $PSScriptRoot "start-homepage.ps1") -VaultRoot $resolvedVault -ObsidianVaultName ([string]$profile.obsidianVaultName) -StateRoot $resolvedState -Port ([int]$profile.ports.homepage) -BeantimeFavaPort ([int]$profile.ports.beantimeFava) -CalendarPort ([int]$profile.ports.calendar) -EmailPort ([int]$profile.ports.email) -WebsiteConsolePort $websiteConsolePort -ResearchAgentPort $researchAgentPort -ResearchRepository $resolvedResearchRepository -ResearchDataDirectory $resolvedResearchData -NicaFavaPort ([int]$profile.ports.financeNica) -TohuFavaPort ([int]$profile.ports.financeTohu) -Apply } `
   -Stop { & (Join-Path $PSScriptRoot "stop-homepage.ps1") -StateRoot $resolvedState }
 
 $dictateManifest = Join-Path $resolvedState "dictate\dictate-process.json"
@@ -281,6 +404,36 @@ Invoke-ReconcileService -Name "email" -Enabled $desired.email -ManifestPath $ema
   -IsHealthy { (Test-ManifestProcess $emailManifest @("email") ([int]$profile.ports.email)) -and (Test-ApiHealth ([int]$profile.ports.email) "email" (Join-Path $resolvedState "email")) } `
   -Start { & (Join-Path $PSScriptRoot "start-email.ps1") -VaultRoot $resolvedVault -StateRoot $resolvedState -Port ([int]$profile.ports.email) -HomepagePort ([int]$profile.ports.homepage) -Apply } `
   -Stop { & (Join-Path $PSScriptRoot "stop-email.ps1") -StateRoot $resolvedState }
+
+$websiteConsoleManifest = Join-Path $resolvedState "website-console\website-console-process.json"
+Invoke-ReconcileService -Name "website-console" -Enabled $desired.websiteConsole -ManifestPath $websiteConsoleManifest `
+  -IsHealthy { (Test-ManifestProcess $websiteConsoleManifest @("website-console") $websiteConsolePort) -and (Test-WebsiteConsoleHealth $websiteConsolePort) } `
+  -Start {
+    if ([string]::IsNullOrWhiteSpace($resolvedWebsiteRepository)) {
+      throw "Website console is enabled, but its configured repository is missing or unavailable."
+    }
+    & (Join-Path $PSScriptRoot "start-website-console.ps1") -WebsiteRepository $resolvedWebsiteRepository -StateRoot $resolvedState -Port $websiteConsolePort -Apply
+  } `
+  -Stop { & (Join-Path $PSScriptRoot "stop-website-console.ps1") -StateRoot $resolvedState }
+
+$researchAgentManifest = Join-Path $resolvedState "research-agent\research-agent-process.json"
+if ($desired.researchAgent) {
+  if ((Test-ResearchAgentHealth $researchAgentPort) -and -not (Test-Path -LiteralPath $researchAgentManifest -PathType Leaf)) {
+    $results.Add([ordered]@{ service = "research-agent"; desired = "running"; outcome = "external-running" })
+  } else {
+    Invoke-ReconcileService -Name "research-agent" -Enabled $true -ManifestPath $researchAgentManifest `
+      -IsHealthy { (Test-ManifestProcess $researchAgentManifest @("research-agent") $researchAgentPort) -and (Test-ResearchAgentHealth $researchAgentPort) } `
+      -Start {
+        if ([string]::IsNullOrWhiteSpace($resolvedResearchRepository) -or [string]::IsNullOrWhiteSpace($resolvedResearchData)) {
+          throw "Research auto-start is enabled, but its repository or private data directory is not configured."
+        }
+        & (Join-Path $PSScriptRoot "start-research-agent.ps1") -ResearchRepository $resolvedResearchRepository -DataDirectory $resolvedResearchData -StateRoot $resolvedState -Port $researchAgentPort -Apply
+      } `
+      -Stop { & (Join-Path $PSScriptRoot "stop-research-agent.ps1") -StateRoot $resolvedState }
+  }
+} else {
+  $results.Add([ordered]@{ service = "research-agent"; desired = "manual"; outcome = "not-reconciled" })
+}
 
 foreach ($finance in @(
   [ordered]@{ id = "nica"; name = "finance-nica"; enabled = $desired.financeNica; port = [int]$profile.ports.financeNica; ledger = [string]$profile.finance.nicaLedger },

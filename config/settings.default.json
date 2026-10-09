@@ -20,6 +20,10 @@
     "services": {
       "calendar": true,
       "email": true,
+      "websiteConsole": false,
+      "researchAgent": false,
+      "projects": true,
+      "contacts": true,
       "vaultGraph": true,
       "financeNica": true,
       "financeTohu": true,
@@ -32,6 +36,13 @@
     "minHoldSeconds": 2
   },
   "modules": {
+    "dashboard": {
+      "enabled": true,
+      "title": "Home",
+      "services": {
+        "researchAgent": true
+      }
+    },
     "bookmarks": {
       "enabled": true,
       "title": "Bookmarks",

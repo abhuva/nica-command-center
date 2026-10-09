@@ -9,6 +9,7 @@
     "doctor": "node ./scripts/doctor.mjs",
     "check:runtime": "node ./tests/runtime-config-smoke.mjs",
     "check:project-creation": "node ./tests/project-creation-smoke.mjs",
+    "check:homepage-dashboard": "node ./tests/homepage-dashboard-smoke.mjs",
     "check:calendar-vault-creation": "node ./tests/calendar-vault-creation-smoke.mjs",
     "check:email-read-shadow": "python ./tests/email_snapshot_smoke.py",
     "check:email-fetch-shadow": "python ./tests/email_fetch_shadow_smoke.py",
@@ -18,6 +19,8 @@
     "check:beantime-shadow": "node ./tests/beantime-shadow-smoke.mjs",
     "check:beantime-live-profile": "powershell -NoProfile -ExecutionPolicy Bypass -File ./tests/homepage-beantime-profile-smoke.ps1",
     "check:workspace-launcher": "powershell -NoProfile -ExecutionPolicy Bypass -File ./tests/workspace-launcher-smoke.ps1",
+    "check:website-console-launcher": "powershell -NoProfile -ExecutionPolicy Bypass -File ./tests/website-console-launcher-smoke.ps1",
+    "check:research-agent-launcher": "powershell -NoProfile -ExecutionPolicy Bypass -File ./tests/research-agent-launcher-smoke.ps1",
     "check:dictate": "powershell -NoProfile -ExecutionPolicy Bypass -File ./tests/dictate-smoke.ps1",
     "lint": "eslint .",
     "lint:jsdoc": "eslint \"**/*.{js,mjs}\""

@@ -1,4 +1,4 @@
-# ADR-006: Manage desktop dictation as an optional local capability
+# ADR-009: Manage desktop dictation as an optional local capability
 
 **Status**: Accepted
 

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import tls from "node:tls";
 import { fileURLToPath } from "node:url";
-import { execFileSync, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   isWriteEnabled,
@@ -27,6 +27,8 @@ const PROJECT_CREATE_ENABLED =
   String(process.env.NICA_PROJECT_CREATE_ENABLED || "").trim().toLowerCase() === "true";
 const SETTINGS_MANAGE_ENABLED =
   String(process.env.NICA_SETTINGS_MANAGE_ENABLED || "").trim().toLowerCase() === "true";
+const RESEARCH_CONTROL_ENABLED =
+  String(process.env.NICA_RESEARCH_CONTROL_ENABLED || "").trim().toLowerCase() === "true";
 const PROJECT_ACTION_TOKEN = PROJECT_CREATE_ENABLED ? randomBytes(32).toString("hex") : "";
 const BEANTIME_CAPABILITY_NAMES = new Set([
   "beantime.read",
@@ -51,6 +53,17 @@ const UPDO_STATE_FILE = path.join(DATA_DIR, "state.json");
 const BEANTIME_STATE_FILE = path.join(STATE_DIR, "beantime", "state.json");
 const BEANTIME_FAVA_HOST = "127.0.0.1";
 const BEANTIME_FAVA_PORT = Number(process.env.BEANTIME_FAVA_PORT || 3464);
+const DASHBOARD_CALENDAR_PORT = Number(process.env.DASHBOARD_CALENDAR_PORT || 4273);
+const DASHBOARD_EMAIL_PORT = Number(process.env.DASHBOARD_EMAIL_PORT || 4276);
+const DASHBOARD_WEBSITE_CONSOLE_PORT = Number(process.env.DASHBOARD_WEBSITE_CONSOLE_PORT || 8787);
+const DASHBOARD_RESEARCH_AGENT_PORT = Number(process.env.DASHBOARD_RESEARCH_AGENT_PORT || 8767);
+const DASHBOARD_FINANCE_NICA_PORT = Number(process.env.DASHBOARD_FINANCE_NICA_PORT || 4998);
+const DASHBOARD_FINANCE_TOHU_PORT = Number(process.env.DASHBOARD_FINANCE_TOHU_PORT || 4999);
+const DASHBOARD_PROJECTS_PATH = "6. Obsidian/Live/Projekte.md";
+const DASHBOARD_CONTACTS_PATH = "6. Obsidian/Bases/Kontakte.base";
+const RESEARCH_REPOSITORY = String(process.env.NICA_RESEARCH_REPOSITORY || "").trim();
+const RESEARCH_DATA_DIRECTORY = String(process.env.NICA_RESEARCH_DATA_DIRECTORY || "").trim();
+const WORKSPACE_STATE_ROOT = String(process.env.NICA_WORKSPACE_STATE_ROOT || path.dirname(STATE_DIR)).trim();
 const BEANTIME_VAULT_LEDGER_FILE = resolveBeantimeVaultLedgerPath(
   process.env.NICA_BEANTIME_LEDGER_PATH || ""
 );
@@ -97,6 +110,10 @@ const DEFAULT_SETTINGS_FALLBACK = {
     services: {
       calendar: true,
       email: true,
+      websiteConsole: false,
+      researchAgent: false,
+      projects: true,
+      contacts: true,
       vaultGraph: true,
       financeNica: true,
       financeTohu: true,
@@ -109,6 +126,13 @@ const DEFAULT_SETTINGS_FALLBACK = {
     minHoldSeconds: 2
   },
   modules: {
+    dashboard: {
+      enabled: true,
+      title: "Home",
+      services: {
+        researchAgent: true
+      }
+    },
     bookmarks: {
       enabled: true,
       title: "Bookmarks",
@@ -338,6 +362,233 @@ function runObsidianAction(args, options = {}) {
     stdio: "pipe",
     ...options
   });
+}
+
+/**
+ * Returns the fixed dashboard catalogue with visibility derived from shared service settings.
+ * @param {object} settings - Effective Homepage settings.
+ * @returns {Array<object>} Internal dashboard entry definitions.
+ */
+function getDashboardDefinitions(settings) {
+  const services = settings?.startup?.services || {};
+  return [
+    {
+      id: "calendar",
+      enabled: Boolean(services.calendar),
+      title: "Calendar",
+      description: "Termine und Kalender oeffnen",
+      icon: "\ud83d\uddd3\ufe0f",
+      kind: "web",
+      target: `http://127.0.0.1:${DASHBOARD_CALENDAR_PORT}/cal.html`
+    },
+    {
+      id: "email",
+      enabled: Boolean(services.email),
+      title: "Email",
+      description: "Lokalen Email-Arbeitsbereich oeffnen",
+      icon: "\u2709\ufe0f",
+      kind: "web",
+      target: `http://127.0.0.1:${DASHBOARD_EMAIL_PORT}/email.html`
+    },
+    {
+      id: "website",
+      enabled: Boolean(services.websiteConsole),
+      title: "Website",
+      description: "Uebersetzungen und Deployment verwalten",
+      icon: "\ud83c\udf10",
+      kind: "web",
+      target: `http://127.0.0.1:${DASHBOARD_WEBSITE_CONSOLE_PORT}/translations`
+    },
+    {
+      id: "research",
+      enabled: Boolean(settings?.modules?.dashboard?.services?.researchAgent),
+      title: "Research",
+      description: "Funding Observatory bewusst starten oder oeffnen",
+      icon: "🔎",
+      kind: "managed-web",
+      target: `http://127.0.0.1:${DASHBOARD_RESEARCH_AGENT_PORT}/`
+    },
+    {
+      id: "projects",
+      enabled: Boolean(services.projects),
+      title: "Projekte",
+      description: "Gemeinsame Projektuebersicht oeffnen",
+      icon: "\ud83d\uddc2\ufe0f",
+      kind: "file",
+      target: DASHBOARD_PROJECTS_PATH
+    },
+    {
+      id: "contacts",
+      enabled: Boolean(services.contacts),
+      title: "Kontakte",
+      description: "Gemeinsame Kontakte-Base oeffnen",
+      icon: "\ud83d\udc65",
+      kind: "file",
+      target: DASHBOARD_CONTACTS_PATH
+    },
+    {
+      id: "finance-nica",
+      enabled: Boolean(services.financeNica),
+      title: "Buchhaltung NICA",
+      description: "NICA-Ledger in Fava oeffnen",
+      icon: "N",
+      kind: "web",
+      target: `http://127.0.0.1:${DASHBOARD_FINANCE_NICA_PORT}/`
+    },
+    {
+      id: "finance-tohu",
+      enabled: Boolean(services.financeTohu),
+      title: "Buchhaltung TOHU",
+      description: "TOHU-Ledger in Fava oeffnen",
+      icon: "T",
+      kind: "web",
+      target: `http://127.0.0.1:${DASHBOARD_FINANCE_TOHU_PORT}/`
+    }
+  ];
+}
+
+/**
+ * Builds the public dashboard payload without exposing local paths or implementation URLs.
+ * @returns {{ok: boolean, items: Array<object>}} Enabled shared dashboard entries.
+ */
+function buildDashboardClientPayload() {
+  const settings = getEffectiveSettings();
+  const items = getDashboardDefinitions(settings)
+    .filter((item) => item.enabled)
+    .map(({ id, title, description, icon, kind }) => ({
+      id,
+      title,
+      description,
+      icon,
+      kind,
+      action: kind === "managed-web" ? "start-or-open" : "open"
+    }));
+  return { ok: true, items };
+}
+
+/**
+ * Opens a local service URL in a new Obsidian Web Viewer tab with an eval fallback.
+ * @param {string} url - Allow-listed local service URL.
+ * @returns {"web"|"eval"} Successful Obsidian opening method.
+ */
+function openDashboardWebView(url) {
+  try {
+    runObsidianAction(["web", `url=${url}`, "newtab"]);
+    return "web";
+  } catch (webError) {
+    const code = `(async () => {
+const leaf = app.workspace.getLeaf("tab");
+await leaf.setViewState({ type: "webviewer", state: { url: ${JSON.stringify(url)}, navigate: true }, active: true });
+return String(leaf.id || "ok");
+})()
+`.trim();
+    try {
+      runObsidianAction(["eval", `code=${code}`]);
+      return "eval";
+    } catch (evalError) {
+      throw new Error(`Obsidian Web Viewer could not open the service: ${evalError.message || webError.message}`);
+    }
+  }
+}
+
+/**
+ * Opens one enabled, allow-listed dashboard entry through the bounded Obsidian action capability.
+ * @param {unknown} requestedId - Dashboard entry id supplied by the browser.
+ * @returns {{ok: boolean, id: string, title: string, kind: string, method: string}} Action result metadata.
+ */
+function openDashboardEntry(requestedId) {
+  const id = String(requestedId || "").trim();
+  const entry = getDashboardDefinitions(getEffectiveSettings()).find((candidate) => candidate.id === id);
+  if (!entry) {
+    const error = new Error("Unknown dashboard entry");
+    error.code = "DASHBOARD_UNKNOWN";
+    throw error;
+  }
+  if (!entry.enabled) {
+    const error = new Error("Dashboard entry is disabled in shared service settings");
+    error.code = "DASHBOARD_DISABLED";
+    throw error;
+  }
+
+  let method = "";
+  if (entry.kind === "web" || entry.kind === "managed-web") {
+    method = openDashboardWebView(entry.target);
+  } else if (entry.kind === "file") {
+    const absoluteTarget = path.resolve(VAULT_ROOT, entry.target);
+    const vaultPrefix = `${path.resolve(VAULT_ROOT)}${path.sep}`;
+    let isAvailableFile = false;
+    try {
+      isAvailableFile = absoluteTarget.startsWith(vaultPrefix) && fs.statSync(absoluteTarget).isFile();
+    } catch {
+      isAvailableFile = false;
+    }
+    if (!isAvailableFile) {
+      throw new Error("Configured dashboard file is unavailable");
+    }
+    runObsidianAction(["open", `path=${entry.target}`]);
+    method = "open";
+  } else {
+    throw new Error("Unsupported dashboard entry type");
+  }
+
+  return { ok: true, id: entry.id, title: entry.title, kind: entry.kind, method };
+}
+
+/**
+ * Starts the configured Funding Observatory through the repository-owned launcher.
+ * The child service owns all research data and may resume queued work.
+ * @param {unknown} requestedId - Dashboard entry id supplied by the browser.
+ * @returns {Promise<{ok: boolean, id: string, title: string, kind: string, method: string}>} Open result.
+ */
+async function startDashboardEntry(requestedId) {
+  const id = String(requestedId || "").trim();
+  if (id !== "research") {
+    const error = new Error("Unknown managed dashboard entry");
+    error.code = "DASHBOARD_UNKNOWN";
+    throw error;
+  }
+  const entry = getDashboardDefinitions(getEffectiveSettings()).find((candidate) => candidate.id === id);
+  if (!entry?.enabled) {
+    const error = new Error("Dashboard entry is disabled in shared service settings");
+    error.code = "DASHBOARD_DISABLED";
+    throw error;
+  }
+  if (!RESEARCH_CONTROL_ENABLED || !RESEARCH_REPOSITORY || !RESEARCH_DATA_DIRECTORY) {
+    const error = new Error("Research service control is not configured on this computer");
+    error.code = "RESEARCH_NOT_CONFIGURED";
+    throw error;
+  }
+  const launcher = path.join(ROOT, "scripts", "start-research-agent.ps1");
+  await new Promise((resolve, reject) => {
+    execFile(
+      "powershell",
+      [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      launcher,
+      "-ResearchRepository",
+      RESEARCH_REPOSITORY,
+      "-DataDirectory",
+      RESEARCH_DATA_DIRECTORY,
+      "-StateRoot",
+      WORKSPACE_STATE_ROOT,
+      "-Port",
+      String(DASHBOARD_RESEARCH_AGENT_PORT),
+        "-Apply"
+      ],
+      { cwd: ROOT, encoding: "utf8", windowsHide: true, timeout: 45000, maxBuffer: 1024 * 1024 },
+      (error) => {
+        if (error) {
+          reject(new Error("Configured research launcher failed"));
+          return;
+        }
+        resolve();
+      }
+    );
+  });
+  return openDashboardEntry(id);
 }
 
 /**
@@ -1403,6 +1654,16 @@ function normalizeSettings(input) {
       services: {
         calendar: toBool(merged?.startup?.services?.calendar, DEFAULT_SETTINGS_FALLBACK.startup.services.calendar),
         email: toBool(merged?.startup?.services?.email, DEFAULT_SETTINGS_FALLBACK.startup.services.email),
+        websiteConsole: toBool(
+          merged?.startup?.services?.websiteConsole,
+          DEFAULT_SETTINGS_FALLBACK.startup.services.websiteConsole
+        ),
+        researchAgent: toBool(
+          merged?.startup?.services?.researchAgent,
+          DEFAULT_SETTINGS_FALLBACK.startup.services.researchAgent
+        ),
+        projects: toBool(merged?.startup?.services?.projects, DEFAULT_SETTINGS_FALLBACK.startup.services.projects),
+        contacts: toBool(merged?.startup?.services?.contacts, DEFAULT_SETTINGS_FALLBACK.startup.services.contacts),
         vaultGraph: toBool(merged?.startup?.services?.vaultGraph, DEFAULT_SETTINGS_FALLBACK.startup.services.vaultGraph),
         financeNica: toBool(merged?.startup?.services?.financeNica, DEFAULT_SETTINGS_FALLBACK.startup.services.financeNica),
         financeTohu: toBool(merged?.startup?.services?.financeTohu, DEFAULT_SETTINGS_FALLBACK.startup.services.financeTohu),
@@ -1421,6 +1682,19 @@ function normalizeSettings(input) {
         : DEFAULT_SETTINGS_FALLBACK.dictate.minHoldSeconds
     },
     modules: {
+      dashboard: {
+        enabled: toBool(merged?.modules?.dashboard?.enabled, DEFAULT_SETTINGS_FALLBACK.modules.dashboard.enabled),
+        title: toCleanString(
+          merged?.modules?.dashboard?.title,
+          DEFAULT_SETTINGS_FALLBACK.modules.dashboard.title
+        ),
+        services: {
+          researchAgent: toBool(
+            merged?.modules?.dashboard?.services?.researchAgent,
+            DEFAULT_SETTINGS_FALLBACK.modules.dashboard.services.researchAgent
+          )
+        }
+      },
       bookmarks: {
         enabled: toBool(
           merged?.modules?.bookmarks?.enabled,
@@ -3503,6 +3777,7 @@ const server = http.createServer((req, res) => {
         projectCreate: PROJECT_CREATE_ENABLED,
         settingsManage: SETTINGS_MANAGE_ENABLED,
         obsidianOpen: OBSIDIAN_ACTIONS_ENABLED,
+        researchStart: RESEARCH_CONTROL_ENABLED,
         beantimeRead: hasBeantimeCapability("beantime.read"),
         beantimeTimer: hasBeantimeCapability("beantime.timer"),
         beantimeAppend: hasBeantimeCapability("beantime.append"),
@@ -3548,9 +3823,11 @@ const server = http.createServer((req, res) => {
   const scopedProjectApply = pathname === "/api/projects/create" && PROJECT_CREATE_ENABLED;
   const scopedSettingsApply = pathname === "/api/settings" && SETTINGS_MANAGE_ENABLED;
   const scopedObsidianAction = OBSIDIAN_ACTIONS_ENABLED && new Set([
+    "/api/dashboard/open",
     "/api/bookmarks/open",
     "/api/search/open"
   ]).has(pathname);
+  const scopedResearchAction = RESEARCH_CONTROL_ENABLED && pathname === "/api/dashboard/start";
   const beantimePostRoute = new Set([
     "/api/beantime/start",
     "/api/beantime/stop",
@@ -3562,6 +3839,7 @@ const server = http.createServer((req, res) => {
     !scopedProjectApply &&
     !scopedSettingsApply &&
     !scopedObsidianAction &&
+    !scopedResearchAction &&
     !beantimePostRoute
   ) {
     sendJson(res, 403, {
@@ -3569,6 +3847,15 @@ const server = http.createServer((req, res) => {
       code: "NICA_READ_ONLY",
       message: "Action disabled: set NICA_WRITE_ENABLED=true in an intentional apply run"
     });
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/dashboard") {
+    try {
+      sendJson(res, 200, buildDashboardClientPayload());
+    } catch (error) {
+      sendText(res, 500, error.message || "Could not build dashboard");
+    }
     return;
   }
 
@@ -3637,6 +3924,75 @@ const server = http.createServer((req, res) => {
     } catch (error) {
       sendText(res, 502, error.message || "Could not read Obsidian theme");
     }
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/dashboard/open") {
+    readRequestBody(req)
+      .then((rawBody) => {
+        let payload;
+        try {
+          payload = JSON.parse(rawBody || "{}");
+        } catch {
+          sendText(res, 400, "Invalid JSON payload");
+          return;
+        }
+
+        try {
+          sendJson(res, 200, openDashboardEntry(payload?.id));
+        } catch (error) {
+          if (error?.code === "DASHBOARD_UNKNOWN") {
+            sendText(res, 404, error.message);
+            return;
+          }
+          if (error?.code === "DASHBOARD_DISABLED") {
+            sendText(res, 403, error.message);
+            return;
+          }
+          sendText(res, 502, "Could not open dashboard entry through Obsidian");
+        }
+      })
+      .catch((error) => {
+        sendText(res, 500, error.message || "Unknown error while opening dashboard entry");
+      });
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/dashboard/start") {
+    if (String(req.headers.origin || "").trim() !== `http://${HOST}:${PORT}`) {
+      sendJson(res, 403, { ok: false, message: "Origin is not allowed" });
+      return;
+    }
+    readRequestBody(req)
+      .then(async (rawBody) => {
+        let payload;
+        try {
+          payload = JSON.parse(rawBody || "{}");
+        } catch {
+          sendText(res, 400, "Invalid JSON payload");
+          return;
+        }
+        try {
+          sendJson(res, 200, await startDashboardEntry(payload?.id));
+        } catch (error) {
+          if (error?.code === "DASHBOARD_UNKNOWN") {
+            sendText(res, 404, error.message);
+            return;
+          }
+          if (error?.code === "DASHBOARD_DISABLED") {
+            sendText(res, 403, error.message);
+            return;
+          }
+          if (error?.code === "RESEARCH_NOT_CONFIGURED") {
+            sendText(res, 409, error.message);
+            return;
+          }
+          sendText(res, 502, "Could not start or open the research service");
+        }
+      })
+      .catch((error) => {
+        sendText(res, 500, error.message || "Unknown error while starting research");
+      });
     return;
   }
 
@@ -4024,7 +4380,7 @@ server.listen(PORT, HOST, () => {
     console.log(`Beantime capabilities: ${boundedCapabilities.join(", ")}`);
   }
   console.log(
-    "Homepage API endpoints ready: GET /api/ping, GET/POST /api/settings, GET /api/bookmarks, GET /api/obsidian/theme, POST /api/bookmarks/open, POST /api/search/open, GET /api/beantime/meta, POST /api/beantime/start, POST /api/beantime/stop, POST /api/beantime/show, GET /api/projects/meta, POST /api/projects/plan, POST /api/projects/create, GET /api/updo/snapshot, GET /api/updo/history, POST /api/updo/restart"
+    "Homepage API endpoints ready: GET /api/ping, GET/POST /api/settings, GET /api/dashboard, POST /api/dashboard/open, GET /api/bookmarks, GET /api/obsidian/theme, POST /api/bookmarks/open, POST /api/search/open, GET /api/beantime/meta, POST /api/beantime/start, POST /api/beantime/stop, POST /api/beantime/show, GET /api/projects/meta, POST /api/projects/plan, POST /api/projects/create, GET /api/updo/snapshot, GET /api/updo/history, POST /api/updo/restart"
   );
 });
 

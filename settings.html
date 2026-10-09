@@ -456,6 +456,28 @@
             <input id="startupEmail" class="switch" type="checkbox" />
             <span class="toggle-copy"><span class="toggle-title">Email</span><span class="toggle-help">Lokalen Email-Arbeitsbereich starten.</span></span>
           </label>
+          <label class="toggle-line" for="startupWebsiteConsole">
+            <input id="startupWebsiteConsole" class="switch" type="checkbox" />
+            <span class="toggle-copy"><span class="toggle-title">NICA-Website</span><span class="toggle-help">Lokale Website-Konsole fuer Uebersetzungen und Deployment starten.</span></span>
+          </label>
+          <label class="toggle-line" for="dashboardResearchAgent">
+            <input id="dashboardResearchAgent" class="switch" type="checkbox" />
+            <span class="toggle-copy"><span class="toggle-title">Research im Dashboard</span><span class="toggle-help">Zeigt den gemeinsamen Einstieg. Starten bleibt eine bewusste Aktion.</span></span>
+          </label>
+          <label class="toggle-line" for="startupResearchAgent">
+            <input id="startupResearchAgent" class="switch" type="checkbox" />
+            <span class="toggle-copy"><span class="toggle-title">Research automatisch starten</span><span class="toggle-help">Kann gespeicherte Warteschlangen oder geplante Recherche fortsetzen und Codex-Kontingent verbrauchen.</span></span>
+          </label>
+          <div class="section-divider"><span>Gemeinsame Dashboard-Einstiege</span></div>
+          <label class="toggle-line" for="startupProjects">
+            <input id="startupProjects" class="switch" type="checkbox" />
+            <span class="toggle-copy"><span class="toggle-title">Projekte</span><span class="toggle-help">Gemeinsame Projektuebersicht im Dashboard anzeigen.</span></span>
+          </label>
+          <label class="toggle-line" for="startupContacts">
+            <input id="startupContacts" class="switch" type="checkbox" />
+            <span class="toggle-copy"><span class="toggle-title">Kontakte</span><span class="toggle-help">Gemeinsame Kontakte-Base im Dashboard anzeigen.</span></span>
+          </label>
+          <div class="section-divider"><span>Weitere Hintergrunddienste</span></div>
           <label class="toggle-line" for="startupVaultGraph">
             <input id="startupVaultGraph" class="switch" type="checkbox" />
             <span class="toggle-copy"><span class="toggle-title">VaultGraph</span><span class="toggle-help">Den abgeleiteten Vault-Graph bereitstellen.</span></span>
@@ -732,6 +754,11 @@
       const startupOpenCalendar = document.getElementById("startupOpenCalendar");
       const startupCalendar = document.getElementById("startupCalendar");
       const startupEmail = document.getElementById("startupEmail");
+      const startupWebsiteConsole = document.getElementById("startupWebsiteConsole");
+      const dashboardResearchAgent = document.getElementById("dashboardResearchAgent");
+      const startupResearchAgent = document.getElementById("startupResearchAgent");
+      const startupProjects = document.getElementById("startupProjects");
+      const startupContacts = document.getElementById("startupContacts");
       const startupVaultGraph = document.getElementById("startupVaultGraph");
       const startupFinanceNica = document.getElementById("startupFinanceNica");
       const startupFinanceTohu = document.getElementById("startupFinanceTohu");
@@ -1096,6 +1123,10 @@
             services: {
               calendar: Boolean(startupCalendar.checked),
               email: Boolean(startupEmail.checked),
+              websiteConsole: Boolean(startupWebsiteConsole.checked),
+              researchAgent: Boolean(startupResearchAgent.checked),
+              projects: Boolean(startupProjects.checked),
+              contacts: Boolean(startupContacts.checked),
               vaultGraph: Boolean(startupVaultGraph.checked),
               financeNica: Boolean(startupFinanceNica.checked),
               financeTohu: Boolean(startupFinanceTohu.checked),
@@ -1110,6 +1141,13 @@
               : 2
           },
           modules: {
+            dashboard: {
+              enabled: Boolean(currentSettings?.modules?.dashboard?.enabled ?? true),
+              title: String(currentSettings?.modules?.dashboard?.title || "Home"),
+              services: {
+                researchAgent: Boolean(dashboardResearchAgent.checked)
+              }
+            },
             bookmarks: {
               enabled: Boolean(bookmarksEnabled.checked),
               title: "Bookmarks",
@@ -1209,6 +1247,11 @@
         startupOpenCalendar.checked = Boolean(settings?.startup?.openCalendar ?? true);
         startupCalendar.checked = Boolean(settings?.startup?.services?.calendar ?? true);
         startupEmail.checked = Boolean(settings?.startup?.services?.email ?? true);
+        startupWebsiteConsole.checked = Boolean(settings?.startup?.services?.websiteConsole ?? false);
+        dashboardResearchAgent.checked = Boolean(settings?.modules?.dashboard?.services?.researchAgent ?? true);
+        startupResearchAgent.checked = Boolean(settings?.startup?.services?.researchAgent ?? false);
+        startupProjects.checked = Boolean(settings?.startup?.services?.projects ?? true);
+        startupContacts.checked = Boolean(settings?.startup?.services?.contacts ?? true);
         startupVaultGraph.checked = Boolean(settings?.startup?.services?.vaultGraph ?? true);
         startupFinanceNica.checked = Boolean(settings?.startup?.services?.financeNica ?? true);
         startupFinanceTohu.checked = Boolean(settings?.startup?.services?.financeTohu ?? true);
