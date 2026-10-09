@@ -1,13 +1,74 @@
 # NICA Command Centre
 
-Die migrierten lokalen Werkzeuge laufen als getrennte Hintergrundprozesse,
-lassen sich aber ueber einen gemeinsamen Workspace-Starter bedienen.
+The NICA Command Centre is the local workspace for the operational tools used
+by NICA e.V. and Tohuwabohu Halle e.V. It starts the required services, provides
+shared entry points through a Homepage, and connects them to the Nextcloud vault
+without copying the responsible domain systems into one monolithic application.
 
-## Workspace einmal einrichten
+**Status:** Migration from the former vault-local `Tools` checkout is complete
+through Gate 6. This repository is the accepted daily installation. Gate 7 is
+the active observation and fallback phase; the old checkout remains available
+until retirement receives explicit approval. The plan requires at least seven,
+preferably fourteen, days of normal use and a final rollback rehearsal. The
+current status is recorded in the
+[Gate 7 record](docs/migration/gate-7-retirement.md).
 
-Die Maschinenkonfiguration liegt ausserhalb des Repositorys unter
-`%LOCALAPPDATA%\NICA\CommandCenter\live\launcher\workspace-profile.json` und
-enthaelt keine Zugangsdaten. Zuerst den Plan pruefen, dann anwenden:
+## Documentation
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) explains system boundaries, data
+  authority, components, and durable architecture decisions.
+- [AGENTS.md](AGENTS.md) is the mandatory entry point for coding agents and
+  technical contributors changing this repository.
+- [docs/migration/README.md](docs/migration/README.md) indexes migration,
+  cutover, and rollback evidence.
+- Numbered [Architecture Decision Records](docs/adr/) preserve long-lived
+  decisions.
+
+## What belongs to the Command Centre
+
+| Area | Function | Owner / data authority |
+| --- | --- | --- |
+| Homepage and Dashboard | Shared navigation, settings, and startup choices | This repository; local settings below the state root |
+| Calendar | Calendar view and bounded creation of event notes | Calendar sources and vault notes remain authoritative |
+| Email | Fetching, local rules/tags, and controlled Markdown export | Mail servers are authoritative; SQLite is sensitive, rebuildable local working state |
+| Projects and Contacts | Fixed shared entry points and project creation | Nextcloud vault |
+| Beantime and Fava | Time tracking and NICA/TOHU accounting views | Beancount files in the vault |
+| VaultGraph and monitoring | Derived visualization and availability data | Vault or external targets; history is a local derivative |
+| Website | Start and open the development/deployment console | Separate `nica-website` repository |
+| Research | Deliberately start/open the Funding Observatory | Separate `research-agent` repository and private data directory |
+| Dictate | Optional local dictation into the focused text field | Local runtime/models; the target application owns the inserted text |
+
+Personal Obsidian bookmarks remain independent from the shared Dashboard. A
+disabled or unavailable service must not make unrelated services unusable.
+
+## Prerequisites
+
+The current workstation setup targets Windows and PowerShell. A complete local
+installation requires:
+
+- Git, Node.js, and npm;
+- Python 3.10 or newer for Email and optional Dictate;
+- Obsidian with CLI access for Webviewer and vault actions;
+- Fava on `PATH` for the Beancount interfaces;
+- a local Nextcloud vault and separately managed service credentials.
+
+Install the JavaScript dependencies for the Command Centre and Calendar once:
+
+```powershell
+npm install
+npm --prefix .\Calendar install
+```
+
+Website and Research retain their own installations, dependencies, and
+credentials. Models, databases, tokens, logs, and other runtime state are not
+distributed through Git or Nextcloud.
+
+## Configure a workstation once
+
+Machine configuration lives below
+`%LOCALAPPDATA%\NICA\CommandCenter\live` by default. It contains local paths
+and ports, but no credentials. Configuration is shown as a plan first and is
+written only with `-Apply`:
 
 ```powershell
 .\scripts\configure-workspace.ps1 `
@@ -16,6 +77,7 @@ enthaelt keine Zugangsdaten. Zuerst den Plan pruefen, dann anwenden:
   -WebsiteRepository "C:\path\to\nica-website" `
   -ResearchRepository "C:\path\to\research-agent" `
   -ResearchDataDirectory "C:\private\funding-observatory"
+
 .\scripts\configure-workspace.ps1 `
   -VaultRoot "C:\path\to\vault" `
   -ObsidianVaultName "vault-name" `
@@ -25,44 +87,35 @@ enthaelt keine Zugangsdaten. Zuerst den Plan pruefen, dann anwenden:
   -Apply
 ```
 
-Danach startet ein Doppelklick auf `start-workspace.cmd` Obsidian und die in
-der Homepage unter Settings > Workspace-Start ausgewaehlten Dienste ohne
-offene Terminalfenster. `stop-workspace.cmd` beendet nur die vom Repository
-verwalteten Dienste; Obsidian bleibt offen. Homepage startet immer. Calendar,
-Email, die NICA-Website-Konsole, VaultGraph sowie NICA- und TOHU-Fava koennen
-fuer den naechsten Start einzeln deaktiviert werden. Die Website-Konsole bleibt
-im separaten `nica-website`-Repository; Pfad und Port werden nur im lokalen
-Workspace-Profil gespeichert.
+Website and Research paths are optional. Supply non-default Beancount files as
+vault-relative paths through `-NicaLedger` and `-TohuLedger`. An existing
+profile is replaced only when `-Replace` is deliberately supplied.
 
-Das Funding Observatory bleibt ebenfalls in seinem eigenen Repository. Sein
-Dashboard-Eintrag und sein automatischer Start sind getrennte Einstellungen.
-Auto-Start ist standardmaessig aus, weil der Host gespeicherte oder geplante
-Recherche fortsetzen und Codex-Kontingent verbrauchen kann. `stop-workspace.cmd`
-beendet einen verwalteten Research-Prozess nur im Leerlauf; aktive Recherche
-wird nicht erzwungen abgebrochen.
+`configure-workspace.ps1` does not provision secrets or create a complete
+component-specific first-run configuration. The migrated workstation already
+has that local configuration. On a new computer, Calendar/Email credentials
+and other private state must be configured or restored separately and securely;
+there is currently no universal installer.
 
-### Optional: lokale Diktierfunktion
+Credentials and component-specific configuration remain in their respective
+local state directories. The [Email guide](Email/README.md) and
+[Dictate guide](Dictate/README.md) describe their current local setup. Technical
+documentation for all other components is routed through
+[AGENTS.md](AGENTS.md).
 
-Dictate ist ein optionaler Windows-Hintergrunddienst. Modelle und Python-
-Runtime liegen ausschliesslich unter dem lokalen State-Root. Sie werden nicht
-in Git oder Nextcloud gespeichert. Auf jedem neuen Rechner sind daher Python
-3.10+ und eine einmalige lokale Installation erforderlich. Der Installer laedt
-die ausgewaehlten Modelle herunter und prueft deren Groesse und SHA-256; ein
-separater manueller Modelldownload ist nicht noetig. Installation zuerst
-pruefen, dann anwenden:
+## Daily use
 
-```powershell
-.\scripts\setup-dictate.ps1 -Models multilingual,german
-.\scripts\setup-dictate.ps1 -Models multilingual,german -Apply
-```
+- `start-workspace.cmd` starts or retains the selected services and opens the
+  configured Obsidian views.
+- `stop-workspace.cmd` stops only processes that this repository can identify
+  as its own; Obsidian remains open.
+- Homepage Settings controls modules, Dashboard visibility, and the service
+  selection for the next workspace start.
+- The aggregate result of the last start is stored at
+  `%LOCALAPPDATA%\NICA\CommandCenter\live\launcher\workspace-status.json`;
+  component logs remain in their respective state directories.
 
-Danach kann Dictate unter Settings > Workspace-Start aktiviert werden. Das
-multilinguale Modell ist fuer Deutsch und Englisch der Standard; das deutsche
-Primeline-Modell bleibt als gezielte Alternative waehlbar. Ein Modellwechsel
-wird beim naechsten Workspace-Start durch einen isolierten Dictate-Neustart
-angewendet. Details stehen in [Dictate/README.md](Dictate/README.md).
-
-Beide Wrapper koennen auch aus PowerShell aufgerufen werden:
+The PowerShell variants show only a plan unless `-Apply` is supplied:
 
 ```powershell
 .\scripts\start-workspace.ps1
@@ -70,524 +123,62 @@ Beide Wrapper koennen auch aus PowerShell aufgerufen werden:
 .\scripts\stop-workspace.ps1
 ```
 
-Der Start ist standardmaessig nur eine Vorschau. Der CMD-Wrapper verwendet
-`-Apply`. Ein Gesamtergebnis wird unter
-`%LOCALAPPDATA%\NICA\CommandCenter\live\launcher\workspace-status.json`
-gespeichert; komponentenspezifische Logs bleiben in deren jeweiligen
-State-Verzeichnissen.
+Default local interfaces:
 
-## Migration candidate
+| Service | Address |
+| --- | --- |
+| Homepage | `http://127.0.0.1:4274/home.html` |
+| Settings | `http://127.0.0.1:4274/settings.html` |
+| Calendar | `http://127.0.0.1:4273/cal.html` |
+| Email | `http://127.0.0.1:4276/email.html` |
+| VaultGraph | `http://127.0.0.1:4175/vault-graph.html` |
 
-This checkout is the isolated migration candidate, not the current production
-installation. It requires explicit `NICA_VAULT_ROOT` and `NICA_STATE_ROOT`
-values, uses separate candidate ports, and rejects action endpoints unless
-`NICA_WRITE_ENABLED=true` is deliberately set. Preview the startup plan with:
+Ports may differ in the local workspace profile.
 
-```powershell
-.\scripts\start-candidate.ps1 -VaultRoot "C:\path\to\vault"
-```
+## Optional dictation
 
-Add `-Apply` only after reviewing the plan. See
-[`docs/migration/gate-3-candidate-runtime.md`](docs/migration/gate-3-candidate-runtime.md)
-for checks and shutdown instructions. The older `Tools/...` commands below
-describe the still-running production layout and are retained as migration
-reference until capability cutover.
-
-Obsidian CLI reads require an explicit `OBSIDIAN_VAULT_NAME`; they never fall
-back to whichever vault happens to be active. Obsidian UI actions additionally
-require `NICA_OBSIDIAN_ACTIONS_ENABLED=true`. Filesystem-only project creation,
-Calendar fixture fallback, monitoring, and local state workflows do not need
-Obsidian actions enabled.
-
-### Gate 5 Homepage shell launcher
-
-The migrated read-only shell combines Bookmarks, Clock, and the accepted
-website monitor on port `4274`. Preview the first profile change before
-applying it:
+Dictate is disabled by default. Install the runtime and selected models
+separately on each computer; the installer verifies file size and SHA-256:
 
 ```powershell
-.\scripts\start-homepage.ps1 -VaultRoot "C:\path\to\vault" -ObsidianVaultName "vault-name" -PrepareShellProfile
-.\scripts\start-homepage.ps1 -VaultRoot "C:\path\to\vault" -ObsidianVaultName "vault-name" -PrepareShellProfile -Apply
+.\scripts\setup-dictate.ps1 -Models multilingual,german
+.\scripts\setup-dictate.ps1 -Models multilingual,german -Apply
 ```
 
-Later starts omit `-PrepareShellProfile`. Open the shell in Obsidian with:
+`multilingual` is the default for German and English; `german` is the focused
+German alternative. Only one model is loaded at a time. Homepage Settings
+controls activation, model, hotkey, and minimum hold duration. Audio and
+transcripts are not intentionally retained. See
+[Dictate/README.md](Dictate/README.md) for details.
+
+## Data and security boundaries
+
+- The Nextcloud vault remains authoritative for organisational documents,
+  projects, contacts, and Beancount data.
+- Mail servers remain authoritative for messages; the Email database is
+  sensitive, rebuildable local working state.
+- Secrets, tokens, local paths, databases, models, and generated exports do not
+  belong in Git.
+- Mutating actions are narrowly bounded and use separate plan/preview and apply
+  steps where practical.
+- Website and Research remain independent products; the Command Centre manages
+  only their local integration.
+
+## Development and diagnostics
+
+Read [AGENTS.md](AGENTS.md) before making changes. The main entry-point checks
+are:
 
 ```powershell
-obsidian web url="http://127.0.0.1:4274/home.html?module=bookmarks"
+npm run check:runtime
+npm run check:homepage-dashboard
+npm run check:workspace-launcher
 ```
 
-Stop only the migrated shell while retaining its local settings and monitoring
-history:
-
-```powershell
-.\scripts\stop-homepage.ps1
-```
-
-To restore the monitoring-only profile, stop the shell and run:
-
-```powershell
-.\scripts\restore-monitoring-profile.ps1
-.\scripts\restore-monitoring-profile.ps1 -Apply
-.\scripts\start-monitoring.ps1 -VaultRoot "C:\path\to\vault" -Apply
-```
-
-The legacy Homepage remains available on port `4174`. Use it for New Project
-and Beantime until those capabilities complete their own cutovers.
-
-### Gate 5 project-creation launcher
-
-Project creation is enabled as a narrowly scoped addition to the migrated
-Homepage. Preview the profile transition first:
-
-```powershell
-.\scripts\start-homepage.ps1 -VaultRoot "C:\path\to\vault" -ObsidianVaultName "vault-name" -PrepareProjectProfile
-```
-
-After stopping only the migrated Homepage, apply it once with
-`-PrepareProjectProfile -Apply`. Later starts use the retained profile and only
-`-Apply`. The UI requires a successful server preview before its separate
-create action becomes available. Other Homepage POST actions remain disabled.
-
-To restore the accepted read-only shell, stop the migrated Homepage, preview
-and apply `scripts/restore-homepage-shell-profile.ps1`, then start the Homepage
-normally. The legacy Homepage on `4174` remains available throughout.
-
-### Gate 5 monitoring launcher
-
-Website monitoring can run independently from the Homepage cutover. Preview
-the component plan from this repository:
-
-```powershell
-.\scripts\start-monitoring.ps1 -VaultRoot "C:\path\to\vault" -InitializeFromLegacy
-```
-
-For the first start, review the plan and add `-Apply`. The initialization takes
-a validated snapshot of only the legacy `updo` settings and derived history;
-it does not change or stop the legacy Homepage. Later starts omit
-`-InitializeFromLegacy`:
-
-```powershell
-.\scripts\start-monitoring.ps1 -VaultRoot "C:\path\to\vault" -Apply
-```
-
-Open the monitoring-only candidate directly:
-
-```text
-http://127.0.0.1:4274/home.html?module=updo
-```
-
-Stop only the migrated monitoring process while retaining its local history:
-
-```powershell
-.\scripts\stop-monitoring.ps1
-```
-
-The legacy Homepage on port `4174` remains available as warm rollback during
-the observation period. Both processes perform read-only `HEAD` probes while
-they run; their derived histories are stored separately.
-
-### Gate 5 Calendar read launcher
-
-The migrated Calendar reader runs beside the legacy Calendar on port `4273`.
-Its first start prepares a local read-only credential profile containing only
-the Google API-key and Nextcloud CalDAV values required for reads:
-
-```powershell
-.\scripts\start-calendar-read.ps1 -VaultRoot "C:\path\to\vault" -ObsidianVaultName "vault-name" -InitializeReadProfile
-.\scripts\start-calendar-read.ps1 -VaultRoot "C:\path\to\vault" -ObsidianVaultName "vault-name" -InitializeReadProfile -Apply
-```
-
-Later starts omit `-InitializeReadProfile`. Open it in Obsidian with:
-
-```powershell
-obsidian web url="http://127.0.0.1:4273/cal.html"
-```
-
-Stop only the migrated reader while retaining its filtered local profile and
-derived event bundle:
-
-```powershell
-.\scripts\stop-calendar-read.ps1
-```
-
-OAuth credentials/tokens, remote create targets, and SFTP publishing
-credentials are intentionally not copied. Refresh, publishing, OAuth changes,
-event creation, and event editing remain disabled. The legacy Calendar stays
-available on port `4173` as warm rollback.
-
-### Gate 5 Calendar vault-event creation
-
-The accepted Calendar runtime reuses the read profile and enables only
-confirmed Markdown event-note creation. Preview the runtime authority with:
-
-```powershell
-.\scripts\start-calendar-vault-write.ps1 -VaultRoot "C:\path\to\vault" -ObsidianVaultName "vault-name"
-```
-
-For a controlled cutover, stop the migrated reader and start the narrow writer:
-
-```powershell
-.\scripts\stop-calendar-read.ps1
-.\scripts\start-calendar-vault-write.ps1 -VaultRoot "C:\path\to\vault" -ObsidianVaultName "vault-name" -Apply
-```
-
-Google, CalDAV, OAuth, event editing, rebuild, Obsidian actions, and publishing
-remain disabled. Roll back by stopping the process and starting
-`start-calendar-read.ps1` again. Legacy Calendar `4173` remains the fallback.
-
-### Gate 5 Email read-only shadow
-
-Email migration starts with a consistent snapshot of the live WAL-backed
-SQLite database. The candidate runs on `4276` without copying mail credentials
-or OAuth tokens, and every POST action remains disabled:
-
-```powershell
-.\scripts\start-email-read.ps1 -VaultRoot "C:\path\to\vault" -RefreshSnapshot
-.\scripts\start-email-read.ps1 -VaultRoot "C:\path\to\vault" -RefreshSnapshot -Apply
-```
-
-Legacy Email `4176` remains the production workflow. Stop only the shadow with
-`.\scripts\stop-email-read.ps1`.
-
-### Gate 5 Email bounded-fetch shadow
-
-The next slice allows only IMAP count and fetch into the candidate's isolated
-snapshot. Preview the profile and snapshot preparation first:
-
-```powershell
-.\scripts\start-email-fetch-shadow.ps1 -VaultRoot "C:\path\to\vault" -PrepareFetchProfile -RefreshSnapshot
-```
-
-After review, stop only migrated `4276` and apply the bounded profile with the
-same command plus `-Apply`. OAuth setup, classification, rules, tags, and vault
-export remain disabled; legacy Email `4176` remains the production workflow.
-
-### Gate 5 Email bounded-classification shadow
-
-The next Email slice retains Count/Fetch and enables only local rule management,
-rule application, and message tagging in the isolated candidate database.
-Preview the activation and consistent rollback snapshot first:
-
-```powershell
-.\scripts\start-email-classification-shadow.ps1 -VaultRoot "C:\path\to\vault" -BackupCandidate
-```
-
-After review, stop only migrated `4276` and repeat the command with `-Apply`.
-OAuth setup and vault export remain disabled. Roll back by stopping the
-classification profile and starting `start-email-fetch-shadow.ps1` without a
-snapshot refresh. Repeating `-BackupCandidate` retains an existing recovery
-copy; `-RefreshCandidateBackup` is required to replace it and preserves the
-original first. Legacy Email `4176` remains available throughout.
-
-### Gate 5 Email bounded-OAuth shadow
-
-The OAuth slice retains Count/Fetch and classification and adds only interactive
-Microsoft login and reauthorization. Preview the activation and immutable local
-token backup first:
-
-```powershell
-.\scripts\start-email-oauth-shadow.ps1 -VaultRoot "C:\path\to\vault"
-```
-
-After review, stop only migrated `4276` and repeat the command with `-Apply`.
-The callback remains loopback-only on port `8080` by default, existing recovery
-copies are retained, and vault export remains disabled. Roll back by stopping
-the OAuth profile and starting `start-email-classification-shadow.ps1 -Apply`.
-Legacy Email `4176` remains available throughout.
-
-### Gate 5 Email bounded-export shadow
-
-The export slice retains Count/Fetch, classification, and OAuth and adds only
-`vault.export`. Preview the runtime transition first:
-
-```powershell
-.\scripts\start-email-export-shadow.ps1 -VaultRoot "C:\path\to\vault"
-```
-
-After review, stop only migrated `4276` and repeat the command with `-Apply`.
-Activation does not export automatically: **Preview Export** performs a
-read-only aggregate plan, and **Apply Export** is a separate action using a
-one-use token. Matching files are left untouched and differing target files
-block apply. Notes in the established flat Email archive are recognized by
-account folder and timestamp, with a bounded UID check for ambiguous matches;
-they are reported separately and never rewritten. Roll back by
-stopping the export profile and starting `start-email-oauth-shadow.ps1 -Apply`.
-Legacy Email `4176` remains available throughout. The live profile is accepted
-after a verified one-note pilot and normal-workflow confirmation. The previously
-previewed 515-note batch is not a migration requirement and is not planned as
-part of the software cutover.
-
-### Email stable runtime
-
-The Email database is rebuildable local state. A normal start retains the
-existing local database:
-
-```powershell
-.\scripts\start-email.ps1 -VaultRoot "C:\path\to\vault"
-.\scripts\start-email.ps1 -VaultRoot "C:\path\to\vault" -Apply
-```
-
-For a new, empty state root, add `-InitializeFreshDatabase`. This mode never
-copies the legacy database and refuses to overwrite an existing database. Add
-`-PrepareProfileFromLegacy` only when the existing account configuration and
-local credentials/tokens should be copied separately from the old tool.
-
-## Ziele
-
-- Homepage in Obsidian Webviewer ueber lokalen Server.
-- Module koennen per Settings ein/ausgeschaltet werden.
-- Lokale, einfache Konfiguration in `Tools/config/`.
-- Klick auf Bookmark-Karten nutzt native Obsidian-Bookmark-Logik (`openBookmark`).
-
-## Ordnerstruktur
-
-- `Tools/home.html`: Hauptseite (Layout + CSS + Script-Einbindung).
-- `Tools/app/homepage.css`: Styles fuer die Homepage.
-- `Tools/app/homepage.js`: Bootstrap + Modul-Registry.
-- `Tools/modules/bookmarks.js`: Bookmarks-Modul.
-- `Tools/modules/clock.js`: Uhrzeit-Modul.
-- `Tools/modules/beantime.js`: Beancount-basiertes Start/Stop-Zeiterfassungs-Modul.
-- `Tools/modules/email.js`: Email-DB-Modul als eingebettetes lokales Tool.
-- `Tools/settings.html`: Settings-Seite (UI fuer Konfiguration).
-- `Tools/serve.mjs`: HTTP-Server + API.
-- `Tools/stop-preview.mjs`: stoppt den Preview-Server auf Port `4174`.
-- `Tools/config/settings.default.json`: versionierte Default-Konfiguration.
-- `Tools/config/settings.local.json`: lokale Ueberschreibungen fuer diesen Arbeitsplatz.
-
-## Legacy vault startup reference
-
-Von Repository-Root:
-
-```powershell
-npm.cmd --prefix .\Tools run preview
-```
-
-Der fruehere vault-lokale Sammelstarter lautete:
-
-```powershell
-.\startup-all.bat
-```
-
-Hinweis: `startup-all.bat` liegt eine Ebene ueber diesem Repository und wird ausserhalb von Git gepflegt. Falls der Sammelstarter nicht vorhanden ist, starte die Homepage lokal mit:
-
-```powershell
-npm.cmd --prefix .\Tools run preview
-```
-
-Dieser Abschnitt dokumentiert nur noch die alte `Tools`-Installation und ihren
-Rollback-Pfad. Der neue Repository-Starter steht am Anfang dieser Datei.
-
-Der alte Sammelstarter startet Homepage, Calendar, VaultGraph sowie die beiden Fava-Server fuer NICA/TOHU in eigenen Terminalfenstern und oeffnet danach `http://127.0.0.1:4174/home.html` in Obsidian.
-Wenn der externe Sammelstarter aktuell ist, startet er zusaetzlich den Email-Preview-Server auf `http://127.0.0.1:4176/email.html`.
-
-Voraussetzung fuer Website Monitoring (`updo`-Modul): Das `updo` CLI muss installiert und im `PATH` verfuegbar sein.
-
-Stoppen:
-
-```powershell
-npm.cmd --prefix .\Tools run stop:preview
-```
-
-## Quality Checks (JS/MJS)
-
-Von Repository-Root:
-
-```powershell
-npm.cmd --prefix .\Tools run lint
-npm.cmd --prefix .\Tools run lint:jsdoc
-```
-
-Hinweis: JSDoc-Regeln sind als Fehler geschaltet. Fehlende oder unvollstaendige JSDoc-Kommentare lassen `lint` fehlschlagen.
-
-Direkt im Obsidian Webviewer oeffnen:
-
-```powershell
-obsidian web url="http://127.0.0.1:4174/home.html"
-```
-
-Settings-Seite:
-
-```powershell
-obsidian web url="http://127.0.0.1:4174/settings.html"
-```
-
-## API
-
-- `GET /api/ping`: Health-Check.
-- `GET /api/settings`: Effektive Settings (Default + Local Merge).
-- `POST /api/settings`: Speichert lokale Settings; erfordert `application/json`
-  (Parameter und Gross-/Kleinschreibung werden ignoriert) sowie den exakten
-  Homepage-`Origin`.
-- `GET /api/dashboard`: Liefert nur die gemeinsam aktivierten, festen
-  Dashboard-Einstiege; lokale URLs und Vault-Pfade bleiben serverseitig.
-- `POST /api/dashboard/open`: Oeffnet einen aktivierten Dashboard-Einstieg ueber
-  die begrenzte Obsidian-Aktionsfreigabe. Unbekannte oder deaktivierte Ziele
-  werden abgewiesen.
-- `POST /api/dashboard/start`: Startet ausschliesslich den lokal konfigurierten
-  Research-Dienst nach einer Same-Origin-Anfrage und oeffnet ihn. Die Aktion ist
-  nur verfuegbar, wenn Repository und privates Datenverzeichnis im lokalen
-  Workspace-Profil konfiguriert sind.
-- `GET /api/bookmarks`: Liest `.obsidian/bookmarks.json` fuer Bookmark-Modul.
-- `POST /api/bookmarks/open`: Oeffnet Bookmark in Obsidian ueber Bookmark-Plugin-API.
-- `GET /api/obsidian/theme`: Liefert einen Theme-Snapshot aus Obsidian (fuer `mirror-obsidian`).
-- `POST /api/search/open`: Oeffnet konfigurierte Header-Suche in Obsidian.
-- `GET /api/projects/meta`: Liefert Vorschlagswerte fuer neue Projekte (Year/Society/Type/Foerderkuerzel) und verfuegbare Projekt-Templates.
-- `POST /api/projects/create`: Erstellt neuen Projektordner + MOC-Datei per ausgewaehltem Projekt-Template und oeffnet die Datei.
-- `GET /api/updo/snapshot`: Liefert Monitoring-Snapshot fuer das `updo`-Modul.
-- `GET /api/updo/history`: Liefert komprimierte Langzeitdaten + Incident-Liste (`rangeDays` optional).
-  - Enthält bei TLS-Fehlern ein `sslIssue`-Objekt (z. B. `ERR_TLS_CERT_ALTNAME_INVALID`).
-- `POST /api/updo/restart`: Startet den `updo`-Monitorprozess neu.
-- `GET /api/beantime/meta`: Liefert laufenden Beantime-Timer + buchbare Beancount-Konten + Personenkonten (`Zeit:*`).
-- `POST /api/beantime/start`: Startet Beantime-Timer (nur State-Datei, noch keine Ledger-Buchung).
-- `POST /api/beantime/stop`: Stoppt Timer, berechnet Dauer und schreibt Beancount-Transaktion.
-- `POST /api/beantime/show`: Startet (falls noetig) einen Fava-Server auf `127.0.0.1:3464` und oeffnet ihn im Obsidian-Webviewer.
-
-## Konfigurationsprinzip
-
-1. Defaults aus `settings.default.json`.
-2. Lokale Ueberschreibung aus `settings.local.json`.
-3. Server liefert die gemergten, validierten Settings aus.
-
-Damit sind spaetere Features stabil erweiterbar (neue Module, neue Optionen).
-
-## Aktuelle Module
-
-- Homepage-Layout:
-  - Aktivierte Module erscheinen als Icon-Tabs im Header.
-  - Es wird jeweils genau ein Modul-Panel unterhalb des Headers gerendert (Tab-Prinzip statt gestapelter Boxen).
-  - Die zuletzt aktive Modul-Auswahl wird lokal gespeichert (`homepage-active-module-v2`).
-  - Header, Modulrahmen und Viewport-Raender sind fuer eine dichtere
-    Arbeitsflaeche ohne Zwischenabstaende ausgelegt.
-- `dashboard`: Gemeinsame, repository-definierte Einstiege fuer Calendar,
-  Email, Website, Research, Projekte, Kontakte sowie NICA- und TOHU-Buchhaltung.
-  - Die bestehenden Dienste folgen `startup.services`; deaktivierte Dienste
-    erscheinen weder im Dashboard-Payload noch in der Ansicht. Research nutzt
-    fuer die Sichtbarkeit `modules.dashboard.services.researchAgent`, damit
-    seine separate Auto-Start-Auswahl keine Navigation entfernt.
-  - Calendar, Email und Fava werden in einem neuen Obsidian Webviewer-Tab
-    geoeffnet.
-  - Website oeffnet die separat laufende NICA-Website-Konsole. Deren
-    Uebersetzungs- und Deployment-Aktionen sowie Zugangsdaten bleiben im
-    `nica-website`-Repository.
-  - Research startet nach bewusster Auswahl oder oeffnet das separat laufende
-    Funding Observatory. Dashboard-Sichtbarkeit und Auto-Start sind getrennt;
-    Research-Inhalte und Worker-Steuerung bleiben im `research-agent`-Repository.
-  - Projekte oeffnet `6. Obsidian/Live/Projekte.md`; Kontakte oeffnet
-    `6. Obsidian/Bases/Kontakte.base`.
-  - Diese Eintraege sind bewusst unabhaengig von persoenlichen Bookmarks.
-  - Die dauerhafte Trennung ist in
-    [ADR-006](docs/adr/ADR-006-separate-shared-dashboard-services-from-personal-bookmarks.md)
-    dokumentiert.
-  - Die externe Website-Grenze ist in
-    [ADR-007](docs/adr/ADR-007-integrate-the-website-console-as-an-external-service.md)
-    dokumentiert.
-  - Die externe Research-Grenze ist in
-    [ADR-008](docs/adr/ADR-008-integrate-research-as-a-deliberately-started-external-service.md)
-    dokumentiert.
-- `bookmarks`: Visuelle Bookmark-Navigation.
-  - Optional: Pfadanzeige (`showPath`) an/aus.
-  - Optional: Typ-Badge (`showType`) an/aus.
-  - Optional: Oeffnen in neuem Tab (`openInNewTab`) an/aus.
-  - Optional: Kartenbreite (`cardMaxWidth`, 205-420 px).
-- `clock` (Uhrzeit): Live-Digitaluhr im Header/Banner.
-- `newProject` (Neues Projekt erstellen): Dialog fuer neue Projekte in `2. Projektverwaltung` inkl. Template-Auswahl und Naming-Validierung.
-  - Projekt-Templates werden aus `6. Obsidian/_template/project/*.md` geladen.
-  - Angezeigt werden die Dateinamen ohne `.md`; `Projekt.md` steht standardmaessig oben, falls vorhanden.
-- `beantime` (Beancount): Start/Stop-Timer mit Konten- und Personenauswahl; schreibt beim Stop eine fertige `HR`-Buchung inkl. Metadaten in eine Beancount-Datei.
-  - Empfohlenes Laufzeit-Ziel: `1. Vereinsverwaltung/Buchhaltung/Zeiterfassung/zeit.beancount` im konfigurierten Nextcloud-Vault.
-  - Vorlage fuer Kontenstruktur: `Tools/beantime/zeit.beancount` (Repository-Template).
-  - Enthaelt den Button `Show`, der Fava auf Port `3464` oeffnet.
-- `vaultGraph`: Bindet die separate VaultGraph-Preview (`http://127.0.0.1:4175/vault-graph.html`) als Homepage-Tab ein.
-  - Voraussetzung: `npm.cmd --prefix .\Tools\VaultGraph run preview` laeuft.
-- `email`: Bindet die separate Email-DB-Preview (`http://127.0.0.1:4176/email.html`) als Homepage-Tab ein.
-  - Voraussetzung: `npm.cmd --prefix .\Tools\Email run preview` laeuft.
-  - Workflow: IMAP-Abruf nach Datum/UID in SQLite, Klassifizierung/Regeln in der Datenbank, Export eines gefilterten Subsets nach `8. Emails`.
-- `updo` (Website Monitoring): Statuskarten + Latenz/Verfuegbarkeits-Charts fuer konfigurierten URL-Satz.
-  - Live-Ansicht: 15m / 1h / 6h aus In-Memory-Ringpuffer.
-  - Langzeit-Ansicht: 7d / 30d / 90d aus komprimierten Persistenzdaten.
-  - Persistenzdateien (lokal): `Tools/data/updo/raw.jsonl`, `Tools/data/updo/longterm.jsonl`, `Tools/data/updo/incidents.jsonl`, `Tools/data/updo/state.json`.
-  - Kompression wird ausgeloest bei Punkteschwelle (`compressCount`) oder Zeitspanne (`compressSpanMinutes`) und behaelt einen konfigurierbaren Live-Tail (`keepTailPoints`).
-  - Kennzeichnet Zertifikatsprobleme explizit (z. B. `SSL MISMATCH`) statt nur generisch `DOWN`.
-
-## Projektnaming-Doku
-
-- Regeln fuer Projektnamen und Frontmatter: `Tools/docs/project-naming-and-creation.md`
-
-## UI-Theming (Homepage + Settings)
-
-- Theme-Modus:
-  - `preset`: Nutzt lokale Theme-Presets.
-  - `mirror-obsidian`: Liest Obsidian-Theme-Werte ueber Server-Endpoint und mapped sie auf Tool-Tokens.
-- Presets: `soft`, `flat`, `high-contrast`.
-- Shape-Profile: `rounded`, `comfortable`, `sharp`.
-- Gilt fuer beide Seiten: `home.html` und `settings.html`.
-
-### Theme-Settings (Schema)
-
-UI-Optionen liegen unter `ui` in den Settings:
-
-```json
-{
-  "ui": {
-    "title": "Workspace Homepage",
-    "titleSize": 38,
-    "search": {
-      "provider": "omnisearch",
-      "openInNewTab": false
-    },
-    "theme": {
-      "mode": "preset",
-      "preset": "soft",
-      "shape": "rounded"
-    }
-  }
-}
-```
-
-### Mirror-Mechanik
-
-1. Frontend fragt `GET /api/obsidian/theme`.
-2. Server liest Theme-Werte via `obsidian eval` aus Obsidian (`document.body` CSS-Variablen).
-3. Frontend mapped Werte auf lokale CSS-Tokens.
-4. Falls Theme-Daten fehlen/fehlschlagen: automatischer Fallback auf `preset`.
-
-### First-Paint Verhalten (kein Theme-Flash)
-
-- Beide Seiten nutzen einen lokalen Bootstrap-Cache in `localStorage`:
-  - Key: `homepage-theme-bootstrap-v1`
-- Ziel: Theme-Daten vor dem ersten Paint anwenden, bevor async API-Requests zurueck sind.
-- Ergebnis: Kein sichtbarer Wechsel von Default-Theme auf Ziel-Theme beim Reload/Seitenwechsel (nach erstem erfolgreichen Load).
-
-### Troubleshooting
-
-- Mirror ohne Effekt:
-  - `http://127.0.0.1:4174/api/obsidian/theme` pruefen (es muessen `vars` mit Werten kommen).
-  - Preview-Server neu starten (`stop:preview` + `preview`), falls neue API-Routen noch nicht aktiv sind.
-- Unerwartete Restfarben nach Refactor:
-  - `localStorage`-Eintrag `homepage-theme-bootstrap-v1` loeschen und Seite neu laden.
-
-## Recent Changes
-
-- Homepage-Module von gestapelten, einklappbaren Boxen auf Header-Icon-Tabs umgestellt (ein aktives Modul zur Zeit).
-- Aktive Modulwahl wird lokal gespeichert (`homepage-active-module-v1`) und beim Laden wiederhergestellt.
-- Modulares Theme-System eingefuehrt (`ui.theme.mode/preset/shape`).
-- Presets hinzugefuegt: `soft`, `flat`, `high-contrast`.
-- Shape-Profile hinzugefuegt: `rounded`, `comfortable`, `sharp`.
-- Obsidian-Mirror-Modus hinzugefuegt (via `GET /api/obsidian/theme`).
-- Theme gilt jetzt fuer `home.html` und `settings.html`.
-- First-paint Theme-Bootstrap via `localStorage` hinzugefuegt (`homepage-theme-bootstrap-v1`) zur Vermeidung von Theme-Flash.
-- Header angepasst: kein Untertitel mehr, Titelgroesse konfigurierbar (`ui.titleSize`), neue Such-Icon-Aktion fuer Omnisearch.
-- Neues `beantime`-Modul (Beancount) eingefuehrt, mit Start/Stop-State-Datei und Beancount-Append beim Stop.
-- Beantime ergaenzt um `Show`-Button: startet/oeffnet Fava im Obsidian-Webviewer auf Port `3464` in einem neuen Tab.
-- Settings-UI kann jetzt innerhalb der Homepage als Modul-Tab verwendet werden (kein Seitenwechsel erforderlich).
-- Header-Gear rechts neben der Suche aktiviert die eingebettete Settings-Ansicht.
-- Settings-Panels starten standardmaessig eingeklappt.
-- Beantime-Running-Panel wird bei gestopptem Timer hart ausgeblendet (`display: none` + `hidden`), um Webviewer-Inkonsistenzen zu vermeiden.
-
-## Neue Module ergaenzen
-
-1. Neue Moduldatei in `Tools/modules/` anlegen und `render...Module` exportieren.
-2. In `Tools/app/homepage.js` neues Modul in `moduleRegistry` registrieren.
-3. In `Tools/config/settings.default.json` Modul-Konfiguration aufnehmen.
-4. Optional in `Tools/settings.html` UI-Toggles/Felder ergaenzen.
-5. Falls Backend noetig: Endpoint in `Tools/serve.mjs` ergaenzen.
+`npm run doctor` checks a runtime-oriented installation and requires explicit
+`NICA_VAULT_ROOT` and `NICA_STATE_ROOT` values.
+
+Additional `check:*` scripts in [package.json](package.json) validate individual
+integration boundaries. Domain workflows include the
+[Email tool workflow](docs/email-tool-workflow.md) and
+[project naming and creation rules](docs/project-naming-and-creation.md).
