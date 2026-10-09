@@ -48,6 +48,24 @@ try {
   if ($runnerSource -notmatch 'do_not_retain_failed_audio' -or $runnerSource -notmatch '"provider": "parakeet_local"') {
     throw "Dictate privacy controls are not visible in the adapter."
   }
+  if ($runnerSource -notmatch 'Dictate model failed to load: \{recognizer\._load_error\}' -or $runnerSource -match 'recognizer\.transcribe\(np\.zeros') {
+    throw "Dictate model-load failures are not reported directly."
+  }
+
+  $setupSource = Get-Content -LiteralPath (Join-Path $repoRoot "scripts\setup-dictate.ps1") -Raw
+  if ($setupSource -notmatch '\$recovery = \$null' -or $setupSource -notmatch 'Move-Item -LiteralPath \$recovery -Destination \$destination') {
+    throw "Dictate model replacement does not retain its rollback path."
+  }
+
+  $startSource = Get-Content -LiteralPath (Join-Path $repoRoot "scripts\start-dictate.ps1") -Raw
+  if ($startSource -notmatch '\$failedReady\.pid' -or $startSource -notmatch '\$failedRunner\.CommandLine') {
+    throw "Dictate startup cleanup does not validate and stop the ready-file runner."
+  }
+
+  $settingsSource = Get-Content -LiteralPath (Join-Path $repoRoot "settings.html") -Raw
+  if ($settingsSource -notmatch 'rawDictateMinHoldSeconds === ""' -or $settingsSource -notmatch 'Number\.isFinite\(parsedDictateMinHoldSeconds\)') {
+    throw "Dictate settings do not preserve the default for an empty hold duration."
+  }
   Write-Host "Dictate smoke check OK"
 } finally {
   if (Test-Path -LiteralPath $sandbox) { Remove-Item -LiteralPath $sandbox -Recurse -Force }

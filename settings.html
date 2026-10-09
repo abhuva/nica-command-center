@@ -1101,6 +1101,10 @@
         const cleanBeantimeStateFile = String(beantimeStateFile.value || "").trim() || "data/beantime/state.json";
         const cleanBeantimeAccountPrefix = String(beantimeAccountPrefix.value || "").trim() || "Projekte:";
         const parsedUpdoGapFactor = Number.parseFloat(String(updoGapFactor.value || ""));
+        const rawDictateMinHoldSeconds = String(dictateMinHoldSeconds.value || "").trim();
+        const parsedDictateMinHoldSeconds = rawDictateMinHoldSeconds === ""
+          ? Number.NaN
+          : Number(rawDictateMinHoldSeconds);
         return {
           schemaVersion: 3,
           ui: {
@@ -1136,8 +1140,8 @@
           dictate: {
             model: String(dictateModel.value || "multilingual"),
             hotkey: String(dictateHotkey.value || "ctrl"),
-            minHoldSeconds: Number.isFinite(Number(dictateMinHoldSeconds.value))
-              ? Math.max(0, Math.min(30, Number(dictateMinHoldSeconds.value)))
+            minHoldSeconds: Number.isFinite(parsedDictateMinHoldSeconds)
+              ? Math.max(0, Math.min(30, parsedDictateMinHoldSeconds))
               : 2
           },
           modules: {

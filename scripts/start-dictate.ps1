@@ -108,6 +108,15 @@ try {
   [System.IO.File]::WriteAllText($manifestPath, (($manifest | ConvertTo-Json -Depth 6) + [Environment]::NewLine), $utf8NoBom)
   $manifest | ConvertTo-Json -Depth 6
 } catch {
+  if (Test-Path -LiteralPath $readyPath -PathType Leaf) {
+    try {
+      $failedReady = Get-Content -LiteralPath $readyPath -Raw | ConvertFrom-Json
+      $failedRunner = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$failedReady.pid)" -ErrorAction SilentlyContinue
+      if ($failedRunner -and [string]$failedRunner.CommandLine -like "*$runner*") {
+        Stop-Process -Id ([int]$failedReady.pid) -Force -ErrorAction SilentlyContinue
+      }
+    } catch { }
+  }
   if ($launcher) { Stop-Process -Id $launcher.Id -Force -ErrorAction SilentlyContinue }
   Remove-Item -LiteralPath $manifestPath, $readyPath -Force -ErrorAction SilentlyContinue
   throw

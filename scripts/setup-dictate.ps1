@@ -128,13 +128,30 @@ foreach ($model in $selectedModels) {
     if (-not (Test-RegisteredModel $model $stage)) {
       throw "Downloaded Dictate model '$modelId' failed size or SHA-256 verification."
     }
-    if (Test-Path -LiteralPath $destination) {
-      $recoveryRoot = Join-Path $componentState "recovery"
-      New-Item -ItemType Directory -Force -Path $recoveryRoot | Out-Null
-      $recovery = Join-Path $recoveryRoot ($modelId + "-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
-      Move-Item -LiteralPath $destination -Destination $recovery
+    $recovery = $null
+    try {
+      if (Test-Path -LiteralPath $destination) {
+        $recoveryRoot = Join-Path $componentState "recovery"
+        New-Item -ItemType Directory -Force -Path $recoveryRoot | Out-Null
+        $recovery = Join-Path $recoveryRoot ($modelId + "-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+        Move-Item -LiteralPath $destination -Destination $recovery
+      }
+      Move-Item -LiteralPath $stage -Destination $destination
+    } catch {
+      $publishError = $_
+      if (
+        $recovery -and
+        (Test-Path -LiteralPath $recovery -PathType Container) -and
+        -not (Test-Path -LiteralPath $destination)
+      ) {
+        try {
+          Move-Item -LiteralPath $recovery -Destination $destination
+        } catch {
+          Write-Warning "Could not restore the previous Dictate model after publication failed. It remains at $recovery."
+        }
+      }
+      throw $publishError
     }
-    Move-Item -LiteralPath $stage -Destination $destination
     $installed.Add([ordered]@{ id = $modelId; outcome = "installed"; path = $destination })
   } finally {
     if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }

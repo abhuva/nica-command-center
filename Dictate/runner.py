@@ -92,7 +92,7 @@ def main() -> int:
     if not recognizer.wait_ready(timeout=120):
         raise RuntimeError("Dictate model did not become ready within 120 seconds")
     if not recognizer.is_ready():
-        recognizer.transcribe(np.zeros((1600, 1), dtype=np.int16))
+        raise RuntimeError(f"Dictate model failed to load: {recognizer._load_error}")
 
     import gui  # type: ignore[import-not-found]
     from PyQt6.QtWidgets import QApplication

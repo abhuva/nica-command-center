@@ -335,8 +335,9 @@ aggregate workspace launcher](gate-6-aggregate-workspace-launcher.md).
 
 - Observation started on 2026-10-08. The initial read-only process,
   configuration, source, and state audit found no active dependency on the
-  legacy checkout. The remaining credential decision, observation checks,
-  rollback rehearsal, and reversible retirement sequence are tracked in
+  legacy checkout. The remaining recovery-copy check, observation checks,
+  rollback rehearsal, final retirement approval, and reversible retirement
+  sequence are tracked in
   [Gate 7 observation and retirement](gate-7-retirement.md).
 - Use the new installation through at least one to two weeks of normal work.
 - Keep the old checkout, configuration, databases, and launchers recoverable.

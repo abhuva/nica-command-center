@@ -121,7 +121,8 @@ authoritative write merely for testing.
 ## Retirement sequence
 
 1. Re-run the read-only dependency and dirty-worktree checks.
-2. Resolve the OAuth-token decision without committing or logging its content.
+2. Confirm the existing OAuth recovery copy remains available while its
+   contents stay outside Git and logs.
 3. Preserve the old checkout by renaming it to a clearly dated retirement
    archive; do not delete it on the first retirement pass.
 4. Update or disable only the legacy launchers that would otherwise point at a
