@@ -1,313 +1,224 @@
-# NICA command-centre architecture
+# NICA Command Centre Architecture
 
-**Status**: Capability cutovers and aggregate launcher accepted; Gate 7 observation in progress
+**Status:** Operational architecture accepted; migration Gate 7 observation is
+in progress
 
-**Date**: 2026-10-08
+**Updated:** 2026-10-09
+
+## Documentation entry points
+
+- [README.md](README.md) is the human-facing introduction, setup guide, and
+  daily operating reference.
+- [AGENTS.md](AGENTS.md) defines mandatory rules for agents and contributors.
+- [docs/adr/](docs/adr/) contains accepted, long-lived architecture decisions.
+- [docs/migration/README.md](docs/migration/README.md) indexes the historical
+  migration, cutover, rollback, and retirement evidence.
+- [Architecture Overview.canvas](Architecture%20Overview.canvas) is the visual
+  companion; this document is authoritative when they differ.
 
 ## Purpose
 
-NICA is developing a growing set of digital capabilities to manage the work of
-a non-profit society with open-source, self-hostable, non-proprietary software
-where practical. The goal is organisational independence, portable data,
-auditable operations, and the ability to create or change workflows quickly.
+The Command Centre gives NICA e.V. and Tohuwabohu Halle e.V. one coherent
+local workspace for operational tools while preserving the ownership and
+failure boundaries of those tools. It favors open-source, self-hostable and
+portable components, but it does not combine every workflow or datum into one
+application.
 
-This repository will become the software home for the NICA command centre and
-for suitable tools migrated from the shared Nextcloud vault. It begins clean so
-that software, authoritative data, generated state, and credentials can be
-separated deliberately instead of reproducing the current mixed layout.
+The architecture optimizes for:
 
-The accepted repository-placement decision is recorded in
-[ADR-001](docs/adr/ADR-001-separate-operational-software-from-the-shared-vault.md).
-The accepted local-workspace orchestration decision is recorded in
-[ADR-005](docs/adr/ADR-005-use-a-repository-owned-workspace-launcher.md).
-The separation between shared Dashboard services and personal bookmarks is
-recorded in
-[ADR-006](docs/adr/ADR-006-separate-shared-dashboard-services-from-personal-bookmarks.md).
-The external-service boundary for the independently owned website console is
-recorded in
-[ADR-007](docs/adr/ADR-007-integrate-the-website-console-as-an-external-service.md).
-The deliberately started external-service boundary for the Funding Observatory
-is recorded in
-[ADR-008](docs/adr/ADR-008-integrate-research-as-a-deliberately-started-external-service.md).
-The accepted optional desktop-dictation decision is recorded in
-[ADR-009](docs/adr/ADR-009-manage-desktop-dictation-as-an-optional-local-capability.md).
+- explicit sources of truth;
+- replaceable components and open interfaces;
+- bounded, reviewable writes;
+- useful local operation without putting software into Nextcloud;
+- independent failures and recovery paths;
+- later evolution toward browser-accessible operation where needed.
 
-## Current operating environment
+## Core boundaries
 
-### Shared vault
+### Nextcloud is the shared human workspace
 
-The Nextcloud vault is the societies' operational and knowledge workspace. It
-contains:
+The vault remains authoritative for organisational documents, projects,
+contacts, event notes, Beancount ledgers, and other shared records. Its
+machine-specific path is configuration, never repository state. The Command
+Centre may provide validated workflows around vault content but does not become
+its owner.
 
-- society administration, finance, legal, and accounting records;
-- project folders and project MOCs;
-- contacts, meetings, tasks, and linked Markdown knowledge;
-- Beancount ledgers and LibreOffice planning data;
-- photographs, PDFs, DOCX files, spreadsheets, and other binary records;
-- Obsidian configuration, templates, Bases, and helper scripts.
+### Git repositories own software
 
-Most collaborators are non-technical. They primarily use the Nextcloud browser
-interface and should not be required to understand Git, branches, commits, or a
-developer installation.
+This repository owns the Command Centre shell and bounded capabilities migrated
+from the former vault-local `Tools` checkout. Substantial independent products,
+including the public website and Funding Observatory, retain their own
+repositories, releases, dependencies, data, and credentials.
 
-### Known software capabilities
+### Local state is private and replaceable
 
-The current landscape includes at least:
+`NICA_STATE_ROOT` contains process manifests, logs, settings, caches, generated
+indexes, downloaded models, Email SQLite state, and component configuration.
+It must be outside both Git and the vault. A local artifact is not an
+organisational authority merely because a service depends on it.
 
-- email ingestion, classification, database views, and exports;
-- research and AI-assisted workflows;
-- public website building, translation, validation, deployment, and monitoring;
-- calendar generation and project-event handling;
-- project creation and Obsidian integrations;
-- Beancount/Fava finance views and time tracking;
-- CircusWiki and related knowledge-publication tooling;
-- vault visualization and operational homepage modules;
-- optional local desktop dictation with separately installed speech models.
+### Integration does not transfer ownership
 
-This inventory is incomplete and must be verified before migration. Every
-capability may contain software, authoritative data, derived state, credentials,
-or a mixture of them.
+The Command Centre starts, checks, opens, or coordinates a domain tool through
+a narrow CLI or loopback HTTP contract. Domain-specific mutation logic remains
+with the owning component. No universal tool protocol or central data store is
+required.
 
-## Problem statement
-
-The present directory structure does not consistently communicate ownership.
-Software, live organisational data, generated exports, dependency trees, local
-state, and credentials can be adjacent or mixed. It is therefore difficult to
-answer:
-
-- Which copy is authoritative?
-- What may be regenerated or deleted?
-- What should be synchronized through Nextcloud?
-- What belongs in Git?
-- What may a user or coding agent modify?
-- What must be backed up, retained, or kept private?
-- Which component owns a failed workflow?
-
-The growing number of tools also makes discovery and coordinated operation
-difficult. The desired answer is a command centre, but not a monolithic
-application that absorbs every tool.
-
-## Architectural boundaries
-
-### Nextcloud is the human workspace and data authority
-
-The vault remains optimized for shared documents, Markdown knowledge, project
-records, web access, and non-technical collaboration. It will not be converted
-into one Git repository.
-
-### Software lives outside the synchronized vault
-
-Software repositories use Git as their primary source of truth and live in a
-normal development location. Tools receive the vault location through explicit
-configuration or connect through open protocols.
-
-This repository is the clean destination for the future command centre. Moving
-the former vault `Tools` checkout is a later migration activity, not a blind
-directory copy.
-
-### Data repositories are different from software repositories
-
-Text-based operational data can benefit from Git while remaining in its natural
-vault location. Beancount is the primary example. A narrowly scoped Git
-repository for ledger data does not justify putting software working trees or
-the complete vault under Git.
-
-The Email SQLite database is a different case: it is rebuildable local working
-state derived from mail accounts, not an organisational record to synchronize
-or migrate. This decision is recorded in
-[ADR-004](docs/adr/ADR-004-treat-email-database-as-rebuildable-local-state.md).
-
-### The command centre coordinates; domain tools retain ownership
-
-The command centre provides one place for status, discovery, control, and
-cross-tool workflows. It calls modular capabilities through stable CLI or API
-interfaces. It does not copy all organisational data or require every domain
-tool to share one runtime and release cycle.
-
-The local workspace uses a short-lived repository-owned launcher. It
-reconciles independently owned services, opens selected views, records an
-aggregate result, and then exits. Startup choices are local settings; they do
-not change authoritative vault data or merge the tools into one process.
-
-### Web-only collaborators are first-class users
-
-Co-location of source code in Nextcloud does not help people using only the
-browser. Local launchers may remain useful for synchronized workstations, but a
-broadly shared command centre may require a secured hosted interface or another
-browser-accessible delivery model.
-
-### Open means portable and replaceable, not universally public
-
-Prefer open-source components, open protocols, and portable formats such as
-Markdown, JSON, CSV, SQLite, iCalendar, CalDAV, CardDAV, WebDAV, IMAP, and SMTP.
-Financial, personal, participant, and email data remain confidential where
-required. Institutional independence comes from control and portability;
-publication applies only where appropriate.
-
-## Target conceptual architecture
+## Current runtime shape
 
 ```text
-Non-technical collaborators
-        |
-        v
-Nextcloud web / Obsidian / future hosted UI
-        |
-        v
-NICA command centre
-  - capability registry
-  - health and status
-  - plan / preview / apply workflows
-  - cross-tool orchestration
-  - audit and diagnostics
-        |
-        +----------------+----------------+----------------+
-        |                |                |                |
-        v                v                v                v
- Email tools       Calendar tools   Website tools    Research tools
-        |                |                |                |
-        +----------------+----------------+----------------+
-                         |
-                         v
-      Nextcloud data, mail, CalDAV, Git repositories,
-      Beancount ledgers, and other authoritative systems
+User / Obsidian Webviewer
+          |
+          v
+Homepage + shared Dashboard (127.0.0.1:4274)
+          |
+          +--> Calendar (4273) --------> calendar sources + vault event notes
+          +--> Email (4276) -----------> mail servers + local SQLite + vault exports
+          +--> VaultGraph (4175) ------> derived view of the vault
+          +--> NICA / TOHU Fava (4998/4999) -> vault-owned Beancount ledgers
+          +--> Website console (8787) ------> separate nica-website repository
+          +--> Funding Observatory (8767) --> separate research repository/private data
+          +--> Dictate ----------------> focused desktop application
+
+start-workspace.cmd
+          |
+          v
+short-lived PowerShell reconciler
+  - reads local workspace profile and Homepage settings
+  - starts or retains selected independent processes
+  - validates health and process ownership
+  - records an aggregate result, opens selected views, then exits
 ```
 
-The command centre may initially run locally. The architecture must not assume
-that local execution alone will satisfy web-only collaborators in the long
-term.
+Homepage is the required control surface. Calendar, Email, Website, Research,
+VaultGraph, finance services, and Dictate have independent lifecycles. Projects
+and Contacts are shared navigation capabilities rather than background
+services. Dashboard entries are versioned and shared; personal Obsidian
+bookmarks remain user-owned.
 
-## Responsibility model
+## Capability placement
 
-| Material | Primary authority | Expected treatment |
+| Capability | Implementation owner | Authoritative data | Runtime notes |
+| --- | --- | --- | --- |
+| Homepage, Dashboard, Settings | This repository | Versioned defaults plus machine-local overrides | Required loopback service |
+| Workspace launcher | This repository | Local workspace profile | Reconciles services and exits |
+| Calendar | This repository | External calendar sources and vault event notes | Reads external sources; only the accepted vault-event write is enabled |
+| Email | This repository | Mail accounts; exported Markdown is a vault projection | SQLite database is sensitive, local, and rebuildable |
+| Project creation and Contacts navigation | This repository around vault conventions | Nextcloud vault | Fixed paths and validated project templates/names |
+| Beantime and finance views | This repository around Beancount/Fava | Vault-owned ledgers | Timer state is local; completed entries append to the configured ledger |
+| VaultGraph | This repository | Nextcloud vault | Graph data is derived and rebuildable |
+| Website monitoring | This repository | Remote endpoints | Measurements and incidents are local derived history |
+| Website console | `nica-website` repository | Website source and deployment system | Command Centre manages only configured startup, health, and navigation |
+| Funding Observatory | `research-agent` repository | Private research database, profiles, sources, and results | Manual start is distinct from opt-in auto-start; active work is not force-stopped |
+| Dictate | This repository's adapter and pinned upstream snapshot | Focused application's text field | Runtime/models are local; only one model is loaded; no transcript history |
+
+An unavailable capability degrades only its own entry. The Homepage and other
+independent services must remain usable.
+
+## Authority and storage model
+
+| Material | Primary authority | Required treatment |
 | --- | --- | --- |
-| Software source and tests | Git repository | Branch, review, test, release |
-| Shared organisational records | Nextcloud vault | Human-readable, web-accessible, governed |
-| Beancount ledgers | Vault/data repository | Narrow private Git history where useful |
-| Raw source documents | Vault or originating system | Preserve provenance and permissions |
-| Derived indexes and caches | Owning tool | Rebuildable; excluded from synchronization and Git |
-| Downloaded speech models and local tool runtimes | Machine-local state | Verified, replaceable, excluded from synchronization and Git |
-| Generated publication output | Owning workflow | Reproducible; archive only when useful |
-| Credentials and tokens | Dedicated secret mechanism | Never browser-exposed or committed |
-| Audit events | Command centre or owning tool | Minimal, attributable, privacy-aware |
+| Software source, tests, schemas, documentation | Owning Git repository | Branch, review, test, release |
+| Shared organisational records | Nextcloud vault | Preserve names, metadata, links, provenance, and permissions |
+| Mail messages | Originating mail servers | Fetch read-only; do not use IMAP flags as local workflow state |
+| Email working database | Machine-local state | Sensitive and rebuildable; never synchronize or commit |
+| Beancount ledgers | Configured vault paths | Validate before use; never duplicate merely for architecture symmetry |
+| Website source and deployment credentials | `nica-website` repository/local secrets | Never proxy or copy into the Command Centre |
+| Research data and worker policy | Funding Observatory | Private external state; Command Centre sees only bounded health/lifecycle metadata |
+| Downloaded speech models and Python runtimes | Machine-local state | Verified, replaceable, optional, and excluded from Git/Nextcloud |
+| Credentials and tokens | Dedicated component-local secret storage | Never expose to browser code, Git, fixtures, or logs |
+| Generated indexes, monitoring history, logs, PID files | Owning component's local state | Rebuildable or explicitly retained; non-authoritative |
+| Audit events | Owning component or Command Centre | Minimal, attributable, and free of sensitive payloads |
 
-## Command-centre principles
+## Configuration and lifecycle
 
-- Existing tools remain independently usable where practical.
-- Integrate before rewriting.
-- Begin with stable CLI contracts; add HTTP APIs only when remote or long-lived
-  operation requires them.
-- Prefer read-only status and diagnostics by default.
-- Consequential changes use plan/preview/apply steps.
-- Every displayed fact identifies its authoritative source.
-- A failed tool degrades its own capability, not the whole command centre.
-- Credentials remain server-side or local to the executing tool.
-- Imported files, messages, calendar entries, and AI output are untrusted input.
-- Audit information must not duplicate sensitive payloads.
-- Shared schemas and interfaces are versioned when multiple components rely on
-  them.
+`scripts/configure-workspace.ps1` validates the vault, optional external
+repositories, private research state, ledger paths, and unique ports. It writes
+the machine-local workspace profile only after a separate `-Apply` invocation.
+Credentials are not part of that profile.
 
-## Candidate integration contract
+Homepage Settings stores normalized local choices below `NICA_STATE_ROOT`:
 
-The exact protocol is intentionally undecided. A small CLI contract is a useful
-starting hypothesis for local tools:
+- which services should be reconciled on the next workspace start;
+- which shared Dashboard entries are visible;
+- module and theme preferences;
+- Dictate activation, model, hotkey, and minimum hold duration.
 
-```text
-<tool> capabilities --json
-<tool> doctor --json
-<tool> status --json
-<tool> plan <operation> --json
-<tool> apply <plan>
-```
+Saving settings does not silently stop a running service. The next launcher run
+performs reconciliation. Research visibility and automatic startup are
+deliberately separate because starting its host may resume queued work.
 
-The first real integrations must test this hypothesis before it becomes a
-standard. Existing tools should not be rewritten solely to conform to a
-speculative abstraction.
+Every managed process has a component-specific manifest and health contract.
+Startup retains a process only when repository, component, state root, port,
+authority, and expected command identity match. Shutdown stops only a matching
+owned process; active Research work is refused rather than force-terminated.
 
-## Migration approach
+## Write and trust model
 
-The operational working plan for migrating the former vault `Tools` checkout
-without interrupting daily use is maintained in
-[docs/migration/](docs/migration/README.md). It supplements this architecture;
-accepted boundary decisions remain in ADRs.
+- Reads, imported content, remote responses, vault files, messages, and AI
+  output are untrusted input.
+- Consequential operations use plan/preview followed by explicit apply where
+  practical.
+- Write authority is capability-specific. A broad environment switch is not a
+  substitute for validating the requested operation.
+- Browser actions are same-origin and server allow-listed; browser payloads do
+  not supply arbitrary local paths or service URLs.
+- Services bind to loopback by default. External repositories retain their own
+  authentication, CSRF, deployment, and worker controls.
+- Tests use synthetic fixtures. Live verification is read-only unless a
+  controlled write is explicitly authorized and recoverable.
+- Logs and audit records contain diagnostics and identifiers, not credentials,
+  message bodies, transcripts, or other sensitive payloads.
 
-### Phase 1: Inventory and classification
+## Accepted architecture decisions
 
-- [ ] List every known repository, script, service, homepage module, and
-  operational launcher.
-- [ ] Record owner, purpose, users, runtime, repository, and maintenance state.
-- [ ] Identify inputs, outputs, authoritative data, caches, generated files,
-  credentials, and external systems for each capability.
-- [ ] Record current cross-tool workflows and manual handoffs.
-- [ ] Identify hard-coded relative paths into the vault.
-- [ ] Identify software and dependencies currently synchronized by Nextcloud.
+| ADR | Decision |
+| --- | --- |
+| [ADR-001](docs/adr/ADR-001-separate-operational-software-from-the-shared-vault.md) | Keep operational software outside the shared vault |
+| [ADR-002](docs/adr/ADR-002-explicit-vault-and-local-state-roots.md) | Use explicit vault and local-state roots |
+| [ADR-003](docs/adr/ADR-003-use-operation-specific-capability-interlocks.md) | Gate writes with operation-specific capabilities |
+| [ADR-004](docs/adr/ADR-004-treat-email-database-as-rebuildable-local-state.md) | Treat the Email database as rebuildable local state |
+| [ADR-005](docs/adr/ADR-005-use-a-repository-owned-workspace-launcher.md) | Use a repository-owned aggregate launcher |
+| [ADR-006](docs/adr/ADR-006-separate-shared-dashboard-services-from-personal-bookmarks.md) | Separate shared Dashboard services from personal bookmarks |
+| [ADR-007](docs/adr/ADR-007-integrate-the-website-console-as-an-external-service.md) | Integrate the website console as an external service |
+| [ADR-008](docs/adr/ADR-008-integrate-research-as-a-deliberately-started-external-service.md) | Integrate Research as a deliberately started external service |
+| [ADR-009](docs/adr/ADR-009-manage-desktop-dictation-as-an-optional-local-capability.md) | Manage desktop dictation as an optional local capability |
 
-### Phase 2: Establish the clean repository
+## Migration and current phase
 
-- [x] Create the repository outside the synchronized vault.
-- [x] Add the initial architecture overview, agent rules, and ADR directory.
-- [ ] Decide the repository's private remote and backup arrangement.
-- [x] Define configuration for locating the vault without committing a
-  machine-specific path.
-- [x] Define security, privacy, logging, and test-fixture rules before importing
-  live integrations.
-- [ ] Add a capability registry containing metadata, not copied implementations.
+The sanitized import, isolated runtime, shadow verification, per-capability
+cutovers, stable Email runtime, and aggregate launcher are complete. The
+repository-owned workspace is the accepted daily installation. Gate 7 now
+requires normal-use observation, a final rollback rehearsal, and explicit
+approval before the old checkout is first archived and later deleted.
 
-### Phase 3: Establish a thin command centre
+Migration history is evidence, not current operating instruction. Start at the
+[migration index](docs/migration/README.md); use the
+[Gate 7 record](docs/migration/gate-7-retirement.md) for the only active gate.
 
-- [ ] Show tool discovery, health, version, and configuration status.
-- [ ] Link to or launch existing interfaces before rebuilding them.
-- [ ] Integrate one low-risk, read-only workflow as the first vertical slice.
-- [ ] Validate failure isolation when a registered tool is missing or unhealthy.
-- [ ] Decide which users require local access and which require a hosted UI.
-
-### Phase 4: Move and connect capabilities deliberately
-
-- [ ] Separate authoritative data from local state in the former vault `Tools`
-  directory.
-- [ ] Replace relative vault assumptions with explicit configuration.
-- [ ] Move software only after its data ownership and recovery path are known.
-- [ ] Preserve lightweight vault launchers where they remain useful.
-- [ ] Add cross-tool workflows one at a time with preview and audit behavior.
-- [ ] Retire old copies only after validation and a recovery test.
-
-## Explicit non-goals for the first version
+## Non-goals
 
 - Replacing Nextcloud or Obsidian.
-- Teaching all collaborators to use Git.
-- Putting the complete vault under Git.
-- Combining every tool into one deployable process.
-- Copying all organisational data into a central database.
-- Rewriting working tools merely to make the architecture look uniform.
-- Making confidential society data public in the name of open data.
+- Putting the complete vault or society data into Git.
+- Teaching non-technical collaborators to operate Git repositories.
+- Combining every capability into one server, database, or release cycle.
+- Copying website or research implementation into this repository.
+- Making confidential data public in the name of open software.
+- Rewriting working tools solely to make the architecture uniform.
 
-## Open decisions
+## Open evolution questions
 
-1. Which existing homepage code should be migrated, reused, or retired?
-2. Which capabilities belong directly in this repository, and which remain
-   external tools?
-3. Is the primary runtime local, centrally hosted, or hybrid?
-4. How will web-only Nextcloud users authenticate to hosted operational tools?
-5. What is the minimal common interface for status and controlled execution?
-6. How are tool versions matched to evolving vault conventions and metadata?
-7. What audit information is required for finance, email, publishing, and AI
-   operations?
-8. Where will secrets be stored, rotated, and recovered?
-9. Which Beancount files form a repository, who may access its remote, and how
-   are other financial documents excluded?
-10. How should Calendar write authority be divided between vault event notes,
-    Google Calendar, and Nextcloud CalDAV? Project creation has validated the
-    first controlled-write pattern; Calendar vault-event creation is the next
-    Gate 5 candidate.
+1. Which workflows need a secured hosted interface for collaborators who do
+   not run the local workspace?
+2. How should hosted users authenticate without exposing vault or component
+   credentials to browser code?
+3. Which launcher and health contracts have enough independent consumers to
+   justify a shared, versioned schema?
+4. Which dedicated secret-storage, rotation, and recovery mechanism should
+   replace today's component-local arrangements?
+5. Which future domain services should be hosted by NICA, and which should
+   remain integrations with replaceable external providers?
 
-## Success criteria
-
-The architecture is succeeding when:
-
-- collaborators can use the vault without encountering development files;
-- developers can work on tools without Nextcloud modifying the working tree;
-- each important datum has one clearly identified source of truth;
-- dependencies, caches, and generated files are visibly non-authoritative;
-- the command centre reports tool health without owning every implementation;
-- a missing tool fails visibly and locally rather than breaking all operations;
-- consequential actions can be previewed, attributed, and recovered;
-- NICA can replace a component without losing access to its own data.
+These questions must be answered from real operating evidence. They do not
+justify a central platform, database, or protocol in advance.
