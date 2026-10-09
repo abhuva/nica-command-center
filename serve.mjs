@@ -89,7 +89,7 @@ const MIME_TYPES = {
 };
 
 const DEFAULT_SETTINGS_FALLBACK = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   ui: {
     title: "Workspace Homepage",
     titleSize: 38,
@@ -116,8 +116,14 @@ const DEFAULT_SETTINGS_FALLBACK = {
       contacts: true,
       vaultGraph: true,
       financeNica: true,
-      financeTohu: true
+      financeTohu: true,
+      dictate: false
     }
+  },
+  dictate: {
+    model: "multilingual",
+    hotkey: "ctrl",
+    minHoldSeconds: 2
   },
   modules: {
     dashboard: {
@@ -1612,7 +1618,7 @@ function normalizeSettings(input) {
   const merged = deepMerge(DEFAULT_SETTINGS_FALLBACK, input);
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     ui: {
       title: toCleanString(merged?.ui?.title, DEFAULT_SETTINGS_FALLBACK.ui.title),
       titleSize: toIntInRange(merged?.ui?.titleSize, DEFAULT_SETTINGS_FALLBACK.ui.titleSize, 18, 72),
@@ -1660,8 +1666,20 @@ function normalizeSettings(input) {
         contacts: toBool(merged?.startup?.services?.contacts, DEFAULT_SETTINGS_FALLBACK.startup.services.contacts),
         vaultGraph: toBool(merged?.startup?.services?.vaultGraph, DEFAULT_SETTINGS_FALLBACK.startup.services.vaultGraph),
         financeNica: toBool(merged?.startup?.services?.financeNica, DEFAULT_SETTINGS_FALLBACK.startup.services.financeNica),
-        financeTohu: toBool(merged?.startup?.services?.financeTohu, DEFAULT_SETTINGS_FALLBACK.startup.services.financeTohu)
+        financeTohu: toBool(merged?.startup?.services?.financeTohu, DEFAULT_SETTINGS_FALLBACK.startup.services.financeTohu),
+        dictate: toBool(merged?.startup?.services?.dictate, DEFAULT_SETTINGS_FALLBACK.startup.services.dictate)
       }
+    },
+    dictate: {
+      model: new Set(["multilingual", "german"]).has(String(merged?.dictate?.model || ""))
+        ? String(merged.dictate.model)
+        : DEFAULT_SETTINGS_FALLBACK.dictate.model,
+      hotkey: new Set(["ctrl", "ctrl_l", "ctrl_r", "f12"]).has(String(merged?.dictate?.hotkey || ""))
+        ? String(merged.dictate.hotkey)
+        : DEFAULT_SETTINGS_FALLBACK.dictate.hotkey,
+      minHoldSeconds: Number.isFinite(Number(merged?.dictate?.minHoldSeconds))
+        ? Math.max(0, Math.min(30, Number(merged.dictate.minHoldSeconds)))
+        : DEFAULT_SETTINGS_FALLBACK.dictate.minHoldSeconds
     },
     modules: {
       dashboard: {

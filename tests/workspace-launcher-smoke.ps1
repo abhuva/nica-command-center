@@ -80,7 +80,7 @@ option "operating_currency" "EUR"
   $settingsPath = Join-Path $state "homepage\config\settings.local.json"
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $settingsPath) | Out-Null
   [ordered]@{
-    schemaVersion = 2
+    schemaVersion = 3
     startup = [ordered]@{
       openObsidian = $false
       openHomepage = $false
@@ -93,8 +93,10 @@ option "operating_currency" "EUR"
         vaultGraph = $false
         financeNica = $true
         financeTohu = $false
+        dictate = $false
       }
     }
+    dictate = [ordered]@{ model = "multilingual"; hotkey = "ctrl"; minHoldSeconds = 2.0 }
   } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $settingsPath -Encoding utf8
   $planText = (& (Join-Path $repoRoot "scripts\start-workspace.ps1") -StateRoot $state | Out-String)
   if (

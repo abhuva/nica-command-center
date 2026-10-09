@@ -85,7 +85,13 @@ $desired = [ordered]@{
   vaultGraph = Get-StartupBool "services.vaultGraph"
   financeNica = Get-StartupBool "services.financeNica"
   financeTohu = Get-StartupBool "services.financeTohu"
+  dictate = Get-StartupBool "services.dictate" $false
 }
+$dictateModel = if ([string]$settings.dictate.model -in @("multilingual", "german")) { [string]$settings.dictate.model } else { "multilingual" }
+$dictateHotkey = if ([string]$settings.dictate.hotkey -in @("ctrl", "ctrl_l", "ctrl_r", "f12")) { [string]$settings.dictate.hotkey } else { "ctrl" }
+$dictateMinHoldSeconds = if ($null -ne $settings.dictate.minHoldSeconds) {
+  [math]::Max(0, [math]::Min(30, [double]$settings.dictate.minHoldSeconds))
+} else { 2.0 }
 $open = [ordered]@{
   obsidian = Get-StartupBool "openObsidian"
   homepage = Get-StartupBool "openHomepage"
@@ -98,6 +104,7 @@ $plan = [ordered]@{
   localState = $resolvedState
   obsidianVaultName = [string]$profile.obsidianVaultName
   services = $desired
+  dictate = [ordered]@{ model = $dictateModel; hotkey = $dictateHotkey; minHoldSeconds = $dictateMinHoldSeconds }
   open = $open
   ports = $profile.ports
 }
@@ -263,6 +270,28 @@ function Test-HttpHealth {
   }
 }
 
+function Test-DictateProcess {
+  param([string]$ManifestPath)
+  if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) { return $false }
+  try {
+    $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+    if (
+      [string]$manifest.repository -ne $repoRoot -or
+      [string]$manifest.component -ne "dictate" -or
+      [string]$manifest.stateRoot -ne $resolvedState -or
+      [string]$manifest.model -ne $dictateModel -or
+      [string]$manifest.hotkey -ne $dictateHotkey -or
+      [double]$manifest.minHoldSeconds -ne $dictateMinHoldSeconds
+    ) { return $false }
+    $ready = Get-Content -LiteralPath ([string]$manifest.ready) -Raw | ConvertFrom-Json
+    if ([int]$ready.pid -ne [int]$manifest.pid -or [string]$ready.model -ne $dictateModel) { return $false }
+    $process = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$manifest.pid)" -ErrorAction SilentlyContinue
+    return $null -ne $process -and [string]$process.CommandLine -like "*Dictate*runner.py*"
+  } catch {
+    return $false
+  }
+}
+
 function Test-WebsiteConsoleHealth {
   param([int]$Port)
   try {
@@ -351,6 +380,12 @@ Invoke-ReconcileService -Name "homepage" -Enabled $true -ManifestPath $homepageM
   -IsHealthy { (Test-ManifestProcess $homepageManifest @("homepage-shell") ([int]$profile.ports.homepage)) -and (Test-ApiHealth ([int]$profile.ports.homepage) "homepage" (Join-Path $resolvedState "homepage")) } `
   -Start { & (Join-Path $PSScriptRoot "start-homepage.ps1") -VaultRoot $resolvedVault -ObsidianVaultName ([string]$profile.obsidianVaultName) -StateRoot $resolvedState -Port ([int]$profile.ports.homepage) -BeantimeFavaPort ([int]$profile.ports.beantimeFava) -CalendarPort ([int]$profile.ports.calendar) -EmailPort ([int]$profile.ports.email) -WebsiteConsolePort $websiteConsolePort -ResearchAgentPort $researchAgentPort -ResearchRepository $resolvedResearchRepository -ResearchDataDirectory $resolvedResearchData -NicaFavaPort ([int]$profile.ports.financeNica) -TohuFavaPort ([int]$profile.ports.financeTohu) -Apply } `
   -Stop { & (Join-Path $PSScriptRoot "stop-homepage.ps1") -StateRoot $resolvedState }
+
+$dictateManifest = Join-Path $resolvedState "dictate\dictate-process.json"
+Invoke-ReconcileService -Name "dictate" -Enabled $desired.dictate -ManifestPath $dictateManifest `
+  -IsHealthy { Test-DictateProcess $dictateManifest } `
+  -Start { & (Join-Path $PSScriptRoot "start-dictate.ps1") -Model $dictateModel -Hotkey $dictateHotkey -MinHoldSeconds $dictateMinHoldSeconds -StateRoot $resolvedState -Apply } `
+  -Stop { & (Join-Path $PSScriptRoot "stop-dictate.ps1") -StateRoot $resolvedState }
 
 $calendarManifest = Join-Path $resolvedState "calendar\calendar-read-process.json"
 Invoke-ReconcileService -Name "calendar" -Enabled $desired.calendar -ManifestPath $calendarManifest `

@@ -41,6 +41,27 @@ Recherche fortsetzen und Codex-Kontingent verbrauchen kann. `stop-workspace.cmd`
 beendet einen verwalteten Research-Prozess nur im Leerlauf; aktive Recherche
 wird nicht erzwungen abgebrochen.
 
+### Optional: lokale Diktierfunktion
+
+Dictate ist ein optionaler Windows-Hintergrunddienst. Modelle und Python-
+Runtime liegen ausschliesslich unter dem lokalen State-Root. Sie werden nicht
+in Git oder Nextcloud gespeichert. Auf jedem neuen Rechner sind daher Python
+3.10+ und eine einmalige lokale Installation erforderlich. Der Installer laedt
+die ausgewaehlten Modelle herunter und prueft deren Groesse und SHA-256; ein
+separater manueller Modelldownload ist nicht noetig. Installation zuerst
+pruefen, dann anwenden:
+
+```powershell
+.\scripts\setup-dictate.ps1 -Models multilingual,german
+.\scripts\setup-dictate.ps1 -Models multilingual,german -Apply
+```
+
+Danach kann Dictate unter Settings > Workspace-Start aktiviert werden. Das
+multilinguale Modell ist fuer Deutsch und Englisch der Standard; das deutsche
+Primeline-Modell bleibt als gezielte Alternative waehlbar. Ein Modellwechsel
+wird beim naechsten Workspace-Start durch einen isolierten Dictate-Neustart
+angewendet. Details stehen in [Dictate/README.md](Dictate/README.md).
+
 Beide Wrapper koennen auch aus PowerShell aufgerufen werden:
 
 ```powershell

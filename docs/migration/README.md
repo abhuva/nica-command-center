@@ -1,6 +1,6 @@
 # Former Tools repository migration
 
-**Status**: Gates 0 through 6 complete; Gate 7 observation is in progress
+**Status**: Gates 0 through 6 complete; Gate 7 observation started 2026-10-08
 
 **Former production source**: the `Tools` checkout inside the configured NICA vault
 
@@ -32,6 +32,7 @@ fallback.
 - [Gate 5 Beantime tool-cutover record](gate-5-beantime-tool-cutover.md)
 - [Gate 6 Email stable-runtime record](gate-6-email-stable-runtime.md)
 - [Gate 6 aggregate-workspace launcher record](gate-6-aggregate-workspace-launcher.md)
+- [Gate 7 observation and retirement record](gate-7-retirement.md)
 
 These documents are operational plans. Accepted, long-lived architecture
 decisions remain in `docs/adr/`.
@@ -47,7 +48,7 @@ decisions remain in `docs/adr/`.
 | 4 | Shadow-test capabilities without production writes | Complete; external credentials deferred |
 | 5 | Cut over one capability at a time | Complete; thirteen capabilities accepted; Beantime remains authoritative in Nextcloud at its vault-owned path, while Email database migration and the previously previewed 515-note export batch are not migration requirements |
 | 6 | Switch the stable launcher | Complete; Email stable runtime and the aggregate one-button workspace are accepted |
-| 7 | Observe, rehearse rollback, and retire the old checkout | In progress; new workspace accepted, old checkout retained as fallback |
+| 7 | Observe, rehearse rollback, and retire the old checkout | In progress; initial read-only retirement audit complete, old checkout retained as fallback |
 
 Gate 0 changes documentation only. It must not change the source checkout,
 vault launchers, live configuration, credentials, or runtime state.

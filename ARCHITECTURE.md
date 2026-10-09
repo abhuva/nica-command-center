@@ -29,6 +29,8 @@ recorded in
 The deliberately started external-service boundary for the Funding Observatory
 is recorded in
 [ADR-008](docs/adr/ADR-008-integrate-research-as-a-deliberately-started-external-service.md).
+The accepted optional desktop-dictation decision is recorded in
+[ADR-009](docs/adr/ADR-009-manage-desktop-dictation-as-an-optional-local-capability.md).
 
 ## Current operating environment
 
@@ -59,7 +61,8 @@ The current landscape includes at least:
 - project creation and Obsidian integrations;
 - Beancount/Fava finance views and time tracking;
 - CircusWiki and related knowledge-publication tooling;
-- vault visualization and operational homepage modules.
+- vault visualization and operational homepage modules;
+- optional local desktop dictation with separately installed speech models.
 
 This inventory is incomplete and must be verified before migration. Every
 capability may contain software, authoritative data, derived state, credentials,
@@ -182,6 +185,7 @@ term.
 | Beancount ledgers | Vault/data repository | Narrow private Git history where useful |
 | Raw source documents | Vault or originating system | Preserve provenance and permissions |
 | Derived indexes and caches | Owning tool | Rebuildable; excluded from synchronization and Git |
+| Downloaded speech models and local tool runtimes | Machine-local state | Verified, replaceable, excluded from synchronization and Git |
 | Generated publication output | Owning workflow | Reproducible; archive only when useful |
 | Credentials and tokens | Dedicated secret mechanism | Never browser-exposed or committed |
 | Audit events | Command centre or owning tool | Minimal, attributable, privacy-aware |

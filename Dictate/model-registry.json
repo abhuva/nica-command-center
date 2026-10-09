@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "models": [
+    {
+      "id": "multilingual",
+      "label": "Parakeet multilingual (German + English)",
+      "description": "Recommended default with automatic language detection for 25 European languages.",
+      "license": "CC-BY-4.0",
+      "source": "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
+      "revision": "2bda32ec70b097a55adaa07d9a7173915b43cc78",
+      "files": [
+        {
+          "name": "decoder.int8.onnx",
+          "bytes": 11845275,
+          "sha256": "179e50c43d1a9de79c8a24149a2f9bac6eb5981823f2a2ed88d655b24248db4e",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/resolve/2bda32ec70b097a55adaa07d9a7173915b43cc78/decoder.int8.onnx?download=true"
+        },
+        {
+          "name": "encoder.int8.onnx",
+          "bytes": 652184281,
+          "sha256": "acfc2b4456377e15d04f0243af540b7fe7c992f8d898d751cf134c3a55fd2247",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/resolve/2bda32ec70b097a55adaa07d9a7173915b43cc78/encoder.int8.onnx?download=true"
+        },
+        {
+          "name": "joiner.int8.onnx",
+          "bytes": 6355277,
+          "sha256": "3164c13fc2821009440d20fcb5fdc78bff28b4db2f8d0f0b329101719c0948b3",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/resolve/2bda32ec70b097a55adaa07d9a7173915b43cc78/joiner.int8.onnx?download=true"
+        },
+        {
+          "name": "tokens.txt",
+          "bytes": 93939,
+          "sha256": "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/resolve/2bda32ec70b097a55adaa07d9a7173915b43cc78/tokens.txt?download=true"
+        }
+      ]
+    },
+    {
+      "id": "german",
+      "label": "Primeline Parakeet (German optimized)",
+      "description": "German fine-tune for the best tested German accuracy.",
+      "license": "CC-BY-4.0",
+      "source": "https://huggingface.co/flozen1981/parakeet-primeline-onnx",
+      "revision": "d548e25b9bfe559aa274f361892dc4ed5d64743a",
+      "files": [
+        {
+          "name": "decoder.int8.onnx",
+          "bytes": 11845275,
+          "sha256": "fb4ddefe200706cabb27ee3fc1c81efa50555a4c8a8e00b663cc795216fb9369",
+          "url": "https://huggingface.co/flozen1981/parakeet-primeline-onnx/resolve/d548e25b9bfe559aa274f361892dc4ed5d64743a/decoder.int8.onnx?download=true"
+        },
+        {
+          "name": "encoder.int8.onnx",
+          "bytes": 1548009,
+          "sha256": "d4232f86718da0330167fb10789d1a35cffe6a60cd58239957943a8d9bc24c63",
+          "url": "https://huggingface.co/flozen1981/parakeet-primeline-onnx/resolve/d548e25b9bfe559aa274f361892dc4ed5d64743a/encoder.int8.onnx?download=true"
+        },
+        {
+          "name": "encoder.int8.onnx.data",
+          "bytes": 650776320,
+          "sha256": "d3b0d27912043d38a3c2ce4f2c03124be30bc1ff57d976302908954b2e8fe7bb",
+          "url": "https://huggingface.co/flozen1981/parakeet-primeline-onnx/resolve/d548e25b9bfe559aa274f361892dc4ed5d64743a/encoder.int8.onnx.data?download=true"
+        },
+        {
+          "name": "joiner.int8.onnx",
+          "bytes": 6355277,
+          "sha256": "8220c0d117d81bdd0d8c770881932ac340f1ce4b36932941d561d11ad1aaffce",
+          "url": "https://huggingface.co/flozen1981/parakeet-primeline-onnx/resolve/d548e25b9bfe559aa274f361892dc4ed5d64743a/joiner.int8.onnx?download=true"
+        },
+        {
+          "name": "tokens.txt",
+          "bytes": 102132,
+          "sha256": "ba8e4007c65f4bb4358ffe2ecc13d9ccc7a10351151065242b5c3a943e685742",
+          "url": "https://huggingface.co/flozen1981/parakeet-primeline-onnx/resolve/d548e25b9bfe559aa274f361892dc4ed5d64743a/tokens.txt?download=true"
+        }
+      ]
+    }
+  ]
+}
