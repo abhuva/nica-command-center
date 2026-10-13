@@ -306,13 +306,84 @@ function Test-WebsiteConsoleHealth {
   }
 }
 
+function Wait-ObsidianVaultReady {
+  param(
+    [Parameter(Mandatory = $true)][string]$ApplicationPath,
+    [Parameter(Mandatory = $true)][string]$VaultName,
+    [Parameter(Mandatory = $true)][string]$ExpectedVaultPath,
+    [int]$TimeoutSeconds = 60,
+    [int]$AttemptTimeoutSeconds = 8,
+    [int]$RetryMilliseconds = 500
+  )
+  $expectedPath = [System.IO.Path]::GetFullPath($ExpectedVaultPath).TrimEnd('\', '/')
+  $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+  $attempt = 0
+  $lastError = "Obsidian CLI did not return the configured vault path."
+
+  do {
+    $attempt += 1
+    $stdoutPath = [System.IO.Path]::GetTempFileName()
+    $stderrPath = [System.IO.Path]::GetTempFileName()
+    $process = $null
+    try {
+      $vaultArgument = '"vault=' + $VaultName.Replace('"', '\"') + '"'
+      $process = Start-Process -FilePath $ApplicationPath `
+        -ArgumentList @($vaultArgument, "vault", "info=path") `
+        -WorkingDirectory $expectedPath `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput $stdoutPath `
+        -RedirectStandardError $stderrPath `
+        -PassThru
+
+      if (-not $process.WaitForExit($AttemptTimeoutSeconds * 1000)) {
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        $process.WaitForExit()
+        $lastError = "Obsidian CLI readiness attempt $attempt timed out after $AttemptTimeoutSeconds seconds."
+      } else {
+        $stdout = if (Test-Path -LiteralPath $stdoutPath) { Get-Content -LiteralPath $stdoutPath -Raw } else { "" }
+        $stderr = if (Test-Path -LiteralPath $stderrPath) { Get-Content -LiteralPath $stderrPath -Raw } else { "" }
+        foreach ($line in @($stdout -split "`r?`n")) {
+          $candidate = $line.Trim().Trim('"')
+          if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+          try {
+            $candidatePath = [System.IO.Path]::GetFullPath($candidate).TrimEnd('\', '/')
+            if ($candidatePath.Equals($expectedPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+              return [ordered]@{ path = $expectedPath; attempts = $attempt }
+            }
+          } catch { }
+        }
+        $diagnostic = (($stderr + [Environment]::NewLine + $stdout).Trim() -replace "`r?`n", " ")
+        if ($diagnostic.Length -gt 300) { $diagnostic = $diagnostic.Substring(0, 300) }
+        $lastError = if ($diagnostic) {
+          "Obsidian CLI readiness attempt $attempt failed: $diagnostic"
+        } else {
+          "Obsidian CLI readiness attempt $attempt exited with code $($process.ExitCode)."
+        }
+      }
+    } catch {
+      $lastError = "Obsidian CLI readiness attempt $attempt failed: $($_.Exception.Message)"
+    } finally {
+      if ($process -and -not $process.HasExited) {
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+      }
+      Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+    }
+
+    if ([DateTime]::UtcNow -lt $deadline) {
+      Start-Sleep -Milliseconds $RetryMilliseconds
+    }
+  } while ([DateTime]::UtcNow -lt $deadline)
+
+  throw "Obsidian did not become ready for vault '$VaultName' within $TimeoutSeconds seconds. $lastError"
+}
+
 function Open-ObsidianWebView {
   param(
     [Parameter(Mandatory = $true)][string]$ApplicationPath,
     [Parameter(Mandatory = $true)][string]$VaultName,
     [Parameter(Mandatory = $true)][string]$Url
   )
-  $webOutput = @(& $ApplicationPath web ("vault=" + $VaultName) ("url=" + $Url) newtab 2>&1)
+  $webOutput = @(& $ApplicationPath ("vault=" + $VaultName) web ("url=" + $Url) newtab 2>&1)
   $webText = $webOutput -join [Environment]::NewLine
   if ($LASTEXITCODE -eq 0 -and $webText -notmatch 'No commands matching') {
     return "web"
@@ -321,7 +392,7 @@ function Open-ObsidianWebView {
   $safeUrl = $Url.Replace("\", "\\").Replace("'", "\'")
   $evalCode = "(async()=>{const leaf=app.workspace.getLeaf('tab');await leaf.setViewState({type:'webviewer',state:{url:'$safeUrl',navigate:true},active:true});return leaf.id})()"
   for ($attempt = 0; $attempt -lt 20; $attempt += 1) {
-    $evalOutput = @(& $ApplicationPath eval ("vault=" + $VaultName) ("code=" + $evalCode) 2>&1)
+    $evalOutput = @(& $ApplicationPath ("vault=" + $VaultName) eval ("code=" + $evalCode) 2>&1)
     $evalText = $evalOutput -join [Environment]::NewLine
     if ($LASTEXITCODE -eq 0 -and $evalText -notmatch '(?m)^Error:') {
       return "eval"
@@ -365,13 +436,32 @@ function Invoke-ReconcileService {
   }
 }
 
-if ($open.obsidian) {
-  try {
-    $vaultUri = "obsidian://open?vault=" + [Uri]::EscapeDataString([string]$profile.obsidianVaultName)
-    Start-Process $vaultUri | Out-Null
-    $results.Add([ordered]@{ service = "obsidian"; desired = "open"; outcome = "requested" })
-  } catch {
-    $results.Add([ordered]@{ service = "obsidian"; desired = "open"; outcome = "failed"; error = $_.Exception.Message })
+$obsidian = Get-Command obsidian -ErrorAction SilentlyContinue
+$obsidianReady = $false
+$obsidianNeeded = $open.obsidian -or $desired.calendar -or $open.homepage -or ($open.calendar -and $desired.calendar)
+if ($obsidianNeeded) {
+  if ($obsidian) {
+    try {
+      $vaultUri = "obsidian://open?vault=" + [Uri]::EscapeDataString([string]$profile.obsidianVaultName)
+      Start-Process $vaultUri | Out-Null
+      $readiness = Wait-ObsidianVaultReady `
+        -ApplicationPath $obsidian.Source `
+        -VaultName ([string]$profile.obsidianVaultName) `
+        -ExpectedVaultPath $resolvedVault
+      $obsidianReady = $true
+      $results.Add([ordered]@{
+        service = "obsidian"
+        desired = "ready"
+        outcome = "ready"
+        method = "uri-and-cli"
+        path = $readiness.path
+        attempts = $readiness.attempts
+      })
+    } catch {
+      $results.Add([ordered]@{ service = "obsidian"; desired = "ready"; outcome = "failed"; error = $_.Exception.Message })
+    }
+  } else {
+    $results.Add([ordered]@{ service = "obsidian"; desired = "ready"; outcome = "failed"; error = "Obsidian CLI was not found on PATH." })
   }
 }
 
@@ -388,10 +478,20 @@ Invoke-ReconcileService -Name "dictate" -Enabled $desired.dictate -ManifestPath 
   -Stop { & (Join-Path $PSScriptRoot "stop-dictate.ps1") -StateRoot $resolvedState }
 
 $calendarManifest = Join-Path $resolvedState "calendar\calendar-read-process.json"
-Invoke-ReconcileService -Name "calendar" -Enabled $desired.calendar -ManifestPath $calendarManifest `
-  -IsHealthy { (Test-ManifestProcess $calendarManifest @("calendar-vault-write") ([int]$profile.ports.calendar)) -and (Test-ApiHealth ([int]$profile.ports.calendar) "calendar" (Join-Path $resolvedState "calendar")) } `
-  -Start { & (Join-Path $PSScriptRoot "start-calendar-vault-write.ps1") -VaultRoot $resolvedVault -ObsidianVaultName ([string]$profile.obsidianVaultName) -StateRoot $resolvedState -Port ([int]$profile.ports.calendar) -Apply } `
-  -Stop { & (Join-Path $PSScriptRoot "stop-calendar-read.ps1") -StateRoot $resolvedState }
+$calendarIsHealthy = { (Test-ManifestProcess $calendarManifest @("calendar-vault-write") ([int]$profile.ports.calendar)) -and (Test-ApiHealth ([int]$profile.ports.calendar) "calendar" (Join-Path $resolvedState "calendar")) }
+if ($desired.calendar -and -not $obsidianReady -and -not (& $calendarIsHealthy)) {
+  $results.Add([ordered]@{
+    service = "calendar"
+    desired = "running"
+    outcome = "failed"
+    error = "Calendar startup requires the configured Obsidian vault to be ready; the Base query was not started."
+  })
+} else {
+  Invoke-ReconcileService -Name "calendar" -Enabled $desired.calendar -ManifestPath $calendarManifest `
+    -IsHealthy $calendarIsHealthy `
+    -Start { & (Join-Path $PSScriptRoot "start-calendar-vault-write.ps1") -VaultRoot $resolvedVault -ObsidianVaultName ([string]$profile.obsidianVaultName) -StateRoot $resolvedState -Port ([int]$profile.ports.calendar) -Apply } `
+    -Stop { & (Join-Path $PSScriptRoot "stop-calendar-read.ps1") -StateRoot $resolvedState }
+}
 
 $vaultGraphManifest = Join-Path $resolvedState "vaultgraph\cutover-process.json"
 Invoke-ReconcileService -Name "vaultgraph" -Enabled $desired.vaultGraph -ManifestPath $vaultGraphManifest `
@@ -447,8 +547,7 @@ foreach ($finance in @(
     -Stop { & (Join-Path $PSScriptRoot "stop-finance.ps1") -FinanceId $financeCopy.id -StateRoot $resolvedState }
 }
 
-$obsidian = Get-Command obsidian -ErrorAction SilentlyContinue
-if ($obsidian) {
+if ($obsidian -and $obsidianReady) {
   if ($open.homepage -and (Test-ApiHealth ([int]$profile.ports.homepage) "homepage" (Join-Path $resolvedState "homepage"))) {
     try {
       $method = Open-ObsidianWebView -ApplicationPath $obsidian.Source -VaultName ([string]$profile.obsidianVaultName) -Url ("http://127.0.0.1:" + [int]$profile.ports.homepage + "/home.html")
@@ -466,7 +565,7 @@ if ($obsidian) {
     }
   }
 } elseif ($open.homepage -or ($open.calendar -and $desired.calendar)) {
-  $results.Add([ordered]@{ service = "obsidian-views"; desired = "open"; outcome = "failed"; error = "Obsidian CLI was not found on PATH." })
+  $results.Add([ordered]@{ service = "obsidian-views"; desired = "open"; outcome = "failed"; error = "Obsidian was not ready, so the configured Web Viewer tabs were not opened." })
 }
 
 $failed = @($results | Where-Object { $_.outcome -eq "failed" })
