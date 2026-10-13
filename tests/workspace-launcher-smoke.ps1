@@ -108,6 +108,62 @@ option "operating_currency" "EUR"
     throw "Workspace plan did not honor local startup service choices."
   }
 
+  $launcherPath = Join-Path $repoRoot "scripts\start-workspace.ps1"
+  $parseErrors = $null
+  $launcherAst = [System.Management.Automation.Language.Parser]::ParseFile(
+    $launcherPath,
+    [ref]$null,
+    [ref]$parseErrors
+  )
+  if ($parseErrors.Count -gt 0) { throw "Workspace launcher could not be parsed for Obsidian readiness validation." }
+  $readinessFunction = $launcherAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+      $node.Name -eq "Wait-ObsidianVaultReady"
+  }, $true)
+  if ($null -eq $readinessFunction) { throw "Workspace Obsidian readiness helper was not found." }
+  Invoke-Expression $readinessFunction.Extent.Text
+
+  $fakeObsidian = Join-Path $sandbox "fake-obsidian.cmd"
+  $fakeObsidianCount = Join-Path $sandbox "fake-obsidian-count.txt"
+  $fakeObsidianArguments = Join-Path $sandbox "fake-obsidian-arguments.txt"
+  @"
+@echo off
+echo %*>>"$fakeObsidianArguments"
+set count=0
+if exist "$fakeObsidianCount" set /p count=<"$fakeObsidianCount"
+set /a count+=1
+>"$fakeObsidianCount" echo %count%
+if %count% EQU 1 goto hang
+if %count% LSS 3 exit /b 1
+echo $vault
+exit /b 0
+:hang
+goto hang
+"@ | Set-Content -LiteralPath $fakeObsidian -Encoding ascii
+  $readinessTimer = [System.Diagnostics.Stopwatch]::StartNew()
+  $readiness = Wait-ObsidianVaultReady `
+    -ApplicationPath $fakeObsidian `
+    -VaultName "Synthetic Workspace" `
+    -ExpectedVaultPath $vault `
+    -TimeoutSeconds 5 `
+    -AttemptTimeoutSeconds 1 `
+    -RetryMilliseconds 10
+  $readinessTimer.Stop()
+  if ($readiness.path -ne $vault -or [int]$readiness.attempts -ne 3) {
+    throw "Workspace launcher did not retry until the configured Obsidian vault became ready."
+  }
+  if ($readinessTimer.Elapsed.TotalSeconds -gt 4) {
+    throw "Workspace launcher did not terminate a hung Obsidian CLI readiness attempt within its bound."
+  }
+  $capturedArguments = @(Get-Content -LiteralPath $fakeObsidianArguments)
+  if (
+    $capturedArguments.Count -ne 3 -or
+    @($capturedArguments | Where-Object { $_ -ne '"vault=Synthetic Workspace" vault info=path' }).Count -ne 0
+  ) {
+    throw "Workspace launcher did not place the Obsidian vault selector before its readiness command."
+  }
+
   $financePort = Get-FreePort
   $startFinance = Join-Path $repoRoot "scripts\start-finance.ps1"
   $stopFinance = Join-Path $repoRoot "scripts\stop-finance.ps1"
@@ -120,14 +176,6 @@ option "operating_currency" "EUR"
   try {
     $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$financePort/" -TimeoutSec 3
     if ([int]$response.StatusCode -ne 200) { throw "Synthetic finance service was not healthy." }
-    $launcherPath = Join-Path $repoRoot "scripts\start-workspace.ps1"
-    $parseErrors = $null
-    $launcherAst = [System.Management.Automation.Language.Parser]::ParseFile(
-      $launcherPath,
-      [ref]$null,
-      [ref]$parseErrors
-    )
-    if ($parseErrors.Count -gt 0) { throw "Workspace launcher could not be parsed for process validation." }
     $manifestFunction = $launcherAst.Find({
       param($node)
       $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
