@@ -207,6 +207,47 @@ goto hang
     throw "Synthetic finance service remained on its port after stop."
   }
 
+  # Exercise the Windows venv launcher and its port-owning Python child.
+  & {
+    $emailManifestPath = Join-Path $state "email-process.json"
+    $emailPort = Get-FreePort
+    [ordered]@{
+      component = "email"
+      repository = $repoRoot
+      stateRoot = $state
+      vaultAuthority = $vault
+      port = $emailPort
+      pid = 100
+    } | ConvertTo-Json | Set-Content -LiteralPath $emailManifestPath -Encoding utf8
+    $emailCommand = 'python.exe "' + (Join-Path $repoRoot 'Email\email_tool.py') + '" serve'
+    $processes = @{
+      100 = [pscustomobject]@{ CommandLine = $emailCommand }
+      101 = [pscustomobject]@{ CommandLine = $emailCommand; ParentProcessId = 100 }
+    }
+
+    function Get-CimInstance {
+      param($ClassName, $Filter, $ErrorAction)
+      $processes[[int]($Filter -replace '^ProcessId = ', '')]
+    }
+    function Get-NetTCPConnection {
+      param($LocalPort, $State, $ErrorAction)
+      [pscustomobject]@{ OwningProcess = 101 }
+    }
+
+    if (-not (Test-ManifestProcess $emailManifestPath @("email") $emailPort)) {
+      throw "Workspace launcher rejected the port-owning child of the Email Python wrapper."
+    }
+    $processes[101].ParentProcessId = 102
+    if (Test-ManifestProcess $emailManifestPath @("email") $emailPort) {
+      throw "Workspace launcher accepted an unrelated Email listener."
+    }
+    $processes[101].ParentProcessId = 100
+    $processes[101].CommandLine = 'python.exe "elsewhere\email_tool.py" serve'
+    if (Test-ManifestProcess $emailManifestPath @("email") $emailPort) {
+      throw "Workspace launcher accepted a child running a different Email script."
+    }
+  }
+
   $legacyLedgerRelative = "Tools/data/beantime/zeit.beancount"
   $legacyLedger = Join-Path $vault $legacyLedgerRelative
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $legacyLedger) | Out-Null
