@@ -107,10 +107,10 @@ documentation for all other components is routed through
 
 - `start-workspace.cmd` starts or retains the selected services and opens the
   configured Obsidian views.
-- On startup, the launcher waits for the explicitly configured Obsidian vault
-  to answer a bounded CLI readiness check before Calendar runs its Base query
-  or Web Viewer tabs are opened. A failed or hung CLI attempt is terminated and
-  reported in `workspace-status.json` instead of blocking the launcher.
+- On Windows, the launcher opens Obsidian through Explorer and waits for its
+  renderer before issuing CLI commands. Calendar's Base query and automatic
+  Web Viewer tabs wait for the configured vault to answer a bounded readiness
+  check. Startup failures are recorded in `workspace-status.json`.
 - `stop-workspace.cmd` stops only processes that this repository can identify
   as its own; Obsidian remains open.
 - Homepage Settings controls modules, Dashboard visibility, and the service

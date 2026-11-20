@@ -178,6 +178,10 @@ function Test-ManifestProcess {
     if ($null -eq $process) { return $false }
 
     $isFinance = $component -like "finance-*"
+    $isEmail = $component -eq "email"
+    $emailServer = Join-Path $repoRoot "Email\email_tool.py"
+    $emailPattern = '\s"' + [regex]::Escape($emailServer) + '"\s+serve\s*$'
+    if ($isEmail -and [string]$process.CommandLine -notmatch $emailPattern) { return $false }
     $favaPattern = '(?i)(?:^|[\\/"\s])fava(?:\.exe)?(?=["\s]|$)'
     $portPattern = '--port(?:=|\s+)' + [regex]::Escape([string]$ExpectedPort) + '(?=["\s]|$)'
     if ($isFinance -and (
@@ -211,16 +215,18 @@ function Test-ManifestProcess {
       return $null -ne $serverProcess -and (Test-ProcessDescendant -ProcessId $serverPid -AncestorProcessId $manifestPid)
     }
 
-    # Windows Python entry-point wrappers retain the manifest PID while their
-    # direct python child owns Fava's socket. Accept only that verified shape.
-    if ($isFinance) {
+    # Windows Python launchers can retain the manifest PID while their child
+    # owns the socket. Verify both the parent and the child's service command.
+    if ($isFinance -or $isEmail) {
       foreach ($listener in $listeners) {
         $owner = Get-CimInstance Win32_Process -Filter "ProcessId = $($listener.OwningProcess)" -ErrorAction SilentlyContinue
         if (
           $null -ne $owner -and
           [int]$owner.ParentProcessId -eq $manifestPid -and
-          [string]$owner.CommandLine -match $favaPattern -and
-          [string]$owner.CommandLine -match $portPattern
+          (
+            ($isFinance -and [string]$owner.CommandLine -match $favaPattern -and [string]$owner.CommandLine -match $portPattern) -or
+            ($isEmail -and [string]$owner.CommandLine -match $emailPattern)
+          )
         ) { return $true }
       }
     }
@@ -304,6 +310,21 @@ function Test-WebsiteConsoleHealth {
   } catch {
     return $false
   }
+}
+
+function Wait-ObsidianRenderer {
+  param([int]$TimeoutSeconds = 60)
+
+  $sessionId = (Get-Process -Id $PID).SessionId
+  $filter = "Name = 'Obsidian.exe' AND SessionId = $sessionId AND CommandLine LIKE '%--type=renderer%'"
+  $timer = [System.Diagnostics.Stopwatch]::StartNew()
+  # An early CLI call can launch Obsidian itself before Explorer has opened it.
+  do {
+    if (Get-CimInstance Win32_Process -Filter $filter) { return }
+    Start-Sleep -Milliseconds 500
+  } while ($timer.Elapsed.TotalSeconds -lt $TimeoutSeconds)
+
+  throw "Obsidian did not start its renderer within $TimeoutSeconds seconds. Close the blank window and try the shortcut again."
 }
 
 function Wait-ObsidianVaultReady {
@@ -443,7 +464,9 @@ if ($obsidianNeeded) {
   if ($obsidian) {
     try {
       $vaultUri = "obsidian://open?vault=" + [Uri]::EscapeDataString([string]$profile.obsidianVaultName)
-      Start-Process $vaultUri | Out-Null
+      # Ask Explorer to open the vault from the desktop shell.
+      Start-Process -FilePath explorer.exe -ArgumentList ('"' + $vaultUri + '"')
+      Wait-ObsidianRenderer
       $readiness = Wait-ObsidianVaultReady `
         -ApplicationPath $obsidian.Source `
         -VaultName ([string]$profile.obsidianVaultName) `
@@ -453,7 +476,7 @@ if ($obsidianNeeded) {
         service = "obsidian"
         desired = "ready"
         outcome = "ready"
-        method = "uri-and-cli"
+        method = "explorer-and-cli"
         path = $readiness.path
         attempts = $readiness.attempts
       })
